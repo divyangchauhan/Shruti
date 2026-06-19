@@ -1,0 +1,33 @@
+name: Windows CI
+
+on:
+  push:
+    branches:
+      - main
+      - "codex/**"
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  build:
+    name: Build and test
+    runs-on: windows-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+
+      - name: Add MSBuild to PATH
+        uses: microsoft/setup-msbuild@v2
+
+      - name: Restore and build
+        run: msbuild Shruti.sln /restore /m /p:Configuration=Debug /p:Platform=x64
+
+      - name: Run tests
+        run: dotnet test tests/Shruti.Tests/Shruti.Tests.csproj --configuration Debug --no-restore --logger "trx;LogFileName=test-results.trx" -p:Platform=x64
