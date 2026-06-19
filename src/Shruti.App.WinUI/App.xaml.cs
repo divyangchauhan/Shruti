@@ -4,6 +4,7 @@ namespace Shruti.App.WinUI;
 
 public partial class App : Application
 {
+    private readonly AppComposition composition = new();
     private Window? window;
 
     public App()
@@ -13,7 +14,7 @@ public partial class App : Application
 
     protected override void OnLaunched(LaunchActivatedEventArgs args)
     {
-        window = new MainWindow();
+        window = composition.CreateMainWindow();
         window.Activate();
     }
 }
