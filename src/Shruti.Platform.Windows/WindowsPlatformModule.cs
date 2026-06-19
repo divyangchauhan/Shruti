@@ -10,4 +10,9 @@ public sealed class WindowsPlatformModule
     {
         return new WindowsTargetFocusService();
     }
+
+    public ITextInsertionService CreateTextInsertionService()
+    {
+        return new WindowsTextInsertionService();
+    }
 }
