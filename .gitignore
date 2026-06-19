@@ -1,0 +1,17 @@
+bin/
+obj/
+.vs/
+.vscode/
+.idea/
+TestResults/
+*.user
+*.suo
+*.rsuser
+*.nupkg
+*.snupkg
+*.log
+
+# Local model and transcript data should not be committed.
+models/
+recordings/
+transcripts/

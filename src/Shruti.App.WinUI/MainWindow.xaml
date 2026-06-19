@@ -1,0 +1,59 @@
+<Window
+    x:Class="Shruti.App.WinUI.MainWindow"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    Title="Shruti">
+
+    <Grid
+        Padding="32"
+        Background="{ThemeResource ApplicationPageBackgroundThemeBrush}"
+        RowSpacing="24">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+        </Grid.RowDefinitions>
+
+        <StackPanel Spacing="8">
+            <TextBlock
+                FontSize="28"
+                FontWeight="SemiBold"
+                Text="Shruti" />
+            <TextBlock
+                Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                Text="Windows-first local dictation" />
+        </StackPanel>
+
+        <StackPanel
+            Grid.Row="1"
+            Orientation="Horizontal"
+            Spacing="12">
+            <Button
+                x:Name="PrimaryDictationButton"
+                Click="PrimaryDictationButton_Click"
+                Content="Start dictation" />
+            <Button
+                x:Name="CancelButton"
+                Click="CancelButton_Click"
+                Content="Cancel" />
+        </StackPanel>
+
+        <Border
+            Grid.Row="2"
+            Padding="20"
+            BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+            BorderThickness="1"
+            CornerRadius="8">
+            <StackPanel Spacing="12">
+                <TextBlock
+                    FontSize="16"
+                    FontWeight="SemiBold"
+                    Text="MVP shell" />
+                <TextBlock
+                    x:Name="StatusText"
+                    Text="Ready. PR-02 will connect the dictation coordinator and mock services."
+                    TextWrapping="Wrap" />
+            </StackPanel>
+        </Border>
+    </Grid>
+</Window>

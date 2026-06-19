@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 256 256" role="img" aria-label="Shruti placeholder app icon">
+    <rect width="256" height="256" rx="48" fill="#164E63" />
+    <path d="M128 50c-20.4 0-37 16.6-37 37v38c0 20.4 16.6 37 37 37s37-16.6 37-37V87c0-20.4-16.6-37-37-37Z" fill="#F8FAFC" />
+    <path d="M75 120a8 8 0 0 1 16 0c0 20.4 16.6 37 37 37s37-16.6 37-37a8 8 0 0 1 16 0c0 26.6-19.5 48.7-45 52.8V194h22a8 8 0 0 1 0 16h-60a8 8 0 0 1 0-16h22v-21.2c-25.5-4.1-45-26.2-45-52.8Z" fill="#67E8F9" />
+</svg>
