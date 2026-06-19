@@ -8,4 +8,5 @@ public sealed record FocusTarget(
     string? AutomationElementId = null,
     bool? IsEditable = null,
     bool? HasSelectedText = null,
-    bool IsElevated = false);
+    bool IsElevated = false,
+    int ThreadId = 0);
