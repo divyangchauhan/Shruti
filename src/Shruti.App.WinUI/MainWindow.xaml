@@ -5,55 +5,224 @@
     Title="Shruti">
 
     <Grid
-        Padding="32"
-        Background="{ThemeResource ApplicationPageBackgroundThemeBrush}"
-        RowSpacing="24">
-        <Grid.RowDefinitions>
-            <RowDefinition Height="Auto" />
-            <RowDefinition Height="Auto" />
-            <RowDefinition Height="*" />
-        </Grid.RowDefinitions>
+        x:Name="Root"
+        Background="{ThemeResource ApplicationPageBackgroundThemeBrush}">
+        <ScrollViewer
+            HorizontalScrollBarVisibility="Auto"
+            HorizontalScrollMode="Auto"
+            VerticalScrollBarVisibility="Auto"
+            VerticalScrollMode="Auto">
+            <Grid
+                MinWidth="420"
+                Padding="28"
+                RowSpacing="18">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
+                </Grid.RowDefinitions>
 
-        <StackPanel Spacing="8">
-            <TextBlock
-                FontSize="28"
-                FontWeight="SemiBold"
-                Text="Shruti" />
-            <TextBlock
-                Foreground="{ThemeResource TextFillColorSecondaryBrush}"
-                Text="Windows-first local dictation" />
-        </StackPanel>
+                <Grid ColumnSpacing="16">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
 
-        <StackPanel
-            Grid.Row="1"
-            Orientation="Horizontal"
-            Spacing="12">
-            <Button
-                x:Name="PrimaryDictationButton"
-                Click="PrimaryDictationButton_Click"
-                Content="Start dictation" />
-            <Button
-                x:Name="CancelButton"
-                Click="CancelButton_Click"
-                Content="Cancel" />
-        </StackPanel>
+                    <StackPanel Spacing="4">
+                        <TextBlock
+                            FontSize="28"
+                            FontWeight="SemiBold"
+                            Text="Shruti" />
+                        <TextBlock
+                            Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                            Text="Local dictation mock loop" />
+                    </StackPanel>
 
-        <Border
-            Grid.Row="2"
-            Padding="20"
-            BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
-            BorderThickness="1"
-            CornerRadius="8">
-            <StackPanel Spacing="12">
-                <TextBlock
-                    FontSize="16"
-                    FontWeight="SemiBold"
-                    Text="MVP shell" />
-                <TextBlock
-                    x:Name="StatusText"
-                    Text="Ready. PR-02 will connect the dictation coordinator and mock services."
-                    TextWrapping="Wrap" />
-            </StackPanel>
-        </Border>
+                    <Button
+                        x:Name="SettingsButton"
+                        Grid.Column="1"
+                        MinWidth="108"
+                        HorizontalAlignment="Right"
+                        Click="SettingsButton_Click"
+                        Content="Settings" />
+                </Grid>
+
+                <Grid
+                    Grid.Row="1"
+                    ColumnSpacing="16"
+                    RowSpacing="12">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="180" />
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="220" />
+                    </Grid.ColumnDefinitions>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
+                    </Grid.RowDefinitions>
+
+                    <StackPanel Spacing="4">
+                        <TextBlock
+                            FontSize="12"
+                            Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                            Text="State" />
+                        <TextBlock
+                            x:Name="StateText"
+                            FontSize="18"
+                            FontWeight="SemiBold"
+                            Text="Idle" />
+                    </StackPanel>
+
+                    <StackPanel
+                        Grid.Column="1"
+                        Spacing="4">
+                        <TextBlock
+                            FontSize="12"
+                            Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                            Text="Status" />
+                        <TextBlock
+                            x:Name="StatusText"
+                            Text="Ready"
+                            TextWrapping="Wrap" />
+                    </StackPanel>
+
+                    <ComboBox
+                        x:Name="InsertionModeComboBox"
+                        Grid.Column="2"
+                        Header="Insertion mode"
+                        SelectionChanged="InsertionModeComboBox_SelectionChanged">
+                        <ComboBoxItem
+                            Content="Auto insert"
+                            Tag="AutoInsert" />
+                        <ComboBoxItem
+                            Content="Preview first"
+                            Tag="PreviewFirst" />
+                        <ComboBoxItem
+                            Content="Copy only"
+                            Tag="CopyOnly" />
+                    </ComboBox>
+
+                    <StackPanel
+                        Grid.Row="1"
+                        Grid.ColumnSpan="3"
+                        Spacing="4">
+                        <TextBlock
+                            FontSize="12"
+                            Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                            Text="Target" />
+                        <TextBlock
+                            x:Name="TargetText"
+                            Text="No target captured"
+                            TextWrapping="Wrap" />
+                    </StackPanel>
+                </Grid>
+
+                <Grid
+                    x:Name="SettingsPanel"
+                    Grid.Row="2"
+                    ColumnSpacing="16"
+                    RowSpacing="10"
+                    Visibility="Collapsed">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="260" />
+                        <ColumnDefinition Width="*" />
+                    </Grid.ColumnDefinitions>
+
+                    <ComboBox
+                        x:Name="ThemeComboBox"
+                        Header="Theme"
+                        MinWidth="220"
+                        SelectionChanged="ThemeComboBox_SelectionChanged">
+                        <ComboBoxItem
+                            Content="Use Windows setting"
+                            Tag="Default" />
+                        <ComboBoxItem
+                            Content="Light"
+                            Tag="Light" />
+                        <ComboBoxItem
+                            Content="Dark"
+                            Tag="Dark" />
+                    </ComboBox>
+
+                    <TextBlock
+                        Grid.Column="1"
+                        VerticalAlignment="Bottom"
+                        Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                        Text="System theme is used by default."
+                        TextWrapping="Wrap" />
+                </Grid>
+
+                <ScrollViewer
+                    Grid.Row="3"
+                    HorizontalScrollBarVisibility="Auto"
+                    HorizontalScrollMode="Auto"
+                    VerticalScrollBarVisibility="Disabled"
+                    VerticalScrollMode="Disabled">
+                    <StackPanel
+                        Orientation="Horizontal"
+                        Spacing="10">
+                        <Button
+                            x:Name="PrimaryDictationButton"
+                            MinWidth="120"
+                            Click="PrimaryDictationButton_Click"
+                            Content="Start" />
+                        <Button
+                            x:Name="PauseButton"
+                            MinWidth="96"
+                            Click="PauseButton_Click"
+                            Content="Pause" />
+                        <Button
+                            x:Name="CancelButton"
+                            MinWidth="96"
+                            Click="CancelButton_Click"
+                            Content="Cancel" />
+                        <Button
+                            x:Name="RetryButton"
+                            MinWidth="96"
+                            Click="RetryButton_Click"
+                            Content="Retry" />
+                        <Button
+                            x:Name="CopyButton"
+                            MinWidth="96"
+                            Click="CopyButton_Click"
+                            Content="Copy" />
+                    </StackPanel>
+                </ScrollViewer>
+
+                <Grid
+                    Grid.Row="4"
+                    RowSpacing="12">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
+                    </Grid.RowDefinitions>
+
+                    <TextBox
+                        x:Name="TranscriptPreviewBox"
+                        AcceptsReturn="True"
+                        Header="Transcript preview"
+                        IsReadOnly="True"
+                        MinHeight="180"
+                        TextWrapping="Wrap" />
+
+                    <TextBlock
+                        x:Name="UserMessageText"
+                        Grid.Row="1"
+                        Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                        Text="Mock dictation is ready."
+                        TextWrapping="Wrap" />
+
+                    <TextBlock
+                        x:Name="ErrorText"
+                        Grid.Row="2"
+                        Foreground="{ThemeResource SystemFillColorCriticalBrush}"
+                        TextWrapping="Wrap"
+                        Visibility="Collapsed" />
+                </Grid>
+            </Grid>
+        </ScrollViewer>
     </Grid>
 </Window>

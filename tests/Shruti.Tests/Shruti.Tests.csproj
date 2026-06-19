@@ -1,6 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
     <PropertyGroup>
-        <TargetFramework>net8.0</TargetFramework>
+        <TargetFramework>net8.0-windows10.0.19041.0</TargetFramework>
+        <TargetPlatformMinVersion>10.0.19041.0</TargetPlatformMinVersion>
         <IsPackable>false</IsPackable>
         <IsTestProject>true</IsTestProject>
     </PropertyGroup>
@@ -16,6 +17,7 @@
 
     <ItemGroup>
         <ProjectReference Include="..\..\src\Shruti.Core\Shruti.Core.csproj" />
+        <ProjectReference Include="..\..\src\Shruti.App.WinUI\Shruti.App.WinUI.csproj" />
         <ProjectReference Include="..\..\src\Shruti.Transcription.Abstractions\Shruti.Transcription.Abstractions.csproj" />
     </ItemGroup>
 </Project>
