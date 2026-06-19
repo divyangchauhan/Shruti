@@ -16,5 +16,6 @@
 
     <ItemGroup>
         <ProjectReference Include="..\..\src\Shruti.Core\Shruti.Core.csproj" />
+        <ProjectReference Include="..\..\src\Shruti.Transcription.Abstractions\Shruti.Transcription.Abstractions.csproj" />
     </ItemGroup>
 </Project>
