@@ -322,8 +322,8 @@ Acceptance criteria:
 | PR | Target merge | Scope | Primary risk retired |
 | --- | --- | --- | --- |
 | PR-01 | 2026-06-22 | Solution scaffold, WinUI shell, test project, CI build | Build shape and repo hygiene |
-| PR-02 | 2026-06-24 | Core domain models, provider/platform interfaces, mock services | Architecture boundaries |
-| PR-03 | 2026-06-26 | Dictation coordinator state machine with unit tests | Workflow correctness before platform code |
+| PR-02 | 2026-06-24 | Core domain models, provider/platform interfaces, mock-friendly `DictationCoordinator`, and workflow tests | Architecture boundaries and workflow correctness before platform code |
+| PR-03 | 2026-06-26 | Formatting/lint scripts, analyzer enforcement, and PR validation workflow | Consistent local and CI validation before feature work |
 
 ### Phase 1: Mock End-to-End Product Loop
 
