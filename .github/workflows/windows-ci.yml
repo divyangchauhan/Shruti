@@ -10,8 +10,8 @@ on:
       - main
 
 jobs:
-  build:
-    name: Build and test
+  validate:
+    name: Format, lint, build, and test
     runs-on: windows-latest
 
     steps:
@@ -23,11 +23,14 @@ jobs:
         with:
           dotnet-version: 8.0.x
 
-      - name: Add MSBuild to PATH
-        uses: microsoft/setup-msbuild@v2
+      - name: Restore
+        run: dotnet restore Shruti.sln
 
-      - name: Restore and build
-        run: msbuild Shruti.sln /restore /m /p:Configuration=Debug /p:Platform=x64
+      - name: Verify formatting
+        run: dotnet format Shruti.sln --verify-no-changes --verbosity minimal --no-restore
+
+      - name: Lint and build
+        run: dotnet build Shruti.sln --configuration Debug --no-restore -p:Platform=x64 -warnaserror
 
       - name: Run tests
-        run: dotnet test tests/Shruti.Tests/Shruti.Tests.csproj --configuration Debug --no-restore --logger "trx;LogFileName=test-results.trx" -p:Platform=x64
+        run: dotnet test tests/Shruti.Tests/Shruti.Tests.csproj --configuration Debug --no-build --logger "trx;LogFileName=test-results.trx" -p:Platform=x64
