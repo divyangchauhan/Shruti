@@ -15,4 +15,19 @@ public sealed class WindowsPlatformModule
     {
         return new WindowsTextInsertionService();
     }
+
+    public WindowsGlobalTriggerService CreateGlobalTriggerService()
+    {
+        return new WindowsGlobalTriggerService();
+    }
+
+    public WindowsTrayIconService CreateTrayIconService()
+    {
+        return new WindowsTrayIconService();
+    }
+
+    public IWindowsWindowVisibility CreateWindowVisibility()
+    {
+        return new Win32WindowVisibility();
+    }
 }

@@ -6,5 +6,10 @@ param(
 $ErrorActionPreference = "Stop"
 $root = Split-Path -Parent $PSScriptRoot
 
-dotnet restore "$root/Shruti.sln"
-dotnet build "$root/Shruti.sln" --configuration $Configuration --no-restore -p:Platform=$Platform
+dotnet restore "$root/Shruti.sln" --ignore-failed-sources
+$buildProperties = @(
+    "-p:Platform=$Platform",
+    "-p:NoWarn=NU1801%3BNU1900"
+)
+
+dotnet build "$root/Shruti.sln" --configuration $Configuration --no-restore @buildProperties

@@ -129,6 +129,12 @@
                         <ColumnDefinition Width="260" />
                         <ColumnDefinition Width="*" />
                     </Grid.ColumnDefinitions>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
+                    </Grid.RowDefinitions>
 
                     <ComboBox
                         x:Name="ThemeComboBox"
@@ -151,6 +157,73 @@
                         VerticalAlignment="Bottom"
                         Foreground="{ThemeResource TextFillColorSecondaryBrush}"
                         Text="System theme is used by default."
+                        TextWrapping="Wrap" />
+
+                    <Grid
+                        Grid.Row="1"
+                        Grid.ColumnSpan="2"
+                        ColumnSpacing="12">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="*" />
+                        </Grid.ColumnDefinitions>
+                        <TextBox
+                            x:Name="HotkeyGestureTextBox"
+                            Header="Global hotkey"
+                            LostFocus="TriggerConfigurationInput_LostFocus"
+                            Text="Ctrl+Alt+Space" />
+                        <TextBox
+                            x:Name="PushToTalkKeyTextBox"
+                            Grid.Column="1"
+                            Header="Push-to-talk key"
+                            LostFocus="TriggerConfigurationInput_LostFocus"
+                            Text="RightControl" />
+                    </Grid>
+
+                    <Grid
+                        Grid.Row="2"
+                        Grid.ColumnSpan="2"
+                        ColumnSpacing="12"
+                        RowSpacing="8">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="*" />
+                        </Grid.ColumnDefinitions>
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" />
+                        </Grid.RowDefinitions>
+                        <CheckBox
+                            x:Name="GlobalHotkeyCheckBox"
+                            Click="TriggerConfigurationCheckBox_Click"
+                            Content="Global hotkey"
+                            IsChecked="True" />
+                        <CheckBox
+                            x:Name="PushToTalkCheckBox"
+                            Grid.Column="1"
+                            Click="TriggerConfigurationCheckBox_Click"
+                            Content="Push to talk"
+                            IsChecked="True" />
+                        <CheckBox
+                            x:Name="FloatingButtonCheckBox"
+                            Grid.Row="1"
+                            Click="TriggerConfigurationCheckBox_Click"
+                            Content="Floating button"
+                            IsChecked="True" />
+                        <CheckBox
+                            x:Name="TrayMenuCheckBox"
+                            Grid.Row="1"
+                            Grid.Column="1"
+                            Click="TriggerConfigurationCheckBox_Click"
+                            Content="Tray menu"
+                            IsChecked="True" />
+                    </Grid>
+
+                    <TextBlock
+                        x:Name="TriggerStatusText"
+                        Grid.Row="3"
+                        Grid.ColumnSpan="2"
+                        Foreground="{ThemeResource TextFillColorSecondaryBrush}"
                         TextWrapping="Wrap" />
                 </Grid>
 
