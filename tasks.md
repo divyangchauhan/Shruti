@@ -163,15 +163,15 @@ Acceptance criteria:
 
 ### 8. Model Catalog and Download
 
-- [ ] Define model catalog JSON schema.
-- [ ] Add 2-3 recommended MVP models.
-- [ ] Include model metadata: provider, language, size, hash, download URL, supported backends.
-- [ ] Implement model download manager.
-- [ ] Implement hash verification.
-- [ ] Implement model import flow.
-- [ ] Implement model remove flow.
+- [x] Define model catalog JSON schema.
+- [x] Add 2-3 recommended MVP models.
+- [x] Include model metadata: provider, language, size, hash, download URL, supported backends.
+- [x] Implement model download manager.
+- [x] Implement hash verification.
+- [x] Implement model import flow.
+- [x] Implement model remove flow.
 - [ ] Add model storage location setting.
-- [ ] Add offline-ready status once a model is installed.
+- [x] Add offline-ready status once a model is installed.
 - [ ] Add model download notifications.
 
 Acceptance criteria:
@@ -185,7 +185,7 @@ Acceptance criteria:
 - [ ] Add native `whisper.cpp` build project or external dependency strategy.
 - [ ] Add narrow C ABI shim.
 - [ ] Add C# adapter for native provider calls.
-- [ ] Load GGUF model from local model catalog path.
+- [ ] Load a verified GGML model from the local model catalog path.
 - [ ] Transcribe buffered audio to final text.
 - [ ] Emit timestamped segments when available.
 - [ ] Emit partial transcript events if supported by chosen integration strategy.
@@ -340,13 +340,13 @@ Acceptance criteria:
 | --- | --- | --- | --- | --- |
 | PR-08 | Done | 2026-07-08 | WASAPI capture, device picker, audio meter | Microphone path works |
 | PR-09 | Done | 2026-07-10 | Settings repository, local data layout, retention policy | Durable app configuration |
-| PR-10 | In progress | 2026-07-13 | SQLite session/segment storage and export TXT/Markdown/JSON/SRT/VTT | Transcript output path |
+| PR-10 | Done | 2026-07-13 | SQLite session/segment storage and export TXT/Markdown/JSON/SRT/VTT | Transcript output path |
 
 ### Phase 3: Real Transcription
 
 | PR | Status | Target merge | Scope | Primary risk retired |
 | --- | --- | --- | --- | --- |
-| PR-11 | Planned | 2026-07-15 | Model catalog, download, verification, import/remove | Model lifecycle |
+| PR-11 | In progress | 2026-07-15 | Model catalog, download, verification, import/remove | Model lifecycle |
 | PR-12 | Planned | 2026-07-20 | `whisper.cpp` native shim and C# adapter | Local ASR provider feasibility |
 | PR-13 | Planned | 2026-07-22 | Audio-to-`whisper.cpp` final transcription integration | Real local transcription loop |
 | PR-14 | Planned | 2026-07-24 | Provider registry, backend readiness, benchmark cache, slow-mode gate | Hardware/model eligibility |

@@ -41,7 +41,7 @@ The Windows MVP uses WinUI 3 with Windows App SDK for the native UI and starts w
 ### MVP Transcription
 
 - First provider: `whisper.cpp` compiled as a local native library.
-- Model format: GGUF models supported by `whisper.cpp`.
+- Model format: provider-specific. The initial `whisper.cpp` catalog uses verified GGML `.bin` models; the catalog also supports GGUF entries for future providers.
 - Initial compute target: CPU path that is reliable on supported Windows machines.
 - Optional acceleration in the `whisper.cpp` provider can be added only after benchmarking and packaging are stable.
 - Provider contract must expose capabilities and measured real-time factor instead of assuming a model/backend is fast enough.
@@ -189,6 +189,8 @@ Owns model lifecycle:
 - Local import/remove.
 - Model compatibility filtering by provider, language, size, and backend.
 - Disk usage reporting.
+
+The catalog records the model file format and hash algorithm so verified GGML, GGUF, and future provider assets can coexist without assuming a single artifact format.
 
 The catalog should include enough metadata to prevent users from selecting models that cannot run acceptably on their machine.
 
