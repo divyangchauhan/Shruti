@@ -1,4 +1,4 @@
-namespace Shruti.App.WinUI.Dictation;
+namespace Shruti.Workflow.Dictation;
 
 public sealed class MockTranscriptClipboard : ITranscriptClipboard
 {

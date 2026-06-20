@@ -62,6 +62,8 @@ src/
     WinUI 3 views, windows, tray bootstrap, settings UI
   Shruti.Core/
     Dictation workflow, session state, domain models, service interfaces
+  Shruti.Workflow/
+    UI-agnostic shell state, trigger routing, and application orchestration
   Shruti.Audio.Windows/
     WASAPI microphone capture, device enumeration, audio level meter
   Shruti.Platform.Windows/
@@ -80,7 +82,7 @@ src/
     Unit tests for workflow, settings, provider selection, insertion policy
 ```
 
-Later platform shells should reuse `Shruti.Core`, `Shruti.Transcription.Abstractions`, `Shruti.Models`, and parts of `Shruti.Storage`, but should not be forced to use WinUI.
+Later platform shells should reuse `Shruti.Core`, `Shruti.Workflow`, `Shruti.Transcription.Abstractions`, `Shruti.Models`, and parts of `Shruti.Storage`, but should not be forced to use WinUI.
 
 ## Module Boundaries
 
@@ -96,6 +98,16 @@ Owns the visible Windows experience:
 - Status surfaces for recording, transcribing, insertion, errors, and unsupported hardware.
 
 This project should be thin. It observes workflow state and dispatches user commands. It should not know how `whisper.cpp`, hotkeys, or text insertion work internally.
+
+### `Shruti.Workflow`
+
+Owns application orchestration that is not tied to a visual framework:
+
+- Dictation shell state for start, stop, pause, cancel, retry, copy, and preview flows.
+- Trigger routing and trigger-event dispatch.
+- UI-facing status and audio-level notifications.
+
+This project depends on core abstractions but not WinUI, Windows App SDK, or platform implementation classes. Native shells compose it with their platform-specific services.
 
 ### `Shruti.Core`
 

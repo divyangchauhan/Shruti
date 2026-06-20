@@ -2,7 +2,7 @@ using System.Threading.Channels;
 using Shruti.Core.Audio;
 using Shruti.Transcription.Abstractions;
 
-namespace Shruti.App.WinUI.Dictation;
+namespace Shruti.Workflow.Dictation;
 
 public sealed class MockAudioCaptureService : IAudioCaptureService, IAudioCaptureControl
 {

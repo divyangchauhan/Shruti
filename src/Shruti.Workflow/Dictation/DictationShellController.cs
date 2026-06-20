@@ -3,7 +3,7 @@ using Shruti.Core.Audio;
 using Shruti.Core.Dictation;
 using Shruti.Core.Platform;
 
-namespace Shruti.App.WinUI.Dictation;
+namespace Shruti.Workflow.Dictation;
 
 public sealed class DictationShellController
 {

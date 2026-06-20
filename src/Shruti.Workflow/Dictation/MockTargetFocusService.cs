@@ -1,6 +1,6 @@
 using Shruti.Core.Platform;
 
-namespace Shruti.App.WinUI.Dictation;
+namespace Shruti.Workflow.Dictation;
 
 public sealed class MockTargetFocusService : ITargetFocusService
 {
