@@ -33,4 +33,4 @@ jobs:
 
       - name: Run tests
         timeout-minutes: 5
-        run: .\scripts\test.ps1
+        run: dotnet test tests/Shruti.Tests/Shruti.Tests.csproj --configuration Debug --no-build --logger "trx;LogFileName=test-results.trx" --logger "console;verbosity=normal" -p:Platform=x64
