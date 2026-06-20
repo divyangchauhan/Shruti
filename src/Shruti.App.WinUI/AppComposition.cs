@@ -2,6 +2,7 @@ using Shruti.App.WinUI.Dictation;
 using Shruti.Audio.Windows;
 using Shruti.Core.Dictation;
 using Shruti.Platform.Windows;
+using Shruti.Storage;
 
 namespace Shruti.App.WinUI;
 
@@ -13,6 +14,7 @@ public sealed class AppComposition
     private readonly MockTranscriptionProvider transcriptionProvider = new();
     private readonly MockTranscriptClipboard transcriptClipboard = new();
     private readonly WindowsPlatformModule platformModule = new();
+    private readonly ISettingsRepository settingsRepository = new StorageModule().CreateSettingsRepository();
 
     public MainWindow CreateMainWindow()
     {
@@ -29,6 +31,7 @@ public sealed class AppComposition
         return new MainWindow(
             controller,
             audioCaptureService,
+            settingsRepository,
             triggerRouter,
             platformModule.CreateGlobalTriggerService(),
             platformModule.CreateTrayIconService(),

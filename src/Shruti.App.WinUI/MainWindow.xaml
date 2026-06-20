@@ -159,6 +159,7 @@
                         <RowDefinition Height="Auto" />
                         <RowDefinition Height="Auto" />
                         <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
                     </Grid.RowDefinitions>
 
                     <ComboBox
@@ -245,8 +246,33 @@
                     </Grid>
 
                     <TextBlock
-                        x:Name="TriggerStatusText"
                         Grid.Row="3"
+                        Grid.Column="1"
+                        VerticalAlignment="Bottom"
+                        Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                        Text="Audio is deleted after transcription by default."
+                        TextWrapping="Wrap" />
+
+                    <ComboBox
+                        x:Name="AudioRetentionComboBox"
+                        Grid.Row="3"
+                        Header="Audio retention"
+                        MinWidth="220"
+                        SelectionChanged="AudioRetentionComboBox_SelectionChanged">
+                        <ComboBoxItem
+                            Content="Delete after transcription"
+                            Tag="DeleteAfterTranscription" />
+                        <ComboBoxItem
+                            Content="Keep recordings"
+                            Tag="Keep" />
+                        <ComboBoxItem
+                            Content="Ask each time"
+                            Tag="AskEveryTime" />
+                    </ComboBox>
+
+                    <TextBlock
+                        x:Name="TriggerStatusText"
+                        Grid.Row="4"
                         Grid.ColumnSpan="2"
                         Foreground="{ThemeResource TextFillColorSecondaryBrush}"
                         TextWrapping="Wrap" />
