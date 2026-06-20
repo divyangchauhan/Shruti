@@ -7,18 +7,11 @@ namespace Shruti.App.WinUI.Dictation;
 public sealed class MockAudioCaptureService : IAudioCaptureService, IAudioCaptureControl
 {
     private readonly object _sync = new();
-    private readonly TimeSpan _frameInterval;
     private MockAudioCaptureSession? _activeSession;
     private bool _stopRequestedBeforeStart;
 
     public MockAudioCaptureService()
-        : this(TimeSpan.FromMilliseconds(150))
     {
-    }
-
-    public MockAudioCaptureService(TimeSpan frameInterval)
-    {
-        _frameInterval = frameInterval;
     }
 
     public int StartCount { get; private set; }
@@ -46,7 +39,7 @@ public sealed class MockAudioCaptureService : IAudioCaptureService, IAudioCaptur
     {
         cancellationToken.ThrowIfCancellationRequested();
 
-        var session = new MockAudioCaptureSession(_frameInterval);
+        var session = new MockAudioCaptureSession();
 
         lock (_sync)
         {
@@ -126,14 +119,8 @@ public sealed class MockAudioCaptureService : IAudioCaptureService, IAudioCaptur
     private sealed class MockAudioCaptureSession : IAudioCaptureSession
     {
         private readonly object _sync = new();
-        private readonly TimeSpan _frameInterval;
         private readonly TaskCompletionSource _stopRequested = new(TaskCreationOptions.RunContinuationsAsynchronously);
         private bool _isPaused;
-
-        public MockAudioCaptureSession(TimeSpan frameInterval)
-        {
-            _frameInterval = frameInterval;
-        }
 
         public IAsyncEnumerable<AudioFrame> Frames => EnumerateFrames();
 
@@ -174,61 +161,26 @@ public sealed class MockAudioCaptureService : IAudioCaptureService, IAudioCaptur
         private async IAsyncEnumerable<AudioFrame> EnumerateFrames(
             [EnumeratorCancellation] CancellationToken cancellationToken = default)
         {
-            int index = 0;
-
-            while (!_stopRequested.Task.IsCompleted)
+            if (!IsPaused && !_stopRequested.Task.IsCompleted)
             {
-                if (IsPaused)
-                {
-                    await WaitForNextIntervalOrStopAsync(cancellationToken).ConfigureAwait(false);
-                    continue;
-                }
-
-                var delay = Task.Delay(_frameInterval, cancellationToken);
-                var completed = await Task
-                    .WhenAny(delay, _stopRequested.Task)
-                    .ConfigureAwait(false);
-
-                if (completed == _stopRequested.Task)
-                {
-                    yield break;
-                }
-
-                cancellationToken.ThrowIfCancellationRequested();
-                yield return new AudioFrame(
-                    CreateFrame(index),
-                    TimeSpan.FromMilliseconds(index * _frameInterval.TotalMilliseconds));
-                index++;
+                yield return new AudioFrame(CreateFrame(), TimeSpan.Zero);
             }
+
+            await _stopRequested.Task.WaitAsync(cancellationToken).ConfigureAwait(false);
         }
 
         private async IAsyncEnumerable<AudioLevelFrame> EnumerateLevels(
             [EnumeratorCancellation] CancellationToken cancellationToken = default)
         {
-            while (!_stopRequested.Task.IsCompleted)
+            if (!IsPaused && !_stopRequested.Task.IsCompleted)
             {
-                if (IsPaused)
-                {
-                    await WaitForNextIntervalOrStopAsync(cancellationToken).ConfigureAwait(false);
-                    continue;
-                }
-
-                var delay = Task.Delay(_frameInterval, cancellationToken);
-                var completed = await Task
-                    .WhenAny(delay, _stopRequested.Task)
-                    .ConfigureAwait(false);
-
-                if (completed == _stopRequested.Task)
-                {
-                    yield break;
-                }
-
-                cancellationToken.ThrowIfCancellationRequested();
                 yield return new AudioLevelFrame(
                     Peak: 0.62f,
                     Rms: 0.38f,
                     DateTimeOffset.UtcNow);
             }
+
+            await _stopRequested.Task.WaitAsync(cancellationToken).ConfigureAwait(false);
         }
 
         private bool IsPaused
@@ -250,25 +202,9 @@ public sealed class MockAudioCaptureService : IAudioCaptureService, IAudioCaptur
             }
         }
 
-        private async Task WaitForNextIntervalOrStopAsync(CancellationToken cancellationToken)
+        private static byte[] CreateFrame()
         {
-            var delay = Task.Delay(_frameInterval, cancellationToken);
-            var completed = await Task
-                .WhenAny(delay, _stopRequested.Task)
-                .ConfigureAwait(false);
-
-            if (completed == _stopRequested.Task)
-            {
-                return;
-            }
-
-            cancellationToken.ThrowIfCancellationRequested();
-        }
-
-        private static byte[] CreateFrame(int index)
-        {
-            byte sample = (byte)((index % 4) + 1);
-            return [sample, 0, sample, 0, sample, 0, sample, 0];
+            return [1, 0, 1, 0, 1, 0, 1, 0];
         }
     }
 }
