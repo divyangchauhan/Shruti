@@ -182,9 +182,9 @@ Acceptance criteria:
 
 ### 9. `whisper.cpp` Provider
 
-- [ ] Add native `whisper.cpp` build project or external dependency strategy.
-- [ ] Add narrow C ABI shim.
-- [ ] Add C# adapter for native provider calls.
+- [x] Add native `whisper.cpp` build project or external dependency strategy.
+- [x] Add narrow C ABI shim.
+- [x] Add C# adapter for native provider calls.
 - [ ] Load a verified GGML model from the local model catalog path.
 - [ ] Transcribe buffered audio to final text.
 - [ ] Emit timestamped segments when available.
@@ -346,8 +346,8 @@ Acceptance criteria:
 
 | PR | Status | Target merge | Scope | Primary risk retired |
 | --- | --- | --- | --- | --- |
-| PR-11 | In progress | 2026-07-15 | Model catalog, download, verification, import/remove | Model lifecycle |
-| PR-12 | Planned | 2026-07-20 | `whisper.cpp` native shim and C# adapter | Local ASR provider feasibility |
+| PR-11 | Done | 2026-07-15 | Model catalog, download, verification, import/remove | Model lifecycle |
+| PR-12 | In progress | 2026-07-20 | `whisper.cpp` native shim and C# adapter | Local ASR provider feasibility |
 | PR-13 | Planned | 2026-07-22 | Audio-to-`whisper.cpp` final transcription integration | Real local transcription loop |
 | PR-14 | Planned | 2026-07-24 | Provider registry, backend readiness, benchmark cache, slow-mode gate | Hardware/model eligibility |
 
@@ -397,8 +397,8 @@ Acceptance criteria:
 ## Open Decisions
 
 - [ ] Choose exact .NET version for the first Windows implementation.
-- [ ] Choose package manager/dependency strategy for `whisper.cpp`.
-- [ ] Decide whether to vendor `whisper.cpp` source or consume pinned build artifacts.
+- [x] Choose package manager/dependency strategy for `whisper.cpp`.
+- [x] Decide whether to vendor `whisper.cpp` source or consume pinned build artifacts.
 - [ ] Choose initial recommended GGUF models.
 - [ ] Define minimum supported Windows version.
 - [ ] Define minimum supported CPU/RAM profile for MVP.

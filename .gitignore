@@ -4,6 +4,7 @@ obj/
 .vscode/
 .idea/
 TestResults/
+artifacts/
 *.user
 *.suo
 *.rsuser
