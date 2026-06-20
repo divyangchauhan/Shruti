@@ -47,6 +47,7 @@ jobs:
           - SqliteSessionRepositoryTests
           - TranscriptExportServiceTests
           - WhisperCppTranscriptionEngineTests
+          - WhisperCppTranscriptionProviderTests
           - WindowsAudioCaptureServiceTests
           - WindowsGlobalTriggerServiceTests
           - WindowsTargetFocusServiceTests

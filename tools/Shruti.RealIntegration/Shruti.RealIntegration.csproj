@@ -1,0 +1,13 @@
+<Project Sdk="Microsoft.NET.Sdk">
+    <PropertyGroup>
+        <OutputType>Exe</OutputType>
+        <TargetFramework>net8.0</TargetFramework>
+    </PropertyGroup>
+
+    <ItemGroup>
+        <ProjectReference Include="..\..\src\Shruti.Models\Shruti.Models.csproj" />
+        <ProjectReference Include="..\..\src\Shruti.Storage\Shruti.Storage.csproj" />
+        <ProjectReference Include="..\..\src\Shruti.Transcription.Abstractions\Shruti.Transcription.Abstractions.csproj" />
+        <ProjectReference Include="..\..\src\Shruti.Transcription.WhisperCpp\Shruti.Transcription.WhisperCpp.csproj" />
+    </ItemGroup>
+</Project>

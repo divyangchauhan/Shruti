@@ -2,6 +2,7 @@ using Shruti.Core;
 using Shruti.Core.Audio;
 using Shruti.Core.Dictation;
 using Shruti.Core.Platform;
+using Shruti.Transcription.Abstractions;
 
 namespace Shruti.Workflow.Dictation;
 
@@ -10,6 +11,7 @@ public sealed class DictationShellController
     private readonly DictationCoordinator _coordinator;
     private readonly IAudioCaptureControl _audioCaptureControl;
     private readonly ITranscriptClipboard _clipboard;
+    private readonly Func<TranscriptionSessionOptions> _transcriptionOptionsFactory;
 
     private CancellationTokenSource? _activeCancellation;
     private CancellationTokenSource? _levelMonitorCancellation;
@@ -20,11 +22,13 @@ public sealed class DictationShellController
     public DictationShellController(
         DictationCoordinator coordinator,
         IAudioCaptureControl audioCaptureControl,
-        ITranscriptClipboard clipboard)
+        ITranscriptClipboard clipboard,
+        Func<TranscriptionSessionOptions>? transcriptionOptionsFactory = null)
     {
         _coordinator = coordinator ?? throw new ArgumentNullException(nameof(coordinator));
         _audioCaptureControl = audioCaptureControl ?? throw new ArgumentNullException(nameof(audioCaptureControl));
         _clipboard = clipboard ?? throw new ArgumentNullException(nameof(clipboard));
+        _transcriptionOptionsFactory = transcriptionOptionsFactory ?? MockDictationAppServices.CreateTranscriptionOptions;
         State = DictationShellState.Initial;
     }
 
@@ -231,7 +235,7 @@ public sealed class DictationShellController
         {
             var progress = new SynchronousProgress<DictationStatus>(ApplyProgress);
             var request = new DictationRequest(
-                MockDictationAppServices.CreateTranscriptionOptions(),
+                _transcriptionOptionsFactory(),
                 insertionMode,
                 audioOptions: _audioOptions,
                 statusProgress: progress,

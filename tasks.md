@@ -185,14 +185,14 @@ Acceptance criteria:
 - [x] Add native `whisper.cpp` build project or external dependency strategy.
 - [x] Add narrow C ABI shim.
 - [x] Add C# adapter for native provider calls.
-- [ ] Load a verified GGML model from the local model catalog path.
-- [ ] Transcribe buffered audio to final text.
-- [ ] Emit timestamped segments when available.
+- [x] Load a verified GGML model from the local model catalog path.
+- [x] Transcribe buffered audio to final text.
+- [x] Emit timestamped segments when available.
 - [ ] Emit partial transcript events if supported by chosen integration strategy.
-- [ ] Map native errors into engine-neutral errors.
+- [x] Map native errors into engine-neutral errors.
 - [ ] Add cancellation.
 - [ ] Add provider-level metrics: load time, transcription time, real-time factor.
-- [ ] Add provider smoke test with a tiny fixture audio file.
+- [x] Add provider smoke test with a speech fixture audio file.
 
 Acceptance criteria:
 
@@ -347,8 +347,8 @@ Acceptance criteria:
 | PR | Status | Target merge | Scope | Primary risk retired |
 | --- | --- | --- | --- | --- |
 | PR-11 | Done | 2026-07-15 | Model catalog, download, verification, import/remove | Model lifecycle |
-| PR-12 | In progress | 2026-07-20 | `whisper.cpp` native shim and C# adapter | Local ASR provider feasibility |
-| PR-13 | Planned | 2026-07-22 | Audio-to-`whisper.cpp` final transcription integration | Real local transcription loop |
+| PR-12 | Done | 2026-07-20 | `whisper.cpp` native shim and C# adapter | Local ASR provider feasibility |
+| PR-13 | In progress | 2026-07-22 | Audio-to-`whisper.cpp` final transcription integration | Real local transcription loop |
 | PR-14 | Planned | 2026-07-24 | Provider registry, backend readiness, benchmark cache, slow-mode gate | Hardware/model eligibility |
 
 ### Phase 4: MVP Integration and Hardening

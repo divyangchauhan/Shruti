@@ -14,7 +14,9 @@ shruti_whisper_context * shruti_whisper_create(const char * model_path) {
     }
 
     try {
-        const whisper_context_params parameters = whisper_context_default_params();
+        whisper_context_params parameters = whisper_context_default_params();
+        parameters.use_gpu = false;
+        parameters.flash_attn = false;
         whisper_context * native_context = whisper_init_from_file_with_params(model_path, parameters);
         if (native_context == nullptr) {
             return nullptr;
