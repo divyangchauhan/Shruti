@@ -1,4 +1,4 @@
-using System.Runtime.CompilerServices;
+using System.Threading.Channels;
 using Shruti.Core.Audio;
 using Shruti.Transcription.Abstractions;
 
@@ -119,24 +119,32 @@ public sealed class MockAudioCaptureService : IAudioCaptureService, IAudioCaptur
     private sealed class MockAudioCaptureSession : IAudioCaptureSession
     {
         private readonly object _sync = new();
-        private readonly TaskCompletionSource _stopRequested = new(TaskCreationOptions.RunContinuationsAsynchronously);
-        private bool _isPaused;
+        private readonly Channel<AudioFrame> _frames = Channel.CreateUnbounded<AudioFrame>();
+        private readonly Channel<AudioLevelFrame> _levels = Channel.CreateUnbounded<AudioLevelFrame>();
+        private bool _isStopped;
 
-        public IAsyncEnumerable<AudioFrame> Frames => EnumerateFrames();
+        public MockAudioCaptureSession()
+        {
+            _frames.Writer.TryWrite(new AudioFrame(CreateFrame(), TimeSpan.Zero));
+            _levels.Writer.TryWrite(new AudioLevelFrame(
+                Peak: 0.62f,
+                Rms: 0.38f,
+                DateTimeOffset.UtcNow));
+        }
 
-        public IAsyncEnumerable<AudioLevelFrame> Levels => EnumerateLevels();
+        public IAsyncEnumerable<AudioFrame> Frames => _frames.Reader.ReadAllAsync();
+
+        public IAsyncEnumerable<AudioLevelFrame> Levels => _levels.Reader.ReadAllAsync();
 
         public Task PauseAsync(CancellationToken cancellationToken)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            SetPaused(true);
             return Task.CompletedTask;
         }
 
         public Task ResumeAsync(CancellationToken cancellationToken)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            SetPaused(false);
             return Task.CompletedTask;
         }
 
@@ -149,57 +157,24 @@ public sealed class MockAudioCaptureService : IAudioCaptureService, IAudioCaptur
 
         public void RequestStop()
         {
-            _stopRequested.TrySetResult();
+            lock (_sync)
+            {
+                if (_isStopped)
+                {
+                    return;
+                }
+
+                _isStopped = true;
+            }
+
+            _frames.Writer.TryComplete();
+            _levels.Writer.TryComplete();
         }
 
         public ValueTask DisposeAsync()
         {
             RequestStop();
             return ValueTask.CompletedTask;
-        }
-
-        private async IAsyncEnumerable<AudioFrame> EnumerateFrames(
-            [EnumeratorCancellation] CancellationToken cancellationToken = default)
-        {
-            if (!IsPaused && !_stopRequested.Task.IsCompleted)
-            {
-                yield return new AudioFrame(CreateFrame(), TimeSpan.Zero);
-            }
-
-            await _stopRequested.Task.WaitAsync(cancellationToken).ConfigureAwait(false);
-        }
-
-        private async IAsyncEnumerable<AudioLevelFrame> EnumerateLevels(
-            [EnumeratorCancellation] CancellationToken cancellationToken = default)
-        {
-            if (!IsPaused && !_stopRequested.Task.IsCompleted)
-            {
-                yield return new AudioLevelFrame(
-                    Peak: 0.62f,
-                    Rms: 0.38f,
-                    DateTimeOffset.UtcNow);
-            }
-
-            await _stopRequested.Task.WaitAsync(cancellationToken).ConfigureAwait(false);
-        }
-
-        private bool IsPaused
-        {
-            get
-            {
-                lock (_sync)
-                {
-                    return _isPaused;
-                }
-            }
-        }
-
-        private void SetPaused(bool value)
-        {
-            lock (_sync)
-            {
-                _isPaused = value;
-            }
         }
 
         private static byte[] CreateFrame()
