@@ -27,5 +27,6 @@
         <ProjectReference Include="..\..\src\Shruti.Platform.Windows\Shruti.Platform.Windows.csproj" />
         <ProjectReference Include="..\..\src\Shruti.Storage\Shruti.Storage.csproj" />
         <ProjectReference Include="..\..\src\Shruti.Transcription.Abstractions\Shruti.Transcription.Abstractions.csproj" />
+        <ProjectReference Include="..\..\src\Shruti.Transcription.WhisperCpp\Shruti.Transcription.WhisperCpp.csproj" />
     </ItemGroup>
 </Project>

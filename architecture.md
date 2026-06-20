@@ -33,6 +33,7 @@ The Windows MVP uses WinUI 3 with Windows App SDK for the native UI and starts w
 - App framework: Windows App SDK.
 - Primary language: C# for app shell, workflow orchestration, settings, and Windows integration.
 - Native interop: C++/WinRT or C ABI DLL boundaries for transcription engines and any low-level Windows APIs that are awkward from C#.
+- Native source strategy: pin `whisper.cpp` in CMake FetchContent and build a small project-owned C ABI shim instead of binding managed code to upstream C++ internals.
 - Runtime: current supported .NET desktop runtime at implementation time.
 - Persistence: SQLite for transcript/session metadata and settings that benefit from querying; JSON files for model manifests and simple app configuration where appropriate.
 - Logging: structured local logs with redaction of transcript text by default.

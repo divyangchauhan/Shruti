@@ -46,6 +46,7 @@ jobs:
           - JsonSettingsRepositoryTests
           - SqliteSessionRepositoryTests
           - TranscriptExportServiceTests
+          - WhisperCppTranscriptionEngineTests
           - WindowsAudioCaptureServiceTests
           - WindowsGlobalTriggerServiceTests
           - WindowsTargetFocusServiceTests
@@ -64,3 +65,21 @@ jobs:
       - name: Run test class
         timeout-minutes: 5
         run: dotnet test tests/Shruti.Tests/Shruti.Tests.csproj --configuration Debug --filter "FullyQualifiedName~${{ matrix.test_class }}" --logger "console;verbosity=normal" -p:Platform=x64
+
+  native:
+    name: Build whisper.cpp native shim
+    needs: validate
+    runs-on: windows-2022
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Configure native build
+        run: cmake -S src/Shruti.Transcription.WhisperCpp.Native -B artifacts/whispercpp-native -G "Visual Studio 17 2022" -A x64
+
+      - name: Build native shim
+        run: cmake --build artifacts/whispercpp-native --config Release
+
+      - name: Run native smoke test
+        run: ctest --test-dir artifacts/whispercpp-native -C Release --output-on-failure
