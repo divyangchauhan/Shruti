@@ -11,7 +11,7 @@ on:
 jobs:
   validate:
     name: Format, lint, build, and test
-    runs-on: windows-latest
+    runs-on: windows-2022
 
     steps:
       - name: Check out repository
