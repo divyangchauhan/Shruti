@@ -32,25 +32,61 @@ jobs:
         run: dotnet build Shruti.sln --configuration Debug --no-restore -p:Platform=x64 -warnaserror
 
   test:
-    name: Test ${{ matrix.test_class }}
+    name: Test ${{ matrix.test_name }}
     needs: validate
     runs-on: windows-2022
     strategy:
       fail-fast: false
       matrix:
-        test_class:
-          - DictationCoordinatorTests
-          - DictationSessionStateTests
-          - DictationShellControllerTests
-          - DictationTriggerRouterTests
-          - JsonSettingsRepositoryTests
-          - SqliteSessionRepositoryTests
-          - TranscriptExportServiceTests
-          - WindowsAudioCaptureServiceTests
-          - WindowsGlobalTriggerServiceTests
-          - WindowsTargetFocusServiceTests
-          - WindowsTextInsertionServiceTests
-          - WindowsTrayIconServiceTests
+        include:
+          - test_name: DictationCoordinatorTests
+            test_filter: DictationCoordinatorTests
+          - test_name: DictationSessionStateTests
+            test_filter: DictationSessionStateTests
+          - test_name: Shell start readiness
+            test_filter: DictationShellControllerTests.StartAsync_CompletesAfterAudioCaptureSessionStarts
+          - test_name: Shell auto insert
+            test_filter: DictationShellControllerTests.AutoInsert_StopCompletesAndInsertsMockTranscript
+          - test_name: Shell preview first
+            test_filter: DictationShellControllerTests.PreviewFirst_StopLeavesTranscriptWithoutInsertion
+          - test_name: Shell copy only
+            test_filter: DictationShellControllerTests.CopyOnly_StopCopiesTranscriptWithoutInsertion
+          - test_name: Shell cancel
+            test_filter: DictationShellControllerTests.Cancel_DoesNotInsertOrCopyTranscript
+          - test_name: Shell retry
+            test_filter: DictationShellControllerTests.Retry_StartsAnotherMockRunWithSelectedMode
+          - test_name: Shell pause
+            test_filter: DictationShellControllerTests.Pause_TogglesMockRecordingStateAndStillCompletes
+          - test_name: Shell active mode
+            test_filter: DictationShellControllerTests.SetInsertionMode_WhileRunningKeepsActiveRunMode
+          - test_name: Shell selected device
+            test_filter: DictationShellControllerTests.SetAudioInputDevice_UsesSelectedMicrophoneForTheNextRun
+          - test_name: Router toggle
+            test_filter: DictationTriggerRouterTests.ToggleTrigger_StartsAndStopsMockDictation
+          - test_name: Router push to talk
+            test_filter: DictationTriggerRouterTests.PushToTalk_StartsOnPressAndStopsOnRelease
+          - test_name: Router disabled trigger
+            test_filter: DictationTriggerRouterTests.MockGlobalTriggerService_ConfigurationGatesDisabledTrigger
+          - test_name: Router enabled trigger
+            test_filter: DictationTriggerRouterTests.MockGlobalTriggerService_PublishesEnabledTrigger
+          - test_name: Router dispatcher
+            test_filter: DictationTriggerRouterTests.TriggerDispatcher_RoutesMockGlobalHotkeyThroughDictationWorkflow
+          - test_name: JsonSettingsRepositoryTests
+            test_filter: JsonSettingsRepositoryTests
+          - test_name: SqliteSessionRepositoryTests
+            test_filter: SqliteSessionRepositoryTests
+          - test_name: TranscriptExportServiceTests
+            test_filter: TranscriptExportServiceTests
+          - test_name: WindowsAudioCaptureServiceTests
+            test_filter: WindowsAudioCaptureServiceTests
+          - test_name: WindowsGlobalTriggerServiceTests
+            test_filter: WindowsGlobalTriggerServiceTests
+          - test_name: WindowsTargetFocusServiceTests
+            test_filter: WindowsTargetFocusServiceTests
+          - test_name: WindowsTextInsertionServiceTests
+            test_filter: WindowsTextInsertionServiceTests
+          - test_name: WindowsTrayIconServiceTests
+            test_filter: WindowsTrayIconServiceTests
 
     steps:
       - name: Check out repository
@@ -61,6 +97,6 @@ jobs:
         with:
           dotnet-version: 8.0.x
 
-      - name: Run test class
+      - name: Run test case
         timeout-minutes: 5
-        run: dotnet test tests/Shruti.Tests/Shruti.Tests.csproj --configuration Debug --filter "FullyQualifiedName~${{ matrix.test_class }}" --logger "console;verbosity=normal" -p:Platform=x64
+        run: dotnet test tests/Shruti.Tests/Shruti.Tests.csproj --configuration Debug --filter "FullyQualifiedName~${{ matrix.test_filter }}" --logger "console;verbosity=normal" -p:Platform=x64
