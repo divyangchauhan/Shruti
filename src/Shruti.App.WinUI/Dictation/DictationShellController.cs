@@ -230,7 +230,7 @@ public sealed class DictationShellController
                 insertionMode,
                 audioOptions: _audioOptions,
                 statusProgress: progress,
-                captureSessionStarted: StartLevelMonitor);
+                captureSessionStarted: AudioLevelChanged is null ? null : StartLevelMonitor);
 
             var result = await _coordinator
                 .RunOnceAsync(request, cancellationToken)
