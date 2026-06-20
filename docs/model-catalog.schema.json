@@ -1,0 +1,55 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://shruti.local/schemas/model-catalog.schema.json",
+  "title": "Shruti Model Catalog",
+  "type": "object",
+  "required": ["schemaVersion", "revision", "models"],
+  "properties": {
+    "schemaVersion": { "type": "integer", "minimum": 1 },
+    "revision": { "type": "string", "minLength": 1 },
+    "models": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/model" }
+    }
+  },
+  "$defs": {
+    "model": {
+      "type": "object",
+      "required": [
+        "id",
+        "displayName",
+        "providerId",
+        "localFileName",
+        "fileFormat",
+        "languageHint",
+        "sizeBytes",
+        "supportedBackends",
+        "isRecommended"
+      ],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "displayName": { "type": "string", "minLength": 1 },
+        "providerId": { "type": "string", "minLength": 1 },
+        "localFileName": { "type": "string", "pattern": "^[^\\\\/]+$" },
+        "fileFormat": { "enum": ["Ggml", "Gguf"] },
+        "languageHint": { "type": "string", "minLength": 1 },
+        "sizeBytes": { "type": "integer", "minimum": 0 },
+        "downloadUri": { "type": ["string", "null"], "format": "uri" },
+        "integrity": {
+          "type": ["object", "null"],
+          "required": ["algorithm", "expectedHash"],
+          "properties": {
+            "algorithm": { "enum": ["Sha1", "Sha256"] },
+            "expectedHash": { "type": "string", "pattern": "^[A-Fa-f0-9]+$" }
+          }
+        },
+        "supportedBackends": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "enum": ["Auto", "Npu", "Gpu", "Cpu"] }
+        },
+        "isRecommended": { "type": "boolean" }
+      }
+    }
+  }
+}
