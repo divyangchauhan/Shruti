@@ -8,6 +8,20 @@ namespace Shruti.Tests;
 public sealed class DictationShellControllerTests
 {
     [Fact]
+    public async Task StartAsync_CompletesAfterAudioCaptureSessionStarts()
+    {
+        var services = MockDictationAppServices.Create();
+        var controller = services.CreateShellController();
+
+        await controller.StartAsync(DictationInsertionMode.AutoInsert);
+
+        Assert.Equal(1, services.AudioCapture.StartCount);
+        Assert.True(controller.State.IsRunning);
+
+        await controller.StopAsync();
+    }
+
+    [Fact]
     public async Task AutoInsert_StopCompletesAndInsertsMockTranscript()
     {
         var services = MockDictationAppServices.Create();

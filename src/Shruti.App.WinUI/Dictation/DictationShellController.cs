@@ -38,14 +38,15 @@ public sealed class DictationShellController
 
     public AudioCaptureOptions AudioOptions => _audioOptions;
 
-    public Task StartAsync(DictationInsertionMode insertionMode)
+    public async Task StartAsync(DictationInsertionMode insertionMode)
     {
         if (State.IsRunning)
         {
-            return Task.CompletedTask;
+            return;
         }
 
         _activeCancellation = new CancellationTokenSource();
+        var captureStarted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
 
         SetState(new DictationShellState(
             DictationSessionState.PreparingTarget,
@@ -63,8 +64,11 @@ public sealed class DictationShellController
             CanRetry: false,
             CanCopy: false));
 
-        _activeRun = RunOnceAsync(insertionMode, _activeCancellation.Token);
-        return Task.CompletedTask;
+        Task activeRun = RunOnceAsync(insertionMode, _activeCancellation.Token, captureStarted);
+        _activeRun = activeRun;
+
+        Task readyOrComplete = await Task.WhenAny(captureStarted.Task, activeRun).ConfigureAwait(false);
+        await readyOrComplete.ConfigureAwait(false);
     }
 
     public async Task StopAsync()
@@ -220,7 +224,8 @@ public sealed class DictationShellController
 
     private async Task RunOnceAsync(
         DictationInsertionMode insertionMode,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        TaskCompletionSource captureStarted)
     {
         try
         {
@@ -230,7 +235,15 @@ public sealed class DictationShellController
                 insertionMode,
                 audioOptions: _audioOptions,
                 statusProgress: progress,
-                captureSessionStarted: AudioLevelChanged is null ? null : StartLevelMonitor);
+                captureSessionStarted: session =>
+                {
+                    captureStarted.TrySetResult();
+
+                    if (AudioLevelChanged is not null)
+                    {
+                        StartLevelMonitor(session);
+                    }
+                });
 
             var result = await _coordinator
                 .RunOnceAsync(request, cancellationToken)
@@ -248,6 +261,7 @@ public sealed class DictationShellController
         }
         finally
         {
+            captureStarted.TrySetResult();
             await StopLevelMonitorAsync().ConfigureAwait(false);
             _activeCancellation?.Dispose();
             _activeCancellation = null;
