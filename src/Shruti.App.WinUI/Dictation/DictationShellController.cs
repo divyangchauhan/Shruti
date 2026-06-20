@@ -1,4 +1,5 @@
 using Shruti.Core;
+using Shruti.Core.Audio;
 using Shruti.Core.Dictation;
 using Shruti.Core.Platform;
 
@@ -7,28 +8,34 @@ namespace Shruti.App.WinUI.Dictation;
 public sealed class DictationShellController
 {
     private readonly DictationCoordinator _coordinator;
-    private readonly MockAudioCaptureService _audioCaptureService;
+    private readonly IAudioCaptureControl _audioCaptureControl;
     private readonly ITranscriptClipboard _clipboard;
 
     private CancellationTokenSource? _activeCancellation;
+    private CancellationTokenSource? _levelMonitorCancellation;
     private Task? _activeRun;
+    private AudioCaptureOptions _audioOptions = new();
 
     public DictationShellController(
         DictationCoordinator coordinator,
-        MockAudioCaptureService audioCaptureService,
+        IAudioCaptureControl audioCaptureControl,
         ITranscriptClipboard clipboard)
     {
         _coordinator = coordinator ?? throw new ArgumentNullException(nameof(coordinator));
-        _audioCaptureService = audioCaptureService ?? throw new ArgumentNullException(nameof(audioCaptureService));
+        _audioCaptureControl = audioCaptureControl ?? throw new ArgumentNullException(nameof(audioCaptureControl));
         _clipboard = clipboard ?? throw new ArgumentNullException(nameof(clipboard));
         State = DictationShellState.Initial;
     }
 
     public event EventHandler? StateChanged;
 
+    public event EventHandler<AudioLevelFrame>? AudioLevelChanged;
+
     public DictationShellState State { get; private set; }
 
     public DictationRunResult? LastResult { get; private set; }
+
+    public AudioCaptureOptions AudioOptions => _audioOptions;
 
     public Task StartAsync(DictationInsertionMode insertionMode)
     {
@@ -42,10 +49,10 @@ public sealed class DictationShellController
         SetState(new DictationShellState(
             DictationSessionState.PreparingTarget,
             insertionMode,
-            "Starting mock dictation",
-            "Capturing the mock target before recording.",
+            "Starting dictation",
+            "Capturing the target before recording.",
             string.Empty,
-            "Mock target pending",
+            "Target pending",
             IsRunning: true,
             CanStart: false,
             CanStop: true,
@@ -70,14 +77,14 @@ public sealed class DictationShellController
 
         SetState(State with
         {
-            StatusText = "Stopping mock recording",
+            StatusText = "Stopping recording",
             UserMessage = "Finalizing captured audio.",
             CanStop = false,
             CanPause = false,
             IsPaused = false
         });
 
-        await _audioCaptureService.StopActiveCaptureAsync().ConfigureAwait(false);
+        await _audioCaptureControl.StopActiveCaptureAsync().ConfigureAwait(false);
         await activeRun.ConfigureAwait(false);
     }
 
@@ -92,7 +99,7 @@ public sealed class DictationShellController
 
         SetState(State with
         {
-            StatusText = "Cancelling mock dictation",
+            StatusText = "Cancelling dictation",
             UserMessage = "No text will be inserted.",
             CanStop = false,
             CanCancel = false,
@@ -101,7 +108,7 @@ public sealed class DictationShellController
         });
 
         _activeCancellation.Cancel();
-        await _audioCaptureService.StopActiveCaptureAsync().ConfigureAwait(false);
+        await _audioCaptureControl.StopActiveCaptureAsync().ConfigureAwait(false);
         await activeRun.ConfigureAwait(false);
     }
 
@@ -115,12 +122,12 @@ public sealed class DictationShellController
 
         if (State.SessionState == DictationSessionState.Paused)
         {
-            await _audioCaptureService.ResumeActiveCaptureAsync(cancellationToken).ConfigureAwait(false);
+            await _audioCaptureControl.ResumeActiveCaptureAsync(cancellationToken).ConfigureAwait(false);
             SetState(State with
             {
                 SessionState = DictationSessionState.Recording,
                 StatusText = "Recording",
-                UserMessage = "Recording mock audio.",
+                UserMessage = "Recording audio.",
                 CanStop = true,
                 CanCancel = true,
                 CanPause = true,
@@ -139,12 +146,12 @@ public sealed class DictationShellController
             return;
         }
 
-        await _audioCaptureService.PauseActiveCaptureAsync(cancellationToken).ConfigureAwait(false);
+        await _audioCaptureControl.PauseActiveCaptureAsync(cancellationToken).ConfigureAwait(false);
         SetState(State with
         {
             SessionState = DictationSessionState.Paused,
             StatusText = "Paused",
-            UserMessage = "Mock recording is paused.",
+            UserMessage = "Recording is paused.",
             CanStop = true,
             CanCancel = true,
             CanPause = true,
@@ -175,6 +182,16 @@ public sealed class DictationShellController
             StatusText = "Ready",
             UserMessage = DescribeInsertionMode(insertionMode)
         });
+    }
+
+    public void SetAudioInputDevice(string? deviceId)
+    {
+        if (State.IsRunning)
+        {
+            return;
+        }
+
+        _audioOptions = _audioOptions with { DeviceId = deviceId };
     }
 
     public async Task<bool> CopyTranscriptAsync(CancellationToken cancellationToken = default)
@@ -210,7 +227,9 @@ public sealed class DictationShellController
             var request = new DictationRequest(
                 MockDictationAppServices.CreateTranscriptionOptions(),
                 insertionMode,
-                statusProgress: progress);
+                audioOptions: _audioOptions,
+                statusProgress: progress,
+                captureSessionStarted: StartLevelMonitor);
 
             var result = await _coordinator
                 .RunOnceAsync(request, cancellationToken)
@@ -228,10 +247,50 @@ public sealed class DictationShellController
         }
         finally
         {
+            StopLevelMonitor();
             _activeCancellation?.Dispose();
             _activeCancellation = null;
             _activeRun = null;
         }
+    }
+
+    private void StartLevelMonitor(IAudioCaptureSession session)
+    {
+        StopLevelMonitor();
+
+        var cancellation = new CancellationTokenSource();
+        _levelMonitorCancellation = cancellation;
+        _ = MonitorLevelsAsync(session, cancellation.Token);
+    }
+
+    private async Task MonitorLevelsAsync(
+        IAudioCaptureSession session,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            await foreach (AudioLevelFrame level in session.Levels
+                               .WithCancellation(cancellationToken)
+                               .ConfigureAwait(false))
+            {
+                AudioLevelChanged?.Invoke(this, level);
+            }
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            // The completed dictation run disposes its level monitor.
+        }
+        catch
+        {
+            // The coordinator reports capture failures through the dictation result.
+        }
+    }
+
+    private void StopLevelMonitor()
+    {
+        _levelMonitorCancellation?.Cancel();
+        _levelMonitorCancellation?.Dispose();
+        _levelMonitorCancellation = null;
     }
 
     private void ApplyProgress(DictationStatus status)
@@ -262,12 +321,12 @@ public sealed class DictationShellController
         string target = FormatTarget(result.Target);
         string message = result.Outcome switch
         {
-            DictationRunOutcome.Inserted => "Inserted into the mock target.",
+            DictationRunOutcome.Inserted => "Inserted into the target.",
             DictationRunOutcome.PreviewRequired => result.Message ?? "Preview is ready before insertion.",
             DictationRunOutcome.CopyOnly => "Copied transcript for copy-only mode.",
             DictationRunOutcome.Cancelled => "Cancelled. Nothing was inserted.",
-            DictationRunOutcome.Failed => result.Message ?? "Mock dictation failed.",
-            _ => result.Message ?? "Mock dictation finished."
+            DictationRunOutcome.Failed => result.Message ?? "Dictation failed.",
+            _ => result.Message ?? "Dictation finished."
         };
 
         return new DictationShellState(
@@ -308,15 +367,15 @@ public sealed class DictationShellController
     {
         return state switch
         {
-            DictationSessionState.PreparingTarget => "Capturing the mock target.",
-            DictationSessionState.RequestingMicrophone => "Starting the mock microphone.",
-            DictationSessionState.Recording => "Recording mock audio.",
-            DictationSessionState.Paused => "Mock recording is paused.",
-            DictationSessionState.TranscribingFinalAudio => "Generating the mock transcript.",
-            DictationSessionState.InsertingText => "Restoring target and inserting mock text.",
-            DictationSessionState.Complete => "Mock dictation complete.",
-            DictationSessionState.Cancelled => "Mock dictation cancelled.",
-            DictationSessionState.Failed => "Mock dictation failed.",
+            DictationSessionState.PreparingTarget => "Capturing the target.",
+            DictationSessionState.RequestingMicrophone => "Starting the microphone.",
+            DictationSessionState.Recording => "Recording audio.",
+            DictationSessionState.Paused => "Recording is paused.",
+            DictationSessionState.TranscribingFinalAudio => "Generating the transcript.",
+            DictationSessionState.InsertingText => "Restoring target and inserting text.",
+            DictationSessionState.Complete => "Dictation complete.",
+            DictationSessionState.Cancelled => "Dictation cancelled.",
+            DictationSessionState.Failed => "Dictation failed.",
             _ => "Ready."
         };
     }

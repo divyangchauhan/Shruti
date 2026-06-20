@@ -3,6 +3,7 @@ using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Shruti.App.WinUI.Dictation;
 using Shruti.Core;
+using Shruti.Core.Audio;
 using Shruti.Core.Dictation;
 using Shruti.Core.Triggers;
 using Shruti.Platform.Windows;
@@ -13,6 +14,7 @@ namespace Shruti.App.WinUI;
 public sealed partial class MainWindow : Window
 {
     private readonly DictationShellController _controller;
+    private readonly IAudioCaptureService _audioCaptureService;
     private readonly DictationTriggerRouter _triggerRouter;
     private readonly WindowsGlobalTriggerService _triggerService;
     private readonly WindowsTrayIconService _trayIconService;
@@ -26,9 +28,11 @@ public sealed partial class MainWindow : Window
     private Task? _triggerDispatchTask;
     private bool _allowClose;
     private bool _isDisposed;
+    private bool _audioDevicesLoaded;
 
     public MainWindow(
         DictationShellController controller,
+        IAudioCaptureService audioCaptureService,
         DictationTriggerRouter triggerRouter,
         WindowsGlobalTriggerService triggerService,
         WindowsTrayIconService trayIconService,
@@ -37,6 +41,7 @@ public sealed partial class MainWindow : Window
         InitializeComponent();
 
         _controller = controller ?? throw new ArgumentNullException(nameof(controller));
+        _audioCaptureService = audioCaptureService ?? throw new ArgumentNullException(nameof(audioCaptureService));
         _triggerRouter = triggerRouter ?? throw new ArgumentNullException(nameof(triggerRouter));
         _triggerService = triggerService ?? throw new ArgumentNullException(nameof(triggerService));
         _trayIconService = trayIconService ?? throw new ArgumentNullException(nameof(trayIconService));
@@ -46,6 +51,7 @@ public sealed partial class MainWindow : Window
         _triggerDispatcher = new DictationTriggerDispatcher(_triggerService, _triggerRouter);
 
         _controller.StateChanged += Controller_StateChanged;
+        _controller.AudioLevelChanged += Controller_AudioLevelChanged;
         _windowMessageHost.MessageReceived += WindowMessageHost_MessageReceived;
         _trayIconService.CommandInvoked += TrayIconService_CommandInvoked;
         AppWindow.Closing += AppWindow_Closing;
@@ -122,9 +128,14 @@ public sealed partial class MainWindow : Window
         await ApplyTriggerConfigurationAsync();
     }
 
-    private void MainWindow_Activated(object sender, WindowActivatedEventArgs args)
+    private async void MainWindow_Activated(object sender, WindowActivatedEventArgs args)
     {
         UpdateFloatingMicWindow();
+
+        if (!_audioDevicesLoaded)
+        {
+            await LoadAudioDevicesAsync();
+        }
     }
 
     private void AppWindow_Closing(AppWindow sender, AppWindowClosingEventArgs args)
@@ -154,6 +165,69 @@ public sealed partial class MainWindow : Window
         if (!DispatcherQueue.TryEnqueue(UpdateView))
         {
             UpdateView();
+        }
+    }
+
+    private void Controller_AudioLevelChanged(object? sender, AudioLevelFrame level)
+    {
+        DispatcherQueue.TryEnqueue(() =>
+            AudioLevelBar.Value = Math.Clamp(level.Peak * 100, AudioLevelBar.Minimum, AudioLevelBar.Maximum));
+    }
+
+    private async Task LoadAudioDevicesAsync()
+    {
+        try
+        {
+            IReadOnlyList<AudioInputDevice> devices = await _audioCaptureService
+                .ListInputDevicesAsync(CancellationToken.None);
+
+            AudioDeviceComboBox.Items.Clear();
+            foreach (AudioInputDevice device in devices)
+            {
+                AudioDeviceComboBox.Items.Add(new ComboBoxItem
+                {
+                    Content = device.DisplayName,
+                    Tag = device.Id
+                });
+            }
+
+            if (devices.Count == 0)
+            {
+                AudioDeviceComboBox.PlaceholderText = "No microphone available";
+                return;
+            }
+
+            string selectedDeviceId = _controller.AudioOptions.DeviceId ??
+                devices.FirstOrDefault(device => device.IsDefault)?.Id ??
+                devices[0].Id;
+            SelectAudioDevice(selectedDeviceId);
+            _audioDevicesLoaded = true;
+        }
+        catch (Exception ex)
+        {
+            AudioDeviceComboBox.PlaceholderText = "Microphone unavailable";
+            TriggerStatusText.Text = ex.Message;
+        }
+    }
+
+    private void AudioDeviceComboBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (AudioDeviceComboBox.SelectedItem is ComboBoxItem item && item.Tag is string deviceId)
+        {
+            _controller.SetAudioInputDevice(deviceId);
+        }
+    }
+
+    private void SelectAudioDevice(string deviceId)
+    {
+        for (int index = 0; index < AudioDeviceComboBox.Items.Count; index++)
+        {
+            if (AudioDeviceComboBox.Items[index] is ComboBoxItem item && item.Tag is string candidateId &&
+                string.Equals(candidateId, deviceId, StringComparison.OrdinalIgnoreCase))
+            {
+                AudioDeviceComboBox.SelectedIndex = index;
+                return;
+            }
         }
     }
 
@@ -192,6 +266,12 @@ public sealed partial class MainWindow : Window
         RetryButton.IsEnabled = state.CanRetry;
         CopyButton.IsEnabled = state.CanCopy;
         InsertionModeComboBox.IsEnabled = !state.IsRunning;
+        AudioDeviceComboBox.IsEnabled = !state.IsRunning && _audioDevicesLoaded;
+        if (!state.IsRunning)
+        {
+            AudioLevelBar.Value = 0;
+        }
+
         _trayIconService.UpdateDictationState(state.IsRunning);
         _floatingMicWindow?.UpdateState(state);
     }
@@ -395,6 +475,7 @@ public sealed partial class MainWindow : Window
         }
 
         _isDisposed = true;
+        _controller.AudioLevelChanged -= Controller_AudioLevelChanged;
         _triggerDispatchCancellation.Cancel();
         _trayIconService.CommandInvoked -= TrayIconService_CommandInvoked;
         _trayIconService.Dispose();

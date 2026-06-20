@@ -141,6 +141,19 @@ public sealed class DictationShellControllerTests
         Assert.Equal(0, services.TextInsertion.InsertCount);
     }
 
+    [Fact]
+    public async Task SetAudioInputDevice_UsesSelectedMicrophoneForTheNextRun()
+    {
+        var services = MockDictationAppServices.Create();
+        var controller = services.CreateShellController();
+
+        controller.SetAudioInputDevice("mock-external");
+        await controller.StartAsync(DictationInsertionMode.AutoInsert);
+        await controller.StopAsync();
+
+        Assert.Equal("mock-external", services.AudioCapture.LastOptions?.DeviceId);
+    }
+
     private static async Task WaitForStateAsync(
         DictationShellController controller,
         Func<DictationShellState, bool> predicate)

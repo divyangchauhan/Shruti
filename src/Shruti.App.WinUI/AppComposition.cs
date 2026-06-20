@@ -1,19 +1,34 @@
 using Shruti.App.WinUI.Dictation;
+using Shruti.Audio.Windows;
+using Shruti.Core.Dictation;
 using Shruti.Platform.Windows;
 
 namespace Shruti.App.WinUI;
 
 public sealed class AppComposition
 {
-    private readonly MockDictationAppServices dictationServices = MockDictationAppServices.Create();
+    private readonly MockTargetFocusService targetFocusService = new();
+    private readonly WindowsAudioCaptureService audioCaptureService = new();
+    private readonly MockTextInsertionService textInsertionService = new();
+    private readonly MockTranscriptionProvider transcriptionProvider = new();
+    private readonly MockTranscriptClipboard transcriptClipboard = new();
     private readonly WindowsPlatformModule platformModule = new();
 
     public MainWindow CreateMainWindow()
     {
-        var controller = dictationServices.CreateShellController();
+        var coordinator = new DictationCoordinator(
+            targetFocusService,
+            audioCaptureService,
+            textInsertionService,
+            transcriptionProvider);
+        var controller = new DictationShellController(
+            coordinator,
+            audioCaptureService,
+            transcriptClipboard);
         var triggerRouter = new DictationTriggerRouter(controller);
         return new MainWindow(
             controller,
+            audioCaptureService,
             triggerRouter,
             platformModule.CreateGlobalTriggerService(),
             platformModule.CreateTrayIconService(),

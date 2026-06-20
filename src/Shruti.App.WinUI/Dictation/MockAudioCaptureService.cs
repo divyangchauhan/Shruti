@@ -4,7 +4,7 @@ using Shruti.Transcription.Abstractions;
 
 namespace Shruti.App.WinUI.Dictation;
 
-public sealed class MockAudioCaptureService : IAudioCaptureService
+public sealed class MockAudioCaptureService : IAudioCaptureService, IAudioCaptureControl
 {
     private readonly object _sync = new();
     private readonly TimeSpan _frameInterval;
@@ -24,6 +24,8 @@ public sealed class MockAudioCaptureService : IAudioCaptureService
     public int StartCount { get; private set; }
 
     public AudioFormat? LastRequestedOutputFormat { get; private set; }
+
+    public AudioCaptureOptions? LastOptions { get; private set; }
 
     public Task<IReadOnlyList<AudioInputDevice>> ListInputDevicesAsync(CancellationToken cancellationToken)
     {
@@ -50,6 +52,7 @@ public sealed class MockAudioCaptureService : IAudioCaptureService
         {
             StartCount++;
             LastRequestedOutputFormat = outputFormat;
+            LastOptions = options;
             _activeSession = session;
 
             if (_stopRequestedBeforeStart)
@@ -62,8 +65,9 @@ public sealed class MockAudioCaptureService : IAudioCaptureService
         return Task.FromResult<IAudioCaptureSession>(session);
     }
 
-    public Task StopActiveCaptureAsync()
+    public Task StopActiveCaptureAsync(CancellationToken cancellationToken = default)
     {
+        cancellationToken.ThrowIfCancellationRequested();
         MockAudioCaptureSession? session;
 
         lock (_sync)

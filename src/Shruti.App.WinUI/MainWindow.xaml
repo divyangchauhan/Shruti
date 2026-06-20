@@ -37,7 +37,7 @@
                             Text="Shruti" />
                         <TextBlock
                             Foreground="{ThemeResource TextFillColorSecondaryBrush}"
-                            Text="Local dictation mock loop" />
+                            Text="Local dictation" />
                     </StackPanel>
 
                     <Button
@@ -59,6 +59,7 @@
                         <ColumnDefinition Width="220" />
                     </Grid.ColumnDefinitions>
                     <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto" />
                         <RowDefinition Height="Auto" />
                         <RowDefinition Height="Auto" />
                     </Grid.RowDefinitions>
@@ -114,8 +115,32 @@
                             Text="Target" />
                         <TextBlock
                             x:Name="TargetText"
-                            Text="No target captured"
-                            TextWrapping="Wrap" />
+                        Text="No target captured"
+                        TextWrapping="Wrap" />
+                    </StackPanel>
+
+                    <ComboBox
+                        x:Name="AudioDeviceComboBox"
+                        Grid.Row="2"
+                        Grid.ColumnSpan="2"
+                        Header="Microphone"
+                        IsEnabled="False"
+                        PlaceholderText="Loading microphones"
+                        SelectionChanged="AudioDeviceComboBox_SelectionChanged" />
+
+                    <StackPanel
+                        Grid.Row="2"
+                        Grid.Column="2"
+                        Spacing="4">
+                        <TextBlock
+                            FontSize="12"
+                            Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                            Text="Input level" />
+                        <ProgressBar
+                            x:Name="AudioLevelBar"
+                            Maximum="100"
+                            Minimum="0"
+                            Value="0" />
                     </StackPanel>
                 </Grid>
 
