@@ -3,7 +3,7 @@ using Shruti.Core.Dictation;
 using Shruti.Core.Platform;
 using Shruti.Transcription.Abstractions;
 
-namespace Shruti.App.WinUI.Dictation;
+namespace Shruti.Workflow.Dictation;
 
 public sealed class MockDictationAppServices
 {

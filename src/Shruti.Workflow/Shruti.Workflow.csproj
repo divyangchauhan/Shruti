@@ -1,10 +1,11 @@
 <Project Sdk="Microsoft.NET.Sdk">
     <PropertyGroup>
         <TargetFramework>net8.0</TargetFramework>
+        <RootNamespace>Shruti.Workflow</RootNamespace>
     </PropertyGroup>
 
     <ItemGroup>
-        <PackageReference Include="Microsoft.Data.Sqlite" />
         <ProjectReference Include="..\Shruti.Core\Shruti.Core.csproj" />
+        <ProjectReference Include="..\Shruti.Transcription.Abstractions\Shruti.Transcription.Abstractions.csproj" />
     </ItemGroup>
 </Project>

@@ -1,7 +1,7 @@
 using System.Runtime.CompilerServices;
 using Shruti.Transcription.Abstractions;
 
-namespace Shruti.App.WinUI.Dictation;
+namespace Shruti.Workflow.Dictation;
 
 public sealed class MockTranscriptionProvider : ITranscriptionProvider
 {

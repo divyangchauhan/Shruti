@@ -20,5 +20,6 @@
         <ProjectReference Include="..\Shruti.Transcription.Abstractions\Shruti.Transcription.Abstractions.csproj" />
         <ProjectReference Include="..\Shruti.Models\Shruti.Models.csproj" />
         <ProjectReference Include="..\Shruti.Storage\Shruti.Storage.csproj" />
+        <ProjectReference Include="..\Shruti.Workflow\Shruti.Workflow.csproj" />
     </ItemGroup>
 </Project>

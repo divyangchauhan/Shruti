@@ -1,4 +1,4 @@
-using Shruti.App.WinUI.Dictation;
+using Shruti.Workflow.Dictation;
 using Shruti.Core;
 using Shruti.Core.Dictation;
 using Shruti.Core.Triggers;

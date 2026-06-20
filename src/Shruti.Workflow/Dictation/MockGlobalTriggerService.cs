@@ -1,7 +1,7 @@
 using System.Threading.Channels;
 using Shruti.Core.Triggers;
 
-namespace Shruti.App.WinUI.Dictation;
+namespace Shruti.Workflow.Dictation;
 
 public sealed class MockGlobalTriggerService : IGlobalTriggerService
 {

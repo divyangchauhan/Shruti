@@ -2,7 +2,7 @@
 
 Date: 2026-06-19
 
-Status: implementation in progress (PR-09)
+Status: implementation in progress (PR-10)
 
 This plan turns `features.md` and `architecture.md` into an implementation roadmap. It assumes Windows-first development with WinUI 3, Windows App SDK, local transcription, and immediate system-wide text insertion as the central workflow.
 
@@ -339,8 +339,8 @@ Acceptance criteria:
 | PR | Status | Target merge | Scope | Primary risk retired |
 | --- | --- | --- | --- | --- |
 | PR-08 | Done | 2026-07-08 | WASAPI capture, device picker, audio meter | Microphone path works |
-| PR-09 | In progress | 2026-07-10 | Settings repository, local data layout, retention policy | Durable app configuration |
-| PR-10 | Planned | 2026-07-13 | SQLite session/segment storage and export TXT/Markdown/JSON/SRT/VTT | Transcript output path |
+| PR-09 | Done | 2026-07-10 | Settings repository, local data layout, retention policy | Durable app configuration |
+| PR-10 | In progress | 2026-07-13 | SQLite session/segment storage and export TXT/Markdown/JSON/SRT/VTT | Transcript output path |
 
 ### Phase 3: Real Transcription
 

@@ -1,6 +1,6 @@
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
-using Shruti.App.WinUI.Dictation;
+using Shruti.Workflow.Dictation;
 using Shruti.Platform.Windows;
 using WinRT.Interop;
 using Windows.Graphics;

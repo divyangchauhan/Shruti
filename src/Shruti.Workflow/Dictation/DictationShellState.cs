@@ -1,7 +1,7 @@
 using Shruti.Core;
 using Shruti.Core.Dictation;
 
-namespace Shruti.App.WinUI.Dictation;
+namespace Shruti.Workflow.Dictation;
 
 public sealed record DictationShellState(
     DictationSessionState SessionState,
