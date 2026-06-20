@@ -8,4 +8,9 @@ public sealed class StorageModule
     {
         return new JsonSettingsRepository(AppDataPaths.CreateDefault());
     }
+
+    public ISessionRepository CreateSessionRepository()
+    {
+        return new SqliteSessionRepository(AppDataPaths.CreateDefault());
+    }
 }
