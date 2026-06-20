@@ -5,4 +5,5 @@ public sealed record TriggerConfiguration(
     bool EnablePushToTalk,
     bool EnableFloatingButton,
     bool EnableTrayMenu,
-    string? HotkeyGesture);
+    string? HotkeyGesture,
+    string? PushToTalkKey = "RightControl");

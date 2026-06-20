@@ -32,4 +32,5 @@ jobs:
         run: dotnet build Shruti.sln --configuration Debug --no-restore -p:Platform=x64 -warnaserror
 
       - name: Run tests
-        run: dotnet test tests/Shruti.Tests/Shruti.Tests.csproj --configuration Debug --no-build --logger "trx;LogFileName=test-results.trx" -p:Platform=x64
+        timeout-minutes: 5
+        run: dotnet test tests/Shruti.Tests/Shruti.Tests.csproj --configuration Debug --no-build --logger "trx;LogFileName=test-results.trx" --logger "console;verbosity=normal" -p:Platform=x64
