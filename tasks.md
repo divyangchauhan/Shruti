@@ -2,7 +2,7 @@
 
 Date: 2026-06-19
 
-Status: planning
+Status: implementation in progress (PR-09)
 
 This plan turns `features.md` and `architecture.md` into an implementation roadmap. It assumes Windows-first development with WinUI 3, Windows App SDK, local transcription, and immediate system-wide text insertion as the central workflow.
 
@@ -319,55 +319,55 @@ Acceptance criteria:
 
 ### Phase 0: Project Foundation
 
-| PR | Target merge | Scope | Primary risk retired |
-| --- | --- | --- | --- |
-| PR-01 | 2026-06-22 | Solution scaffold, WinUI shell, test project, CI build | Build shape and repo hygiene |
-| PR-02 | 2026-06-24 | Core domain models, provider/platform interfaces, mock-friendly `DictationCoordinator`, and workflow tests | Architecture boundaries and workflow correctness before platform code |
-| PR-03 | 2026-06-26 | Formatting/lint scripts, analyzer enforcement, and PR validation workflow | Consistent local and CI validation before feature work |
+| PR | Status | Target merge | Scope | Primary risk retired |
+| --- | --- | --- | --- | --- |
+| PR-01 | Done | 2026-06-22 | Solution scaffold, WinUI shell, test project, CI build | Build shape and repo hygiene |
+| PR-02 | Done | 2026-06-24 | Core domain models, provider/platform interfaces, mock-friendly `DictationCoordinator`, and workflow tests | Architecture boundaries and workflow correctness before platform code |
+| PR-03 | Done | 2026-06-26 | Formatting/lint scripts, analyzer enforcement, and PR validation workflow | Consistent local and CI validation before feature work |
 
 ### Phase 1: Mock End-to-End Product Loop
 
-| PR | Target merge | Scope | Primary risk retired |
-| --- | --- | --- | --- |
-| PR-04 | 2026-06-29 | WinUI dictation screen wired to mock coordinator | App UX can drive workflow |
-| PR-05 | 2026-07-01 | Windows target capture and focus restore prototype | Previously focused app can be remembered |
-| PR-06 | 2026-07-03 | Text insertion service with `SendInput` and clipboard fallback | System-wide insertion feasibility |
-| PR-07 | 2026-07-06 | Global hotkey, tray control, and floating button using mock dictation | Trigger paths work outside main window |
+| PR | Status | Target merge | Scope | Primary risk retired |
+| --- | --- | --- | --- | --- |
+| PR-04 | Done | 2026-06-29 | WinUI dictation screen wired to mock coordinator | App UX can drive workflow |
+| PR-05 | Done | 2026-07-01 | Windows target capture and focus restore prototype | Previously focused app can be remembered |
+| PR-06 | Done | 2026-07-03 | Text insertion service with `SendInput` and clipboard fallback | System-wide insertion feasibility |
+| PR-07 | Done | 2026-07-06 | Global hotkey, tray control, and floating button using mock dictation | Trigger paths work outside main window |
 
 ### Phase 2: Real Audio and Local Storage
 
-| PR | Target merge | Scope | Primary risk retired |
-| --- | --- | --- | --- |
-| PR-08 | 2026-07-08 | WASAPI capture, device picker, audio meter | Microphone path works |
-| PR-09 | 2026-07-10 | Settings repository, local data layout, retention policy | Durable app configuration |
-| PR-10 | 2026-07-13 | SQLite session/segment storage and export TXT/Markdown/JSON/SRT/VTT | Transcript output path |
+| PR | Status | Target merge | Scope | Primary risk retired |
+| --- | --- | --- | --- | --- |
+| PR-08 | Done | 2026-07-08 | WASAPI capture, device picker, audio meter | Microphone path works |
+| PR-09 | In progress | 2026-07-10 | Settings repository, local data layout, retention policy | Durable app configuration |
+| PR-10 | Planned | 2026-07-13 | SQLite session/segment storage and export TXT/Markdown/JSON/SRT/VTT | Transcript output path |
 
 ### Phase 3: Real Transcription
 
-| PR | Target merge | Scope | Primary risk retired |
-| --- | --- | --- | --- |
-| PR-11 | 2026-07-15 | Model catalog, download, verification, import/remove | Model lifecycle |
-| PR-12 | 2026-07-20 | `whisper.cpp` native shim and C# adapter | Local ASR provider feasibility |
-| PR-13 | 2026-07-22 | Audio-to-`whisper.cpp` final transcription integration | Real local transcription loop |
-| PR-14 | 2026-07-24 | Provider registry, backend readiness, benchmark cache, slow-mode gate | Hardware/model eligibility |
+| PR | Status | Target merge | Scope | Primary risk retired |
+| --- | --- | --- | --- | --- |
+| PR-11 | Planned | 2026-07-15 | Model catalog, download, verification, import/remove | Model lifecycle |
+| PR-12 | Planned | 2026-07-20 | `whisper.cpp` native shim and C# adapter | Local ASR provider feasibility |
+| PR-13 | Planned | 2026-07-22 | Audio-to-`whisper.cpp` final transcription integration | Real local transcription loop |
+| PR-14 | Planned | 2026-07-24 | Provider registry, backend readiness, benchmark cache, slow-mode gate | Hardware/model eligibility |
 
 ### Phase 4: MVP Integration and Hardening
 
-| PR | Target merge | Scope | Primary risk retired |
-| --- | --- | --- | --- |
-| PR-15 | 2026-07-27 | End-to-end auto-insert dictation: trigger, record, transcribe, insert | Core MVP workflow |
-| PR-16 | 2026-07-29 | Preview-before-insert, copy-only, cancel/retry, selected-text safety | Safe user control |
-| PR-17 | 2026-07-31 | Per-app insertion policies and compatibility matrix | App-specific insertion reliability |
-| PR-18 | 2026-08-03 | Error handling, privacy copy, diagnostics, accessibility pass | User trust and recoverability |
-| PR-19 | 2026-08-05 | Manual QA fixes across Notepad, browser, Codex-style field, Word, Terminal, Electron, elevated app | Windows compatibility |
+| PR | Status | Target merge | Scope | Primary risk retired |
+| --- | --- | --- | --- | --- |
+| PR-15 | Planned | 2026-07-27 | End-to-end auto-insert dictation: trigger, record, transcribe, insert | Core MVP workflow |
+| PR-16 | Planned | 2026-07-29 | Preview-before-insert, copy-only, cancel/retry, selected-text safety | Safe user control |
+| PR-17 | Planned | 2026-07-31 | Per-app insertion policies and compatibility matrix | App-specific insertion reliability |
+| PR-18 | Planned | 2026-08-03 | Error handling, privacy copy, diagnostics, accessibility pass | User trust and recoverability |
+| PR-19 | Planned | 2026-08-05 | Manual QA fixes across Notepad, browser, Codex-style field, Word, Terminal, Electron, elevated app | Windows compatibility |
 
 ### Phase 5: Packaging
 
-| PR | Target merge | Scope | Primary risk retired |
-| --- | --- | --- | --- |
-| PR-20 | 2026-08-07 | MSIX packaging with native DLL inclusion | Installable Windows app |
-| PR-21 | 2026-08-10 | Signing, update preservation, clean-machine install test | Release readiness |
-| PR-22 | 2026-08-12 | Bootstrapper or installer adjustments, release notes, optional `winget` prep | Distribution polish |
+| PR | Status | Target merge | Scope | Primary risk retired |
+| --- | --- | --- | --- | --- |
+| PR-20 | Planned | 2026-08-07 | MSIX packaging with native DLL inclusion | Installable Windows app |
+| PR-21 | Planned | 2026-08-10 | Signing, update preservation, clean-machine install test | Release readiness |
+| PR-22 | Planned | 2026-08-12 | Bootstrapper or installer adjustments, release notes, optional `winget` prep | Distribution polish |
 
 ## Release Gates
 
