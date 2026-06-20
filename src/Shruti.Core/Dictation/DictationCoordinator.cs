@@ -58,6 +58,8 @@ public sealed class DictationCoordinator
                 .StartAsync(request.AudioOptions, transcriptionSession.RequiredInputFormat, cancellationToken)
                 .ConfigureAwait(false);
 
+            request.CaptureSessionStarted?.Invoke(audioCaptureSession);
+
             Transition(DictationSessionState.Recording, "Recording");
             await foreach (var frame in audioCaptureSession.Frames.WithCancellation(cancellationToken).ConfigureAwait(false))
             {
