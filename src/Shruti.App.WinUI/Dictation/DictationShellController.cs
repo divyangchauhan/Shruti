@@ -14,6 +14,7 @@ public sealed class DictationShellController
     private CancellationTokenSource? _activeCancellation;
     private CancellationTokenSource? _levelMonitorCancellation;
     private Task? _activeRun;
+    private Task? _levelMonitorTask;
     private AudioCaptureOptions _audioOptions = new();
 
     public DictationShellController(
@@ -247,7 +248,7 @@ public sealed class DictationShellController
         }
         finally
         {
-            StopLevelMonitor();
+            await StopLevelMonitorAsync().ConfigureAwait(false);
             _activeCancellation?.Dispose();
             _activeCancellation = null;
             _activeRun = null;
@@ -256,11 +257,14 @@ public sealed class DictationShellController
 
     private void StartLevelMonitor(IAudioCaptureSession session)
     {
-        StopLevelMonitor();
+        if (_levelMonitorTask is not null)
+        {
+            throw new InvalidOperationException("An audio-level monitor is already active.");
+        }
 
         var cancellation = new CancellationTokenSource();
         _levelMonitorCancellation = cancellation;
-        _ = MonitorLevelsAsync(session, cancellation.Token);
+        _levelMonitorTask = MonitorLevelsAsync(session, cancellation.Token);
     }
 
     private async Task MonitorLevelsAsync(
@@ -286,11 +290,20 @@ public sealed class DictationShellController
         }
     }
 
-    private void StopLevelMonitor()
+    private async Task StopLevelMonitorAsync()
     {
-        _levelMonitorCancellation?.Cancel();
-        _levelMonitorCancellation?.Dispose();
+        CancellationTokenSource? cancellation = _levelMonitorCancellation;
+        Task? monitorTask = _levelMonitorTask;
         _levelMonitorCancellation = null;
+        _levelMonitorTask = null;
+
+        cancellation?.Cancel();
+        if (monitorTask is not null)
+        {
+            await monitorTask.ConfigureAwait(false);
+        }
+
+        cancellation?.Dispose();
     }
 
     private void ApplyProgress(DictationStatus status)
