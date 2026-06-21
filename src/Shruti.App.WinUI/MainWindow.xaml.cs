@@ -530,7 +530,7 @@ public sealed partial class MainWindow : Window
     {
         if (!_triggerService.Configuration.EnableFloatingButton)
         {
-            CloseFloatingMicWindow();
+            HideFloatingMicWindow();
             return;
         }
 
@@ -601,21 +601,14 @@ public sealed partial class MainWindow : Window
     private void QuitApplication()
     {
         _allowClose = true;
-        CloseFloatingMicWindow();
+        HideFloatingMicWindow();
         DisposeNativeTriggers();
         Close();
     }
 
-    private void CloseFloatingMicWindow()
+    private void HideFloatingMicWindow()
     {
-        if (_floatingMicWindow is null)
-        {
-            return;
-        }
-
-        _floatingMicWindow.TriggerRequested -= FloatingMicWindow_TriggerRequested;
-        _floatingMicWindow.Close();
-        _floatingMicWindow = null;
+        _floatingMicWindow?.Hide();
     }
 
     private void DisposeNativeTriggers()

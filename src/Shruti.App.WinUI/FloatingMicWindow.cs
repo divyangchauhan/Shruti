@@ -1,3 +1,4 @@
+using Microsoft.UI.Windowing;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Shruti.Workflow.Dictation;
@@ -35,6 +36,7 @@ public sealed class FloatingMicWindow : Window
             Child = _triggerButton
         };
         Content = _root;
+        AppWindow.Closing += AppWindow_Closing;
     }
 
     public event EventHandler? TriggerRequested;
@@ -65,6 +67,22 @@ public sealed class FloatingMicWindow : Window
         _triggerButton.Content = new SymbolIcon(state.IsRunning ? Symbol.Stop : Symbol.Microphone);
         ToolTipService.SetToolTip(_triggerButton, state.IsRunning ? "Stop dictation" : "Start dictation");
         _triggerButton.IsEnabled = state.CanStart || state.CanStop;
+    }
+
+    public void Hide()
+    {
+        if (!_isInitialized)
+        {
+            return;
+        }
+
+        _windowVisibility.Hide(WindowNative.GetWindowHandle(this));
+    }
+
+    private void AppWindow_Closing(AppWindow sender, AppWindowClosingEventArgs args)
+    {
+        args.Cancel = true;
+        Hide();
     }
 
     private void TriggerButton_Click(object sender, RoutedEventArgs e)
