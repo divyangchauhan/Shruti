@@ -19,7 +19,8 @@ public sealed record DictationShellState(
     bool CanRetry,
     bool CanCopy,
     DictationRunOutcome? LastOutcome = null,
-    string? ErrorText = null)
+    string? ErrorText = null,
+    bool CanInsertPreview = false)
 {
     public static DictationShellState Initial { get; } = new(
         DictationSessionState.Idle,

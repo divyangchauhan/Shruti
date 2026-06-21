@@ -13,7 +13,7 @@ namespace Shruti.App.WinUI;
 public sealed class AppComposition
 {
     private readonly WindowsAudioCaptureService audioCaptureService = new();
-    private readonly MockTranscriptClipboard transcriptClipboard = new();
+    private readonly WindowsTranscriptClipboard transcriptClipboard = new();
     private readonly WindowsPlatformModule platformModule = new();
     private readonly ISettingsRepository settingsRepository = new StorageModule().CreateSettingsRepository();
     private readonly AppDataPaths appDataPaths = AppDataPaths.CreateDefault();

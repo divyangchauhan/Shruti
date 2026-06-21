@@ -10,6 +10,10 @@ public sealed class MockTextInsertionService : ITextInsertionService
 
     public string? LastInsertedText { get; private set; }
 
+    public TextInsertionOptions? LastOptions { get; private set; }
+
+    public TaskCompletionSource? InsertCompletion { get; set; }
+
     public Task<TextInsertionCapability> InspectAsync(
         FocusTarget target,
         CancellationToken cancellationToken)
@@ -25,7 +29,7 @@ public sealed class MockTextInsertionService : ITextInsertionService
         return Task.FromResult(capability);
     }
 
-    public Task<TextInsertionResult> InsertAsync(
+    public async Task<TextInsertionResult> InsertAsync(
         FocusTarget target,
         string text,
         TextInsertionOptions options,
@@ -34,10 +38,16 @@ public sealed class MockTextInsertionService : ITextInsertionService
         cancellationToken.ThrowIfCancellationRequested();
         InsertCount++;
         LastInsertedText = text;
+        LastOptions = options;
 
-        return Task.FromResult(new TextInsertionResult(
+        if (InsertCompletion is not null)
+        {
+            await InsertCompletion.Task.WaitAsync(cancellationToken).ConfigureAwait(false);
+        }
+
+        return new TextInsertionResult(
             Inserted: true,
             TextInsertionMethod.DirectInput,
-            "Inserted into the mock target."));
+            "Inserted into the mock target.");
     }
 }

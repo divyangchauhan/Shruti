@@ -121,6 +121,60 @@ public sealed class DictationCoordinator
         }
     }
 
+    public async Task<DictationRunResult> InsertFinalizedTranscriptAsync(
+        FocusTarget target,
+        TranscriptResult transcript,
+        TextInsertionOptions? insertionOptions,
+        IProgress<DictationStatus>? statusProgress,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(target);
+        ArgumentNullException.ThrowIfNull(transcript);
+
+        var statusHistory = new List<DictationStatus>();
+
+        void Transition(DictationSessionState state, string message)
+        {
+            var status = new DictationStatus(state, message);
+            statusHistory.Add(status);
+            statusProgress?.Report(status);
+        }
+
+        try
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            return await InsertFinalizedTranscriptCoreAsync(
+                    target,
+                    transcript,
+                    insertionOptions ?? new TextInsertionOptions(),
+                    statusHistory,
+                    Transition,
+                    cancellationToken)
+                .ConfigureAwait(false);
+        }
+        catch (OperationCanceledException)
+        {
+            Transition(DictationSessionState.Cancelled, "Cancelled");
+            return new DictationRunResult(
+                DictationRunOutcome.Cancelled,
+                statusHistory,
+                target,
+                transcript,
+                Message: "Transcript insertion was cancelled.");
+        }
+        catch (Exception ex)
+        {
+            Transition(DictationSessionState.Failed, "Failed");
+            return new DictationRunResult(
+                DictationRunOutcome.Failed,
+                statusHistory,
+                target,
+                transcript,
+                Message: ex.Message,
+                Error: ex);
+        }
+    }
+
     private async Task<DictationRunResult> CompleteAsync(
         DictationRequest request,
         FocusTarget? target,
@@ -151,6 +205,24 @@ public sealed class DictationCoordinator
                 Message: "Copy-only mode is enabled.");
         }
 
+        return await InsertFinalizedTranscriptCoreAsync(
+                target,
+                transcript,
+                request.InsertionOptions,
+                statusHistory,
+                transition,
+                cancellationToken)
+            .ConfigureAwait(false);
+    }
+
+    private async Task<DictationRunResult> InsertFinalizedTranscriptCoreAsync(
+        FocusTarget? target,
+        TranscriptResult transcript,
+        TextInsertionOptions insertionOptions,
+        IReadOnlyList<DictationStatus> statusHistory,
+        Action<DictationSessionState, string> transition,
+        CancellationToken cancellationToken)
+    {
         if (target is null)
         {
             transition(DictationSessionState.Complete, "Preview required");
@@ -163,7 +235,7 @@ public sealed class DictationCoordinator
         }
 
         var capability = await _textInsertionService.InspectAsync(target, cancellationToken).ConfigureAwait(false);
-        if (!CanAutoInsert(capability, request.InsertionOptions))
+        if (!CanAutoInsert(capability, insertionOptions))
         {
             transition(DictationSessionState.Complete, "Preview required");
             return new DictationRunResult(
@@ -192,7 +264,7 @@ public sealed class DictationCoordinator
         }
 
         var insertionResult = await _textInsertionService
-            .InsertAsync(target, transcript.Text, request.InsertionOptions, cancellationToken)
+            .InsertAsync(target, transcript.Text, insertionOptions, cancellationToken)
             .ConfigureAwait(false);
 
         transition(DictationSessionState.Complete, insertionResult.Inserted ? "Complete" : "Preview required");

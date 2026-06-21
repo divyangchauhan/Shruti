@@ -312,6 +312,11 @@
                             MinWidth="96"
                             Click="CopyButton_Click"
                             Content="Copy" />
+                        <Button
+                            x:Name="InsertPreviewButton"
+                            MinWidth="96"
+                            Click="InsertPreviewButton_Click"
+                            Content="Insert" />
                     </StackPanel>
                 </ScrollViewer>
 
@@ -319,6 +324,7 @@
                     Grid.Row="4"
                     RowSpacing="12">
                     <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto" />
                         <RowDefinition Height="Auto" />
                         <RowDefinition Height="Auto" />
                         <RowDefinition Height="Auto" />
@@ -332,16 +338,22 @@
                         MinHeight="180"
                         TextWrapping="Wrap" />
 
+                    <CheckBox
+                        x:Name="ReplaceSelectionCheckBox"
+                        Grid.Row="1"
+                        Content="Replace selected text"
+                        Visibility="Collapsed" />
+
                     <TextBlock
                         x:Name="UserMessageText"
-                        Grid.Row="1"
+                        Grid.Row="2"
                         Foreground="{ThemeResource TextFillColorSecondaryBrush}"
                         Text="Dictation is ready."
                         TextWrapping="Wrap" />
 
                     <TextBlock
                         x:Name="ErrorText"
-                        Grid.Row="2"
+                        Grid.Row="3"
                         Foreground="{ThemeResource SystemFillColorCriticalBrush}"
                         TextWrapping="Wrap"
                         Visibility="Collapsed" />
