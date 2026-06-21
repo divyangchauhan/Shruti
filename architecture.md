@@ -43,6 +43,7 @@ The Windows MVP uses WinUI 3 with Windows App SDK for the native UI and starts w
 
 - First provider: `whisper.cpp` compiled as a local native library.
 - Model format: provider-specific. The initial `whisper.cpp` catalog uses verified GGML `.bin` models; the catalog also supports GGUF entries for future providers.
+- Initial execution backend: CPU-only `whisper.cpp`; accelerated backends remain a later provider/readiness concern.
 - Initial compute target: CPU path that is reliable on supported Windows machines.
 - Optional acceleration in the `whisper.cpp` provider can be added only after benchmarking and packaging are stable.
 - Provider contract must expose capabilities and measured real-time factor instead of assuming a model/backend is fast enough.
@@ -179,6 +180,8 @@ Owns the MVP engine adapter:
 - Maps `whisper.cpp` errors into engine-neutral errors.
 
 The native binding should be intentionally small. Prefer a C ABI shim over binding the app directly to broad C++ internals.
+
+The `scripts/run-real-transcription.ps1` integration path builds the shim, installs the verified default model in local app data, and transcribes a pinned speech fixture through the managed provider.
 
 ### `Shruti.Models`
 

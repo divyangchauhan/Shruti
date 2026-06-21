@@ -18,6 +18,7 @@
         <ProjectReference Include="..\Shruti.Audio.Windows\Shruti.Audio.Windows.csproj" />
         <ProjectReference Include="..\Shruti.Platform.Windows\Shruti.Platform.Windows.csproj" />
         <ProjectReference Include="..\Shruti.Transcription.Abstractions\Shruti.Transcription.Abstractions.csproj" />
+        <ProjectReference Include="..\Shruti.Transcription.WhisperCpp\Shruti.Transcription.WhisperCpp.csproj" />
         <ProjectReference Include="..\Shruti.Models\Shruti.Models.csproj" />
         <ProjectReference Include="..\Shruti.Storage\Shruti.Storage.csproj" />
         <ProjectReference Include="..\Shruti.Workflow\Shruti.Workflow.csproj" />

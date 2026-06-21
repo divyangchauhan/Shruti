@@ -20,6 +20,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Shruti.Workflow", "src\Shru
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Shruti.Transcription.WhisperCpp", "src\Shruti.Transcription.WhisperCpp\Shruti.Transcription.WhisperCpp.csproj", "{681CAB86-39B8-4757-91B4-0EB16A2DDB86}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Shruti.RealIntegration", "tools\Shruti.RealIntegration\Shruti.RealIntegration.csproj", "{8206E228-C7CA-439E-8A55-159375B188C6}"
+EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Shruti.Tests", "tests\Shruti.Tests\Shruti.Tests.csproj", "{3C1A134A-B6E9-47BC-8A34-2B1A4187F578}"
 EndProject
 Global
@@ -64,6 +66,10 @@ Global
         {681CAB86-39B8-4757-91B4-0EB16A2DDB86}.Debug|x64.Build.0 = Debug|x64
         {681CAB86-39B8-4757-91B4-0EB16A2DDB86}.Release|x64.ActiveCfg = Release|x64
         {681CAB86-39B8-4757-91B4-0EB16A2DDB86}.Release|x64.Build.0 = Release|x64
+        {8206E228-C7CA-439E-8A55-159375B188C6}.Debug|x64.ActiveCfg = Debug|x64
+        {8206E228-C7CA-439E-8A55-159375B188C6}.Debug|x64.Build.0 = Debug|x64
+        {8206E228-C7CA-439E-8A55-159375B188C6}.Release|x64.ActiveCfg = Release|x64
+        {8206E228-C7CA-439E-8A55-159375B188C6}.Release|x64.Build.0 = Release|x64
         {3C1A134A-B6E9-47BC-8A34-2B1A4187F578}.Debug|x64.ActiveCfg = Debug|x64
         {3C1A134A-B6E9-47BC-8A34-2B1A4187F578}.Debug|x64.Build.0 = Debug|x64
         {3C1A134A-B6E9-47BC-8A34-2B1A4187F578}.Release|x64.ActiveCfg = Release|x64

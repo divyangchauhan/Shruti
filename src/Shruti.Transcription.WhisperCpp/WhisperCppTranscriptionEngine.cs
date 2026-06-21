@@ -1,6 +1,6 @@
 namespace Shruti.Transcription.WhisperCpp;
 
-public sealed class WhisperCppTranscriptionEngine
+public sealed class WhisperCppTranscriptionEngine : IWhisperCppTranscriptionEngine
 {
     private readonly IWhisperCppNativeApi _nativeApi;
 
