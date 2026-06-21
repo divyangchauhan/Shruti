@@ -6,9 +6,18 @@ $ErrorActionPreference = "Stop"
 $root = Split-Path -Parent $PSScriptRoot
 $solution = Join-Path $root "Shruti.sln"
 
-if ($Verify) {
-    dotnet format $solution --verify-no-changes --verbosity minimal
-    exit
+function Invoke-DotnetCommand {
+    param([string[]] $Arguments)
+
+    & dotnet @Arguments
+    if ($LASTEXITCODE -ne 0) {
+        throw "dotnet $($Arguments -join ' ') failed with exit code $LASTEXITCODE."
+    }
 }
 
-dotnet format $solution --verbosity minimal
+if ($Verify) {
+    Invoke-DotnetCommand @("format", $solution, "--verify-no-changes", "--verbosity", "minimal")
+    return
+}
+
+Invoke-DotnetCommand @("format", $solution, "--verbosity", "minimal")

@@ -4,4 +4,8 @@ public sealed record TranscriptionSessionOptions(
     TranscriptionModelDescriptor Model,
     ComputeBackend Backend,
     string Language,
-    TranscriptionMode Mode);
+    TranscriptionMode Mode,
+    StreamingTranscriptionOptions? Streaming = null)
+{
+    public StreamingTranscriptionOptions EffectiveStreamingOptions => Streaming ?? StreamingTranscriptionOptions.Default;
+}
