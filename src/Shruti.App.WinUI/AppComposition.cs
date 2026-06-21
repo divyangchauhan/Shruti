@@ -1,6 +1,7 @@
 using Shruti.Workflow.Dictation;
 using Shruti.Audio.Windows;
 using Shruti.Core.Dictation;
+using Shruti.Core.Platform;
 using Shruti.Models;
 using Shruti.Platform.Windows;
 using Shruti.Storage;
@@ -11,9 +12,7 @@ namespace Shruti.App.WinUI;
 
 public sealed class AppComposition
 {
-    private readonly MockTargetFocusService targetFocusService = new();
     private readonly WindowsAudioCaptureService audioCaptureService = new();
-    private readonly MockTextInsertionService textInsertionService = new();
     private readonly MockTranscriptClipboard transcriptClipboard = new();
     private readonly WindowsPlatformModule platformModule = new();
     private readonly ISettingsRepository settingsRepository = new StorageModule().CreateSettingsRepository();
@@ -21,6 +20,14 @@ public sealed class AppComposition
     private readonly ModelCatalogEntry defaultModel = RecommendedModelCatalog.Create().GetRequiredModel("whisper-tiny-en");
     private readonly WhisperCppTranscriptionProvider transcriptionProvider = new(
         new WhisperCppTranscriptionEngine(new WhisperCppNativeApi()));
+    private readonly ITargetFocusService targetFocusService;
+    private readonly ITextInsertionService textInsertionService;
+
+    public AppComposition()
+    {
+        targetFocusService = platformModule.CreateTargetFocusService();
+        textInsertionService = platformModule.CreateTextInsertionService();
+    }
 
     public MainWindow CreateMainWindow()
     {

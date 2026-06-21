@@ -336,7 +336,7 @@
                         x:Name="UserMessageText"
                         Grid.Row="1"
                         Foreground="{ThemeResource TextFillColorSecondaryBrush}"
-                        Text="Mock dictation is ready."
+                        Text="Dictation is ready."
                         TextWrapping="Wrap" />
 
                     <TextBlock

@@ -25,7 +25,7 @@ public sealed record DictationShellState(
         DictationSessionState.Idle,
         DictationInsertionMode.AutoInsert,
         "Ready",
-        "Mock dictation is ready.",
+        "Dictation is ready.",
         string.Empty,
         "No target captured",
         IsRunning: false,
