@@ -2,7 +2,7 @@
 
 Date: 2026-06-19
 
-Status: implementation in progress (PR-15)
+Status: PR-16 complete; PR-17 planned.
 
 This plan turns `features.md` and `architecture.md` into an implementation roadmap. It assumes Windows-first development with WinUI 3, Windows App SDK, local transcription, and immediate system-wide text insertion as the central workflow.
 
@@ -356,7 +356,7 @@ Acceptance criteria:
 | PR | Status | Target merge | Scope | Primary risk retired |
 | --- | --- | --- | --- | --- |
 | PR-15 | Done | 2026-07-27 | End-to-end auto-insert dictation: trigger, record, transcribe, insert | Core MVP workflow |
-| PR-16 | In progress | 2026-07-29 | Preview-before-insert, copy-only, cancel/retry, selected-text safety | Safe user control |
+| PR-16 | Done | 2026-07-29 | Preview-before-insert, copy-only, cancel/retry, selected-text safety | Safe user control |
 | PR-17 | Planned | 2026-07-31 | Provider registry, backend readiness, benchmark cache, slow-mode gate | Hardware/model eligibility |
 | PR-18 | Planned | 2026-08-03 | Per-app insertion policies and compatibility matrix | App-specific insertion reliability |
 | PR-19 | Planned | 2026-08-05 | Error handling, privacy copy, diagnostics, accessibility pass | User trust and recoverability |
