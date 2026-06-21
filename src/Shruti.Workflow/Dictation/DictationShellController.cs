@@ -80,7 +80,7 @@ public sealed class DictationShellController
         Task? activeRun = _activeRun;
         if (activeRun is null)
         {
-            SetIdleMessage("No active mock dictation to stop.");
+            SetIdleMessage("No active dictation to stop.");
             return;
         }
 
@@ -102,7 +102,7 @@ public sealed class DictationShellController
         Task? activeRun = _activeRun;
         if (activeRun is null || _activeCancellation is null)
         {
-            SetIdleMessage("No active mock dictation to cancel.");
+            SetIdleMessage("No active dictation to cancel.");
             return;
         }
 
@@ -125,7 +125,7 @@ public sealed class DictationShellController
     {
         if (!State.IsRunning)
         {
-            SetIdleMessage("No active mock dictation to pause.");
+            SetIdleMessage("No active dictation to pause.");
             return;
         }
 
@@ -150,7 +150,7 @@ public sealed class DictationShellController
             SetState(State with
             {
                 StatusText = "Pause unavailable",
-                UserMessage = "Pause is available only while mock recording is active."
+                UserMessage = "Pause is available only while recording is active."
             });
             return;
         }
@@ -211,7 +211,7 @@ public sealed class DictationShellController
             SetState(State with
             {
                 StatusText = "Nothing to copy",
-                UserMessage = "Run mock dictation before copying a transcript."
+                UserMessage = "Run dictation before copying a transcript."
             });
             return false;
         }
@@ -415,7 +415,7 @@ public sealed class DictationShellController
     {
         return insertionMode switch
         {
-            DictationInsertionMode.AutoInsert => "Auto insert will restore the mock target and insert the transcript.",
+            DictationInsertionMode.AutoInsert => "Auto insert will restore the captured target and insert the transcript.",
             DictationInsertionMode.PreviewFirst => "Preview first will stop before insertion.",
             DictationInsertionMode.CopyOnly => "Copy only will copy the transcript after transcription.",
             _ => "Ready."
