@@ -2,7 +2,7 @@
 
 Date: 2026-06-19
 
-Status: PR-16 complete; PR-17 planned.
+Status: PR-17 complete; PR-18 planned.
 
 This plan turns `features.md` and `architecture.md` into an implementation roadmap. It assumes Windows-first development with WinUI 3, Windows App SDK, local transcription, and immediate system-wide text insertion as the central workflow.
 
@@ -188,7 +188,7 @@ Acceptance criteria:
 - [x] Load a verified GGML model from the local model catalog path.
 - [x] Transcribe buffered audio to final text.
 - [x] Emit timestamped segments when available.
-- [ ] Emit partial transcript events if supported by chosen integration strategy.
+- [x] Emit partial transcript events if supported by chosen integration strategy.
 - [x] Map native errors into engine-neutral errors.
 - [ ] Add cancellation.
 - [ ] Add provider-level metrics: load time, transcription time, real-time factor.
@@ -357,18 +357,19 @@ Acceptance criteria:
 | --- | --- | --- | --- | --- |
 | PR-15 | Done | 2026-07-27 | End-to-end auto-insert dictation: trigger, record, transcribe, insert | Core MVP workflow |
 | PR-16 | Done | 2026-07-29 | Preview-before-insert, copy-only, cancel/retry, selected-text safety | Safe user control |
-| PR-17 | Planned | 2026-07-31 | Provider registry, backend readiness, benchmark cache, slow-mode gate | Hardware/model eligibility |
-| PR-18 | Planned | 2026-08-03 | Per-app insertion policies and compatibility matrix | App-specific insertion reliability |
-| PR-19 | Planned | 2026-08-05 | Error handling, privacy copy, diagnostics, accessibility pass | User trust and recoverability |
-| PR-20 | Planned | 2026-08-07 | Manual QA fixes across Notepad, browser, Codex-style field, Word, Terminal, Electron, elevated app | Windows compatibility |
+| PR-17 | Done | 2026-07-31 | Live partial transcription from `whisper.cpp` through the WinUI transcript surface | Real-time dictation feedback |
+| PR-18 | Planned | 2026-08-03 | Provider registry, backend readiness, benchmark cache, slow-mode gate | Hardware/model eligibility |
+| PR-19 | Planned | 2026-08-05 | Per-app insertion policies and compatibility matrix | App-specific insertion reliability |
+| PR-20 | Planned | 2026-08-07 | Error handling, privacy copy, diagnostics, accessibility pass | User trust and recoverability |
+| PR-21 | Planned | 2026-08-09 | Manual QA fixes across Notepad, browser, Codex-style field, Word, Terminal, Electron, elevated app | Windows compatibility |
 
 ### Phase 5: Packaging
 
 | PR | Status | Target merge | Scope | Primary risk retired |
 | --- | --- | --- | --- | --- |
-| PR-21 | Planned | 2026-08-10 | MSIX packaging with native DLL inclusion | Installable Windows app |
-| PR-22 | Planned | 2026-08-12 | Signing, update preservation, clean-machine install test | Release readiness |
-| PR-23 | Planned | 2026-08-14 | Bootstrapper or installer adjustments, release notes, optional `winget` prep | Distribution polish |
+| PR-22 | Planned | 2026-08-12 | MSIX packaging with native DLL inclusion | Installable Windows app |
+| PR-23 | Planned | 2026-08-14 | Signing, update preservation, clean-machine install test | Release readiness |
+| PR-24 | Planned | 2026-08-16 | Bootstrapper or installer adjustments, release notes, optional `winget` prep | Distribution polish |
 
 ## Release Gates
 

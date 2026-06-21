@@ -1,4 +1,5 @@
 using System.Runtime.CompilerServices;
+using System.Threading.Channels;
 using Shruti.Core;
 using Shruti.Core.Audio;
 using Shruti.Core.Dictation;
@@ -28,6 +29,28 @@ public sealed class DictationCoordinatorTests
         Assert.Equal(1, services.TextInsertion.InspectCount);
         Assert.Equal(1, services.TextInsertion.InsertCount);
         Assert.Equal(2, services.Transcription.LastSession?.PushedAudioChunkCount);
+    }
+
+    [Fact]
+    public async Task TranscriptProgress_ForwardsLivePartialTextBeforeTheFinalResult()
+    {
+        var services = TestServices.Create();
+        var transcriptProgress = new RecordingProgress<TranscriptEvent>();
+        var request = new DictationRequest(
+            CreateTranscriptionOptions(),
+            transcriptProgress: transcriptProgress);
+
+        var result = await services.Coordinator.RunOnceAsync(request, CancellationToken.None);
+
+        Assert.Equal(DictationRunOutcome.Inserted, result.Outcome);
+        Assert.Contains(
+            transcriptProgress.Values,
+            transcriptEvent => transcriptEvent.Kind == TranscriptEventKind.PartialText &&
+                transcriptEvent.Text == "hello from shruti partial");
+        Assert.Contains(
+            transcriptProgress.Values,
+            transcriptEvent => transcriptEvent.Kind == TranscriptEventKind.Completed &&
+                transcriptEvent.Text == "hello from shruti");
     }
 
     [Fact]
@@ -438,6 +461,8 @@ public sealed class DictationCoordinatorTests
     private sealed class FakeTranscriptionSession : ITranscriptionSession
     {
         private readonly Action? _onComplete;
+        private readonly Channel<TranscriptEvent> _events = Channel.CreateUnbounded<TranscriptEvent>();
+        private bool _partialTranscriptSent;
 
         public FakeTranscriptionSession(Action? onComplete)
         {
@@ -446,7 +471,7 @@ public sealed class DictationCoordinatorTests
 
         public AudioFormat RequiredInputFormat => AudioFormat.Speech16KhzMono;
 
-        public IAsyncEnumerable<TranscriptEvent> Events => EnumerateEvents();
+        public IAsyncEnumerable<TranscriptEvent> Events => _events.Reader.ReadAllAsync();
 
         public int PushedAudioChunkCount { get; private set; }
 
@@ -458,6 +483,14 @@ public sealed class DictationCoordinatorTests
         {
             cancellationToken.ThrowIfCancellationRequested();
             PushedAudioChunkCount++;
+            if (!_partialTranscriptSent)
+            {
+                _partialTranscriptSent = true;
+                _events.Writer.TryWrite(new TranscriptEvent(
+                    TranscriptEventKind.PartialText,
+                    Text: "hello from shruti partial"));
+            }
+
             return ValueTask.CompletedTask;
         }
 
@@ -465,26 +498,48 @@ public sealed class DictationCoordinatorTests
         {
             cancellationToken.ThrowIfCancellationRequested();
             _onComplete?.Invoke();
-            return Task.FromResult(TranscriptResult.FromText("hello from shruti"));
+            TranscriptResult result = TranscriptResult.FromText("hello from shruti");
+            _events.Writer.TryWrite(new TranscriptEvent(TranscriptEventKind.Completed, Text: result.Text));
+            _events.Writer.TryComplete();
+            return Task.FromResult(result);
         }
 
         public Task CancelAsync()
         {
             CancelCount++;
+            _events.Writer.TryComplete();
             return Task.CompletedTask;
         }
 
         public ValueTask DisposeAsync()
         {
+            _events.Writer.TryComplete();
             return ValueTask.CompletedTask;
         }
+    }
 
-        private static async IAsyncEnumerable<TranscriptEvent> EnumerateEvents(
-            [EnumeratorCancellation] CancellationToken cancellationToken = default)
+    private sealed class RecordingProgress<T> : IProgress<T>
+    {
+        private readonly object _sync = new();
+        private readonly List<T> _values = [];
+
+        public IReadOnlyList<T> Values
         {
-            cancellationToken.ThrowIfCancellationRequested();
-            await Task.CompletedTask;
-            yield break;
+            get
+            {
+                lock (_sync)
+                {
+                    return _values.ToArray();
+                }
+            }
+        }
+
+        public void Report(T value)
+        {
+            lock (_sync)
+            {
+                _values.Add(value);
+            }
         }
     }
 }

@@ -12,12 +12,14 @@ public sealed class DictationShellController
     private readonly IAudioCaptureControl _audioCaptureControl;
     private readonly ITranscriptClipboard _clipboard;
     private readonly Func<TranscriptionSessionOptions> _transcriptionOptionsFactory;
+    private readonly object _stateSync = new();
 
     private CancellationTokenSource? _activeCancellation;
     private CancellationTokenSource? _levelMonitorCancellation;
     private Task? _activeRun;
     private Task? _levelMonitorTask;
     private AudioCaptureOptions _audioOptions = new();
+    private DictationShellState _state = DictationShellState.Initial;
 
     public DictationShellController(
         DictationCoordinator coordinator,
@@ -36,7 +38,23 @@ public sealed class DictationShellController
 
     public event EventHandler<AudioLevelFrame>? AudioLevelChanged;
 
-    public DictationShellState State { get; private set; }
+    public DictationShellState State
+    {
+        get
+        {
+            lock (_stateSync)
+            {
+                return _state;
+            }
+        }
+        private set
+        {
+            lock (_stateSync)
+            {
+                _state = value;
+            }
+        }
+    }
 
     public DictationRunResult? LastResult { get; private set; }
 
@@ -84,7 +102,7 @@ public sealed class DictationShellController
             return;
         }
 
-        SetState(State with
+        UpdateState(state => state with
         {
             StatusText = "Stopping recording",
             UserMessage = "Finalizing captured audio.",
@@ -106,7 +124,7 @@ public sealed class DictationShellController
             return;
         }
 
-        SetState(State with
+        UpdateState(state => state with
         {
             StatusText = "Cancelling dictation",
             UserMessage = "No text will be inserted.",
@@ -132,7 +150,7 @@ public sealed class DictationShellController
         if (State.SessionState == DictationSessionState.Paused)
         {
             await _audioCaptureControl.ResumeActiveCaptureAsync(cancellationToken).ConfigureAwait(false);
-            SetState(State with
+            UpdateState(state => state with
             {
                 SessionState = DictationSessionState.Recording,
                 StatusText = "Recording",
@@ -147,7 +165,7 @@ public sealed class DictationShellController
 
         if (State.SessionState != DictationSessionState.Recording)
         {
-            SetState(State with
+            UpdateState(state => state with
             {
                 StatusText = "Pause unavailable",
                 UserMessage = "Pause is available only while recording is active."
@@ -156,7 +174,7 @@ public sealed class DictationShellController
         }
 
         await _audioCaptureControl.PauseActiveCaptureAsync(cancellationToken).ConfigureAwait(false);
-        SetState(State with
+        UpdateState(state => state with
         {
             SessionState = DictationSessionState.Paused,
             StatusText = "Paused",
@@ -185,7 +203,7 @@ public sealed class DictationShellController
             return;
         }
 
-        SetState(State with
+        UpdateState(state => state with
         {
             InsertionMode = insertionMode,
             StatusText = "Ready",
@@ -208,7 +226,7 @@ public sealed class DictationShellController
         string text = State.TranscriptPreview;
         if (string.IsNullOrWhiteSpace(text))
         {
-            SetState(State with
+            UpdateState(state => state with
             {
                 StatusText = "Nothing to copy",
                 UserMessage = "Run dictation before copying a transcript."
@@ -217,7 +235,7 @@ public sealed class DictationShellController
         }
 
         await _clipboard.CopyTextAsync(text, cancellationToken).ConfigureAwait(false);
-        SetState(State with
+        UpdateState(state => state with
         {
             StatusText = "Copied",
             UserMessage = "Transcript copied from the preview."
@@ -245,7 +263,7 @@ public sealed class DictationShellController
 
         if (string.IsNullOrWhiteSpace(text))
         {
-            SetState(State with
+            UpdateState(state => state with
             {
                 StatusText = "Transcript is empty",
                 UserMessage = "Enter transcript text before inserting.",
@@ -254,7 +272,7 @@ public sealed class DictationShellController
             return;
         }
 
-        SetState(State with
+        UpdateState(state => state with
         {
             SessionState = DictationSessionState.InsertingText,
             StatusText = "Inserting text",
@@ -296,11 +314,13 @@ public sealed class DictationShellController
         try
         {
             var progress = new SynchronousProgress<DictationStatus>(ApplyProgress);
+            var transcriptProgress = new SynchronousProgress<TranscriptEvent>(ApplyTranscriptEvent);
             var request = new DictationRequest(
                 _transcriptionOptionsFactory(),
                 insertionMode,
                 audioOptions: _audioOptions,
                 statusProgress: progress,
+                transcriptProgress: transcriptProgress,
                 captureSessionStarted: session =>
                 {
                     captureStarted.TrySetResult();
@@ -388,7 +408,7 @@ public sealed class DictationShellController
 
     private void ApplyProgress(DictationStatus status)
     {
-        SetState(State with
+        UpdateState(state => state with
         {
             SessionState = status.State,
             StatusText = status.Message,
@@ -403,6 +423,21 @@ public sealed class DictationShellController
                 and not DictationSessionState.Failed,
             CanPause = status.State is DictationSessionState.Recording or DictationSessionState.Paused,
             IsPaused = status.State == DictationSessionState.Paused
+        });
+    }
+
+    private void ApplyTranscriptEvent(TranscriptEvent transcriptEvent)
+    {
+        if (transcriptEvent.Kind != TranscriptEventKind.PartialText ||
+            string.IsNullOrWhiteSpace(transcriptEvent.Text))
+        {
+            return;
+        }
+
+        UpdateState(state => state with
+        {
+            TranscriptPreview = transcriptEvent.Text,
+            ErrorText = null
         });
     }
 
@@ -489,7 +524,7 @@ public sealed class DictationShellController
 
     private void SetIdleMessage(string message)
     {
-        SetState(State with
+        UpdateState(state => state with
         {
             SessionState = DictationSessionState.Idle,
             StatusText = "Ready",
@@ -505,8 +540,19 @@ public sealed class DictationShellController
 
     private void SetState(DictationShellState state)
     {
-        State = state;
-        StateChanged?.Invoke(this, EventArgs.Empty);
+        UpdateState(_ => state);
+    }
+
+    private void UpdateState(Func<DictationShellState, DictationShellState> update)
+    {
+        EventHandler? stateChanged;
+        lock (_stateSync)
+        {
+            _state = update(_state);
+            stateChanged = StateChanged;
+        }
+
+        stateChanged?.Invoke(this, EventArgs.Empty);
     }
 
     private sealed class SynchronousProgress<T> : IProgress<T>

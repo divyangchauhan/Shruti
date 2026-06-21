@@ -33,6 +33,7 @@ public sealed class DictationCoordinator
         FocusTarget? target = null;
         ITranscriptionSession? transcriptionSession = null;
         IAudioCaptureSession? audioCaptureSession = null;
+        Task? transcriptEventTask = null;
 
         void Transition(DictationSessionState state, string message)
         {
@@ -53,6 +54,13 @@ public sealed class DictationCoordinator
                 .CreateSessionAsync(request.TranscriptionOptions, cancellationToken)
                 .ConfigureAwait(false);
 
+            if (request.TranscriptProgress is not null)
+            {
+                transcriptEventTask = ForwardTranscriptEventsAsync(
+                    transcriptionSession.Events,
+                    request.TranscriptProgress);
+            }
+
             Transition(DictationSessionState.RequestingMicrophone, "Starting microphone capture");
             audioCaptureSession = await _audioCaptureService
                 .StartAsync(request.AudioOptions, transcriptionSession.RequiredInputFormat, cancellationToken)
@@ -72,6 +80,11 @@ public sealed class DictationCoordinator
 
             Transition(DictationSessionState.TranscribingFinalAudio, "Transcribing final audio");
             var transcript = await transcriptionSession.CompleteAsync(cancellationToken).ConfigureAwait(false);
+            if (transcriptEventTask is not null)
+            {
+                await transcriptEventTask.ConfigureAwait(false);
+            }
+
             cancellationToken.ThrowIfCancellationRequested();
 
             var result = await CompleteAsync(
@@ -117,6 +130,18 @@ public sealed class DictationCoordinator
             if (transcriptionSession is not null)
             {
                 await transcriptionSession.DisposeAsync().ConfigureAwait(false);
+            }
+
+            if (transcriptEventTask is not null)
+            {
+                try
+                {
+                    await transcriptEventTask.ConfigureAwait(false);
+                }
+                catch
+                {
+                    // The primary workflow has already translated its result or failure.
+                }
             }
         }
     }
@@ -332,6 +357,16 @@ public sealed class DictationCoordinator
             {
                 // Best-effort cleanup after cancellation.
             }
+        }
+    }
+
+    private static async Task ForwardTranscriptEventsAsync(
+        IAsyncEnumerable<TranscriptEvent> events,
+        IProgress<TranscriptEvent> progress)
+    {
+        await foreach (TranscriptEvent transcriptEvent in events.ConfigureAwait(false))
+        {
+            progress.Report(transcriptEvent);
         }
     }
 }

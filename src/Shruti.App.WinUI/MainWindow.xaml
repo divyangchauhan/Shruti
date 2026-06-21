@@ -333,7 +333,7 @@
                     <TextBox
                         x:Name="TranscriptPreviewBox"
                         AcceptsReturn="True"
-                        Header="Transcript preview"
+                        Header="Transcript"
                         IsReadOnly="True"
                         MinHeight="180"
                         TextWrapping="Wrap" />

@@ -42,6 +42,49 @@ public sealed class DictationShellControllerTests
     }
 
     [Fact]
+    public async Task LiveTranscript_UpdatesWhileRecordingIsStillActive()
+    {
+        var services = MockDictationAppServices.Create();
+        var controller = services.CreateShellController();
+
+        await controller.StartAsync(DictationInsertionMode.AutoInsert);
+        await WaitForStateAsync(
+            controller,
+            state => state.IsRunning && state.TranscriptPreview == "hello from the Shruti mock dictation");
+
+        Assert.Equal(DictationSessionState.Recording, controller.State.SessionState);
+        Assert.Equal(0, services.TextInsertion.InsertCount);
+
+        await controller.CancelAsync();
+    }
+
+    [Fact]
+    public async Task LatePartialTranscript_DuringFinalizationPreservesTheFinalizationState()
+    {
+        var services = MockDictationAppServices.Create();
+        var controller = services.CreateShellController();
+        var completion = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        services.Transcription.CompleteGate = completion;
+
+        await controller.StartAsync(DictationInsertionMode.AutoInsert);
+        Task stopping = controller.StopAsync();
+        await WaitForStateAsync(
+            controller,
+            state => state.SessionState == DictationSessionState.TranscribingFinalAudio);
+
+        services.Transcription.LastSession?.EmitPartialTranscript("late partial transcript");
+        await WaitForStateAsync(
+            controller,
+            state => state.TranscriptPreview == "late partial transcript");
+
+        Assert.Equal(DictationSessionState.TranscribingFinalAudio, controller.State.SessionState);
+        Assert.Equal("Transcribing final audio", controller.State.StatusText);
+
+        completion.SetResult();
+        await stopping;
+    }
+
+    [Fact]
     public async Task PreviewFirst_StopLeavesTranscriptWithoutInsertion()
     {
         var services = MockDictationAppServices.Create();

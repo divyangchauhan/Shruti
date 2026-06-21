@@ -43,13 +43,43 @@ var options = new TranscriptionSessionOptions(
     TranscriptionMode.Balanced);
 
 await using ITranscriptionSession session = await provider.CreateSessionAsync(options, CancellationToken.None);
-await session.PushAudioAsync(pcmAudio, CancellationToken.None);
-TranscriptResult result = await session.CompleteAsync(CancellationToken.None);
+var partialTranscript = new TaskCompletionSource<TranscriptEvent>(TaskCreationOptions.RunContinuationsAsynchronously);
+Task eventReader = ReadEventsAsync(session.Events, partialTranscript);
+int initialAudioLength = Math.Min(pcmAudio.Length, 16_000 * sizeof(short) * 3);
+await session.PushAudioAsync(pcmAudio.AsMemory(0, initialAudioLength), CancellationToken.None);
+TranscriptEvent partial = await partialTranscript.Task.WaitAsync(TimeSpan.FromMinutes(2));
+if (initialAudioLength < pcmAudio.Length)
+{
+    await session.PushAudioAsync(pcmAudio.AsMemory(initialAudioLength), CancellationToken.None);
+}
 
+TranscriptResult result = await session.CompleteAsync(CancellationToken.None);
+await eventReader;
+
+Console.WriteLine($"Live: {partial.Text}");
 Console.WriteLine(result.Text);
+if (string.IsNullOrWhiteSpace(partial.Text))
+{
+    throw new InvalidOperationException("whisper.cpp did not emit a live partial transcript.");
+}
+
 if (!result.Text.Contains("ask not", StringComparison.OrdinalIgnoreCase))
 {
     throw new InvalidOperationException("whisper.cpp did not produce the expected JFK transcript.");
+}
+
+static async Task ReadEventsAsync(
+    IAsyncEnumerable<TranscriptEvent> events,
+    TaskCompletionSource<TranscriptEvent> partialTranscript)
+{
+    await foreach (TranscriptEvent transcriptEvent in events)
+    {
+        if (transcriptEvent.Kind == TranscriptEventKind.PartialText &&
+            !string.IsNullOrWhiteSpace(transcriptEvent.Text))
+        {
+            partialTranscript.TrySetResult(transcriptEvent);
+        }
+    }
 }
 
 static byte[] ReadPcm16Mono16KhzWave(string path)
