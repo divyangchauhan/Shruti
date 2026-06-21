@@ -1,3 +1,5 @@
+using Shruti.Core.Platform;
+
 namespace Shruti.Workflow.Dictation;
 
 public sealed class MockTranscriptClipboard : ITranscriptClipboard

@@ -1,4 +1,4 @@
-namespace Shruti.Workflow.Dictation;
+namespace Shruti.Core.Platform;
 
 public interface ITranscriptClipboard
 {

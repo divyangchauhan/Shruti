@@ -102,6 +102,26 @@ public sealed class DictationCoordinatorTests
     }
 
     [Fact]
+    public async Task InsertFinalizedTranscriptAsync_RestoresTargetAndInsertsEditedPreview()
+    {
+        var services = TestServices.Create();
+
+        var result = await services.Coordinator.InsertFinalizedTranscriptAsync(
+            services.Target,
+            TranscriptResult.FromText("edited preview text"),
+            new TextInsertionOptions(AllowReplacingSelection: true),
+            statusProgress: null,
+            CancellationToken.None);
+
+        Assert.Equal(DictationRunOutcome.Inserted, result.Outcome);
+        Assert.Equal("edited preview text", services.TextInsertion.LastInsertedText);
+        Assert.Equal(1, services.TargetFocus.RestoreCount);
+        Assert.Equal(1, services.TextInsertion.InspectCount);
+        Assert.Equal(1, services.TextInsertion.InsertCount);
+        Assert.Contains(result.StatusHistory, status => status.State == DictationSessionState.InsertingText);
+    }
+
+    [Fact]
     public async Task StatusHistory_FollowsExpectedCoreStates()
     {
         var services = TestServices.Create();
@@ -169,6 +189,8 @@ public sealed class DictationCoordinatorTests
 
         public FakeTranscriptionProvider Transcription { get; }
 
+        public FocusTarget Target => TargetFocus.Target;
+
         public static TestServices Create(
             TextInsertionCapability? capability = null,
             Action? onComplete = null)
@@ -198,7 +220,7 @@ public sealed class DictationCoordinatorTests
 
     private sealed class FakeTargetFocusService : ITargetFocusService
     {
-        private static readonly FocusTarget Target = new(
+        private static readonly FocusTarget CapturedTarget = new(
             WindowHandle: new IntPtr(42),
             ProcessId: 100,
             ProcessName: "notepad",
@@ -206,6 +228,8 @@ public sealed class DictationCoordinatorTests
             AutomationElementId: "edit",
             IsEditable: true,
             HasSelectedText: false);
+
+        public FocusTarget Target => CapturedTarget;
 
         public int CaptureCount { get; private set; }
 
@@ -215,7 +239,7 @@ public sealed class DictationCoordinatorTests
         {
             cancellationToken.ThrowIfCancellationRequested();
             CaptureCount++;
-            return Task.FromResult<FocusTarget?>(Target);
+            return Task.FromResult<FocusTarget?>(CapturedTarget);
         }
 
         public Task<FocusRestoreResult> RestoreAsync(

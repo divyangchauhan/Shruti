@@ -62,6 +62,63 @@ public sealed class DictationShellControllerTests
     }
 
     [Fact]
+    public async Task PreviewFirst_InsertPreviewInsertsEditedTranscript()
+    {
+        var services = MockDictationAppServices.Create();
+        var controller = services.CreateShellController();
+
+        await controller.StartAsync(DictationInsertionMode.PreviewFirst);
+        await controller.StopAsync();
+
+        Assert.True(controller.State.CanInsertPreview);
+
+        await controller.InsertPreviewAsync("edited preview text", allowReplacingSelection: true);
+
+        Assert.Equal(DictationRunOutcome.Inserted, controller.LastResult?.Outcome);
+        Assert.Equal("edited preview text", controller.State.TranscriptPreview);
+        Assert.Equal("edited preview text", services.TextInsertion.LastInsertedText);
+        Assert.True(services.TextInsertion.LastOptions?.AllowReplacingSelection);
+        Assert.False(controller.State.CanInsertPreview);
+    }
+
+    [Fact]
+    public async Task PreviewFirst_EmptyPreviewIsNotInserted()
+    {
+        var services = MockDictationAppServices.Create();
+        var controller = services.CreateShellController();
+
+        await controller.StartAsync(DictationInsertionMode.PreviewFirst);
+        await controller.StopAsync();
+        await controller.InsertPreviewAsync("   ", allowReplacingSelection: false);
+
+        Assert.Equal(DictationRunOutcome.PreviewRequired, controller.LastResult?.Outcome);
+        Assert.Equal(0, services.TextInsertion.InsertCount);
+        Assert.True(controller.State.CanInsertPreview);
+        Assert.Equal("Transcript is empty", controller.State.StatusText);
+    }
+
+    [Fact]
+    public async Task PreviewFirst_InsertPreviewDoesNotEnableCancellationWithoutAnActiveRun()
+    {
+        var services = MockDictationAppServices.Create();
+        var controller = services.CreateShellController();
+        var insertionCompletion = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        services.TextInsertion.InsertCompletion = insertionCompletion;
+
+        await controller.StartAsync(DictationInsertionMode.PreviewFirst);
+        await controller.StopAsync();
+        Task insertion = controller.InsertPreviewAsync("edited preview text", allowReplacingSelection: false);
+        await WaitForStateAsync(
+            controller,
+            state => state.SessionState == DictationSessionState.InsertingText);
+
+        Assert.False(controller.State.CanCancel);
+
+        insertionCompletion.SetResult();
+        await insertion;
+    }
+
+    [Fact]
     public async Task CopyOnly_StopCopiesTranscriptWithoutInsertion()
     {
         var services = MockDictationAppServices.Create();

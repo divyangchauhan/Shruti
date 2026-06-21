@@ -99,6 +99,13 @@ public sealed partial class MainWindow : Window
         await _controller.CopyTranscriptAsync();
     }
 
+    private async void InsertPreviewButton_Click(object sender, RoutedEventArgs e)
+    {
+        await _controller.InsertPreviewAsync(
+            TranscriptPreviewBox.Text,
+            ReplaceSelectionCheckBox.IsChecked == true);
+    }
+
     private void SettingsButton_Click(object sender, RoutedEventArgs e)
     {
         SettingsPanel.Visibility = SettingsPanel.Visibility == Visibility.Visible
@@ -283,6 +290,17 @@ public sealed partial class MainWindow : Window
         PauseButton.IsEnabled = state.CanPause;
         RetryButton.IsEnabled = state.CanRetry;
         CopyButton.IsEnabled = state.CanCopy;
+        InsertPreviewButton.IsEnabled = state.CanInsertPreview;
+        ReplaceSelectionCheckBox.IsEnabled = state.CanInsertPreview;
+        ReplaceSelectionCheckBox.Visibility = state.CanInsertPreview
+            ? Visibility.Visible
+            : Visibility.Collapsed;
+        if (!state.CanInsertPreview)
+        {
+            ReplaceSelectionCheckBox.IsChecked = false;
+        }
+
+        TranscriptPreviewBox.IsReadOnly = !state.CanInsertPreview;
         InsertionModeComboBox.IsEnabled = !state.IsRunning;
         AudioDeviceComboBox.IsEnabled = !state.IsRunning && _audioDevicesLoaded;
         if (!state.IsRunning)

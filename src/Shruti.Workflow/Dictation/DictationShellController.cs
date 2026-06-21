@@ -226,6 +226,68 @@ public sealed class DictationShellController
         return true;
     }
 
+    public async Task InsertPreviewAsync(
+        string text,
+        bool allowReplacingSelection,
+        CancellationToken cancellationToken = default)
+    {
+        if (State.IsRunning)
+        {
+            return;
+        }
+
+        DictationRunResult? previousResult = LastResult;
+        if (!State.CanInsertPreview || previousResult?.Target is null || !previousResult.RequiresPreview)
+        {
+            SetIdleMessage("No transcript is ready for insertion.");
+            return;
+        }
+
+        if (string.IsNullOrWhiteSpace(text))
+        {
+            SetState(State with
+            {
+                StatusText = "Transcript is empty",
+                UserMessage = "Enter transcript text before inserting.",
+                ErrorText = "Shruti will not insert an empty transcript."
+            });
+            return;
+        }
+
+        SetState(State with
+        {
+            SessionState = DictationSessionState.InsertingText,
+            StatusText = "Inserting text",
+            UserMessage = "Restoring the captured target and inserting the transcript.",
+            TranscriptPreview = text,
+            IsRunning = true,
+            CanStart = false,
+            CanStop = false,
+            CanCancel = false,
+            CanPause = false,
+            IsPaused = false,
+            CanRetry = false,
+            CanCopy = false,
+            CanInsertPreview = false,
+            ErrorText = null
+        });
+
+        var progress = new SynchronousProgress<DictationStatus>(ApplyProgress);
+        var options = new TextInsertionOptions(
+            AllowReplacingSelection: allowReplacingSelection);
+        DictationRunResult result = await _coordinator
+            .InsertFinalizedTranscriptAsync(
+                previousResult.Target,
+                TranscriptResult.FromText(text),
+                options,
+                progress,
+                cancellationToken)
+            .ConfigureAwait(false);
+
+        LastResult = result;
+        SetState(CreateCompletedState(result, State.InsertionMode));
+    }
+
     private async Task RunOnceAsync(
         DictationInsertionMode insertionMode,
         CancellationToken cancellationToken,
@@ -336,7 +398,7 @@ public sealed class DictationShellController
                 and not DictationSessionState.Failed,
             CanStart = false,
             CanStop = status.State is DictationSessionState.Recording or DictationSessionState.Paused,
-            CanCancel = status.State is not DictationSessionState.Complete
+            CanCancel = _activeRun is not null && status.State is not DictationSessionState.Complete
                 and not DictationSessionState.Cancelled
                 and not DictationSessionState.Failed,
             CanPause = status.State is DictationSessionState.Recording or DictationSessionState.Paused,
@@ -375,8 +437,11 @@ public sealed class DictationShellController
             IsPaused: false,
             CanRetry: result.Outcome is not DictationRunOutcome.Cancelled,
             CanCopy: !string.IsNullOrWhiteSpace(transcript),
-            result.Outcome,
-            result.Error?.Message);
+            LastOutcome: result.Outcome,
+            ErrorText: result.Error?.Message,
+            CanInsertPreview: result.RequiresPreview &&
+                result.Target is not null &&
+                !string.IsNullOrWhiteSpace(transcript));
     }
 
     private static string FormatTarget(FocusTarget? target)

@@ -222,11 +222,11 @@ Acceptance criteria:
 - [x] Connect target capture to audio recording.
 - [x] Connect recording to `whisper.cpp` transcription.
 - [x] Connect final transcript to immediate insertion.
-- [ ] Add preview-before-insert path.
-- [ ] Add copy-only path.
-- [ ] Add cancel-without-insert path.
-- [ ] Add retry transcription path.
-- [ ] Add safe insertion behavior for selected text.
+- [x] Add preview-before-insert path.
+- [x] Add copy-only path.
+- [x] Add cancel-without-insert path.
+- [x] Add retry transcription path.
+- [x] Add safe insertion behavior for selected text.
 - [ ] Add per-app fallback rules for terminals and unsupported targets.
 
 Acceptance criteria:
@@ -355,8 +355,8 @@ Acceptance criteria:
 
 | PR | Status | Target merge | Scope | Primary risk retired |
 | --- | --- | --- | --- | --- |
-| PR-15 | In progress | 2026-07-27 | End-to-end auto-insert dictation: trigger, record, transcribe, insert | Core MVP workflow |
-| PR-16 | Planned | 2026-07-29 | Preview-before-insert, copy-only, cancel/retry, selected-text safety | Safe user control |
+| PR-15 | Done | 2026-07-27 | End-to-end auto-insert dictation: trigger, record, transcribe, insert | Core MVP workflow |
+| PR-16 | In progress | 2026-07-29 | Preview-before-insert, copy-only, cancel/retry, selected-text safety | Safe user control |
 | PR-17 | Planned | 2026-07-31 | Provider registry, backend readiness, benchmark cache, slow-mode gate | Hardware/model eligibility |
 | PR-18 | Planned | 2026-08-03 | Per-app insertion policies and compatibility matrix | App-specific insertion reliability |
 | PR-19 | Planned | 2026-08-05 | Error handling, privacy copy, diagnostics, accessibility pass | User trust and recoverability |
