@@ -348,7 +348,7 @@ Acceptance criteria:
 | --- | --- | --- | --- | --- |
 | PR-11 | Done | 2026-07-15 | Model catalog, download, verification, import/remove | Model lifecycle |
 | PR-12 | Done | 2026-07-20 | `whisper.cpp` native shim and C# adapter | Local ASR provider feasibility |
-| PR-13 | In progress | 2026-07-22 | Audio-to-`whisper.cpp` final transcription integration | Real local transcription loop |
+| PR-13 | Done | 2026-07-22 | Audio-to-`whisper.cpp` final transcription integration | Real local transcription loop |
 | PR-14 | Planned | 2026-07-24 | Provider registry, backend readiness, benchmark cache, slow-mode gate | Hardware/model eligibility |
 
 ### Phase 4: MVP Integration and Hardening
