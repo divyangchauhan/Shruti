@@ -1,4 +1,5 @@
 using System.Buffers.Binary;
+using NAudio.Dsp;
 using Shruti.Transcription.Abstractions;
 
 namespace Shruti.Audio.Windows;
@@ -9,9 +10,12 @@ internal sealed class PcmAudioNormalizer
     private readonly AudioFormat _outputFormat;
     private readonly int _inputFrameSize;
     private readonly double _inputFramesPerOutputFrame;
+    private readonly BiQuadFilter[] _antiAliasFilters;
 
     private long _inputFramesProcessed;
     private double _nextOutputInputFrame;
+    private bool _hasPreviousFilteredSample;
+    private float _previousFilteredSample;
 
     public PcmAudioNormalizer(WindowsAudioStreamFormat inputFormat, AudioFormat outputFormat)
     {
@@ -37,6 +41,7 @@ internal sealed class PcmAudioNormalizer
 
         _inputFrameSize = checked(bytesPerSample * inputFormat.ChannelCount);
         _inputFramesPerOutputFrame = inputFormat.SampleRateHz / (double)outputFormat.SampleRateHz;
+        _antiAliasFilters = CreateAntiAliasFilters(inputFormat.SampleRateHz, outputFormat.SampleRateHz);
     }
 
     public byte[] Normalize(ReadOnlySpan<byte> input)
@@ -48,29 +53,77 @@ internal sealed class PcmAudioNormalizer
         }
 
         long firstInputFrame = _inputFramesProcessed;
-        long endInputFrame = firstInputFrame + frameCount;
-        int expectedSamples = Math.Max(1, (int)Math.Ceiling(frameCount / _inputFramesPerOutputFrame));
+        int expectedSamples = checked(Math.Max(1, (int)Math.Ceiling(
+            (frameCount + 1) / _inputFramesPerOutputFrame) + 1));
         byte[] output = new byte[expectedSamples * sizeof(short)];
         int outputOffset = 0;
 
-        while (_nextOutputInputFrame < endInputFrame)
+        for (int inputFrameIndex = 0; inputFrameIndex < frameCount; inputFrameIndex++)
         {
-            int inputFrameIndex = (int)Math.Clamp(
-                Math.Floor(_nextOutputInputFrame - firstInputFrame),
-                0,
-                frameCount - 1);
-            float sample = ReadMonoSample(input, inputFrameIndex);
-            short pcmSample = (short)Math.Clamp(
-                (int)Math.Round(sample * short.MaxValue),
-                short.MinValue,
-                short.MaxValue);
-            BinaryPrimitives.WriteInt16LittleEndian(output.AsSpan(outputOffset, sizeof(short)), pcmSample);
-            outputOffset += sizeof(short);
-            _nextOutputInputFrame += _inputFramesPerOutputFrame;
+            long currentInputFrame = firstInputFrame + inputFrameIndex;
+            float currentFilteredSample = ApplyAntiAliasFilter(ReadMonoSample(input, inputFrameIndex));
+
+            while (_nextOutputInputFrame <= currentInputFrame)
+            {
+                float sample = InterpolateSample(currentInputFrame, currentFilteredSample);
+                short pcmSample = (short)Math.Clamp(
+                    (int)Math.Round(sample * short.MaxValue),
+                    short.MinValue,
+                    short.MaxValue);
+                BinaryPrimitives.WriteInt16LittleEndian(output.AsSpan(outputOffset, sizeof(short)), pcmSample);
+                outputOffset += sizeof(short);
+                _nextOutputInputFrame += _inputFramesPerOutputFrame;
+            }
+
+            _previousFilteredSample = currentFilteredSample;
+            _hasPreviousFilteredSample = true;
         }
 
-        _inputFramesProcessed = endInputFrame;
+        _inputFramesProcessed = firstInputFrame + frameCount;
         return outputOffset == output.Length ? output : output[..outputOffset];
+    }
+
+    private float InterpolateSample(long currentInputFrame, float currentFilteredSample)
+    {
+        long lowerInputFrame = (long)Math.Floor(_nextOutputInputFrame);
+        if (lowerInputFrame == currentInputFrame || !_hasPreviousFilteredSample)
+        {
+            return currentFilteredSample;
+        }
+
+        if (lowerInputFrame != currentInputFrame - 1)
+        {
+            throw new InvalidOperationException("The audio resampler lost input frame continuity.");
+        }
+
+        float interpolation = (float)(_nextOutputInputFrame - lowerInputFrame);
+        return _previousFilteredSample + ((currentFilteredSample - _previousFilteredSample) * interpolation);
+    }
+
+    private float ApplyAntiAliasFilter(float sample)
+    {
+        foreach (BiQuadFilter filter in _antiAliasFilters)
+        {
+            sample = filter.Transform(sample);
+        }
+
+        return sample;
+    }
+
+    private static BiQuadFilter[] CreateAntiAliasFilters(int inputSampleRateHz, int outputSampleRateHz)
+    {
+        if (inputSampleRateHz <= outputSampleRateHz)
+        {
+            return [];
+        }
+
+        // Cascaded biquads approximate a fourth-order Butterworth low-pass before decimation.
+        float cutoffHz = outputSampleRateHz * 0.45f;
+        return
+        [
+            BiQuadFilter.LowPassFilter(inputSampleRateHz, cutoffHz, 0.5411961f),
+            BiQuadFilter.LowPassFilter(inputSampleRateHz, cutoffHz, 1.306563f)
+        ];
     }
 
     private float ReadMonoSample(ReadOnlySpan<byte> input, int inputFrameIndex)

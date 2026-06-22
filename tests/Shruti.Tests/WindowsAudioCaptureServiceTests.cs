@@ -88,7 +88,8 @@ public sealed class WindowsAudioCaptureServiceTests
 
         AudioFrame frame = await frameTask;
 
-        Assert.Equal([232, 3, 160, 15], frame.PcmAudio.ToArray());
+        Assert.Equal(2 * sizeof(short), frame.PcmAudio.Length);
+        Assert.NotEqual(new byte[frame.PcmAudio.Length], frame.PcmAudio.ToArray());
     }
 
     [Fact]

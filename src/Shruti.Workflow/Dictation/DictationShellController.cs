@@ -13,10 +13,10 @@ public sealed class DictationShellController
     private readonly ITranscriptClipboard _clipboard;
     private readonly Func<TranscriptionSessionOptions> _transcriptionOptionsFactory;
     private readonly object _stateSync = new();
+    private readonly object _runSync = new();
 
-    private CancellationTokenSource? _activeCancellation;
     private CancellationTokenSource? _levelMonitorCancellation;
-    private Task? _activeRun;
+    private ActiveDictationRun? _activeRun;
     private Task? _levelMonitorTask;
     private AudioCaptureOptions _audioOptions = new();
     private DictationShellState _state = DictationShellState.Initial;
@@ -67,7 +67,12 @@ public sealed class DictationShellController
             return;
         }
 
-        _activeCancellation = new CancellationTokenSource();
+        ActiveDictationRun? activeRun = TryCreateActiveRun();
+        if (activeRun is null)
+        {
+            return;
+        }
+
         var captureStarted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
 
         SetState(new DictationShellState(
@@ -86,16 +91,16 @@ public sealed class DictationShellController
             CanRetry: false,
             CanCopy: false));
 
-        Task activeRun = RunOnceAsync(insertionMode, _activeCancellation.Token, captureStarted);
-        _activeRun = activeRun;
+        Task runTask = RunOnceAsync(insertionMode, activeRun, captureStarted);
+        activeRun.SetCompletion(runTask);
 
-        Task readyOrComplete = await Task.WhenAny(captureStarted.Task, activeRun).ConfigureAwait(false);
+        Task readyOrComplete = await Task.WhenAny(captureStarted.Task, runTask).ConfigureAwait(false);
         await readyOrComplete.ConfigureAwait(false);
     }
 
     public async Task StopAsync()
     {
-        Task? activeRun = _activeRun;
+        ActiveDictationRun? activeRun = GetActiveRun();
         if (activeRun is null)
         {
             SetIdleMessage("No active dictation to stop.");
@@ -112,13 +117,13 @@ public sealed class DictationShellController
         });
 
         await _audioCaptureControl.StopActiveCaptureAsync().ConfigureAwait(false);
-        await activeRun.ConfigureAwait(false);
+        await activeRun.WaitForCompletionAsync().ConfigureAwait(false);
     }
 
     public async Task CancelAsync()
     {
-        Task? activeRun = _activeRun;
-        if (activeRun is null || _activeCancellation is null)
+        ActiveDictationRun? activeRun = GetActiveRun();
+        if (activeRun is null || !activeRun.TryCancel())
         {
             SetIdleMessage("No active dictation to cancel.");
             return;
@@ -134,9 +139,8 @@ public sealed class DictationShellController
             IsPaused = false
         });
 
-        _activeCancellation.Cancel();
         await _audioCaptureControl.StopActiveCaptureAsync().ConfigureAwait(false);
-        await activeRun.ConfigureAwait(false);
+        await activeRun.WaitForCompletionAsync().ConfigureAwait(false);
     }
 
     public async Task PauseAsync(CancellationToken cancellationToken = default)
@@ -308,7 +312,7 @@ public sealed class DictationShellController
 
     private async Task RunOnceAsync(
         DictationInsertionMode insertionMode,
-        CancellationToken cancellationToken,
+        ActiveDictationRun activeRun,
         TaskCompletionSource captureStarted)
     {
         try
@@ -332,7 +336,7 @@ public sealed class DictationShellController
                 });
 
             var result = await _coordinator
-                .RunOnceAsync(request, cancellationToken)
+                .RunOnceAsync(request, activeRun.Token)
                 .ConfigureAwait(false);
 
             if (result.ShouldCopyToClipboard && !string.IsNullOrWhiteSpace(result.Transcript?.Text))
@@ -349,9 +353,7 @@ public sealed class DictationShellController
         {
             captureStarted.TrySetResult();
             await StopLevelMonitorAsync().ConfigureAwait(false);
-            _activeCancellation?.Dispose();
-            _activeCancellation = null;
-            _activeRun = null;
+            CompleteActiveRun(activeRun);
         }
     }
 
@@ -418,7 +420,7 @@ public sealed class DictationShellController
                 and not DictationSessionState.Failed,
             CanStart = false,
             CanStop = status.State is DictationSessionState.Recording or DictationSessionState.Paused,
-            CanCancel = _activeRun is not null && status.State is not DictationSessionState.Complete
+            CanCancel = HasActiveRun() && status.State is not DictationSessionState.Complete
                 and not DictationSessionState.Cancelled
                 and not DictationSessionState.Failed,
             CanPause = status.State is DictationSessionState.Recording or DictationSessionState.Paused,
@@ -553,6 +555,136 @@ public sealed class DictationShellController
         }
 
         stateChanged?.Invoke(this, EventArgs.Empty);
+    }
+
+    private ActiveDictationRun? TryCreateActiveRun()
+    {
+        lock (_runSync)
+        {
+            if (_activeRun is not null)
+            {
+                return null;
+            }
+
+            var activeRun = new ActiveDictationRun();
+            _activeRun = activeRun;
+            return activeRun;
+        }
+    }
+
+    private ActiveDictationRun? GetActiveRun()
+    {
+        lock (_runSync)
+        {
+            return _activeRun;
+        }
+    }
+
+    private bool HasActiveRun()
+    {
+        lock (_runSync)
+        {
+            return _activeRun is not null;
+        }
+    }
+
+    private void CompleteActiveRun(ActiveDictationRun activeRun)
+    {
+        lock (_runSync)
+        {
+            if (ReferenceEquals(_activeRun, activeRun))
+            {
+                _activeRun = null;
+            }
+        }
+
+        activeRun.Complete();
+    }
+
+    private sealed class ActiveDictationRun
+    {
+        private readonly object _sync = new();
+        private readonly TaskCompletionSource<Task> _completion = new(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        private CancellationTokenSource? _cancellation;
+        private int _cancellationCalls;
+        private bool _isComplete;
+
+        public ActiveDictationRun()
+        {
+            _cancellation = new CancellationTokenSource();
+            Token = _cancellation.Token;
+        }
+
+        public CancellationToken Token { get; }
+
+        public void SetCompletion(Task completion)
+        {
+            _completion.TrySetResult(completion);
+        }
+
+        public async Task WaitForCompletionAsync()
+        {
+            Task completion = await _completion.Task.ConfigureAwait(false);
+            await completion.ConfigureAwait(false);
+        }
+
+        public bool TryCancel()
+        {
+            CancellationTokenSource cancellation;
+            lock (_sync)
+            {
+                if (_isComplete || _cancellation is null)
+                {
+                    return false;
+                }
+
+                _cancellationCalls++;
+                cancellation = _cancellation;
+            }
+
+            try
+            {
+                cancellation.Cancel();
+                return true;
+            }
+            finally
+            {
+                CancellationTokenSource? cancellationToDispose = null;
+                lock (_sync)
+                {
+                    _cancellationCalls--;
+                    if (_isComplete && _cancellationCalls == 0)
+                    {
+                        cancellationToDispose = _cancellation;
+                        _cancellation = null;
+                    }
+                }
+
+                cancellationToDispose?.Dispose();
+            }
+        }
+
+        public void Complete()
+        {
+            CancellationTokenSource? cancellationToDispose = null;
+            lock (_sync)
+            {
+                if (_isComplete)
+                {
+                    return;
+                }
+
+                _isComplete = true;
+                if (_cancellationCalls == 0)
+                {
+                    cancellationToDispose = _cancellation;
+                    _cancellation = null;
+                }
+            }
+
+            cancellationToDispose?.Dispose();
+        }
     }
 
     private sealed class SynchronousProgress<T> : IProgress<T>

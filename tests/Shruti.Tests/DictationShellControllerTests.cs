@@ -195,6 +195,31 @@ public sealed class DictationShellControllerTests
     }
 
     [Fact]
+    public async Task ConcurrentCancellationAndNaturalCompletion_DoNotRaceTheActiveRunLifetime()
+    {
+        var services = MockDictationAppServices.Create();
+        var completion = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        services.Transcription.CompleteGate = completion;
+        var controller = services.CreateShellController();
+
+        await controller.StartAsync(DictationInsertionMode.AutoInsert);
+        Task stopping = controller.StopAsync();
+        await WaitForStateAsync(
+            controller,
+            state => state.SessionState == DictationSessionState.TranscribingFinalAudio);
+
+        Task[] cancellations = Enumerable.Range(0, 8)
+            .Select(_ => Task.Run(controller.CancelAsync))
+            .ToArray();
+        completion.TrySetResult();
+
+        await Task.WhenAll(cancellations.Append(stopping));
+
+        Assert.False(controller.State.IsRunning);
+        Assert.True(controller.State.CanStart);
+    }
+
+    [Fact]
     public async Task Retry_StartsAnotherMockRunWithSelectedMode()
     {
         var services = MockDictationAppServices.Create();
