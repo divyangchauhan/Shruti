@@ -9,46 +9,136 @@ public sealed class WhisperCppTranscriptionEngine : IWhisperCppTranscriptionEngi
         _nativeApi = nativeApi ?? throw new ArgumentNullException(nameof(nativeApi));
     }
 
-    public Task<WhisperCppTranscriptionResult> TranscribeAsync(
-        WhisperCppTranscriptionRequest request,
+    public Task<IWhisperCppInferenceSession> CreateSessionAsync(
+        WhisperCppTranscriptionSessionOptions options,
         CancellationToken cancellationToken)
     {
-        ArgumentNullException.ThrowIfNull(request);
-        ArgumentException.ThrowIfNullOrWhiteSpace(request.ModelPath);
-        ArgumentNullException.ThrowIfNull(request.Samples);
-        ArgumentException.ThrowIfNullOrWhiteSpace(request.Language);
+        ArgumentNullException.ThrowIfNull(options);
+        ArgumentException.ThrowIfNullOrWhiteSpace(options.ModelPath);
+        ArgumentException.ThrowIfNullOrWhiteSpace(options.Language);
         cancellationToken.ThrowIfCancellationRequested();
 
-        if (request.Samples.Length == 0)
+        if (options.ThreadCount < 0)
         {
-            throw new ArgumentException("whisper.cpp requires at least one audio sample.", nameof(request));
+            throw new ArgumentOutOfRangeException(nameof(options), "Thread count cannot be negative.");
         }
 
-        if (request.ThreadCount < 0)
+        IWhisperCppNativeContext context = _nativeApi.LoadModel(options.ModelPath);
+        IWhisperCppInferenceSession session = new WhisperCppInferenceSession(
+            context,
+            options.Language,
+            options.EffectiveThreadCount);
+        return Task.FromResult(session);
+    }
+
+    private sealed class WhisperCppInferenceSession : IWhisperCppInferenceSession
+    {
+        private readonly object _sync = new();
+        private readonly SemaphoreSlim _operationGate = new(1, 1);
+        private readonly string _language;
+        private readonly int _threadCount;
+        private IWhisperCppNativeContext? _context;
+        private Task? _disposeTask;
+        private bool _disposeStarted;
+
+        public WhisperCppInferenceSession(
+            IWhisperCppNativeContext context,
+            string language,
+            int threadCount)
         {
-            throw new ArgumentOutOfRangeException(nameof(request), "Thread count cannot be negative.");
+            _context = context ?? throw new ArgumentNullException(nameof(context));
+            _language = language;
+            _threadCount = threadCount;
         }
 
-        using IWhisperCppNativeContext context = _nativeApi.LoadModel(request.ModelPath);
-        int status = context.Transcribe(request.Samples, request.Language, request.ThreadCount);
-        if (status != 0)
+        public async Task<WhisperCppTranscriptionResult> TranscribeAsync(
+            float[] samples,
+            CancellationToken cancellationToken)
         {
-            throw new InvalidOperationException($"whisper.cpp transcription failed with native status {status}.");
-        }
-
-        int segmentCount = context.GetSegmentCount();
-        if (segmentCount < 0)
-        {
-            throw new InvalidOperationException("whisper.cpp returned an invalid segment count.");
-        }
-
-        var segments = new List<WhisperCppSegment>(segmentCount);
-        for (int index = 0; index < segmentCount; index++)
-        {
+            ArgumentNullException.ThrowIfNull(samples);
             cancellationToken.ThrowIfCancellationRequested();
-            segments.Add(context.GetSegment(index));
+
+            if (samples.Length == 0)
+            {
+                throw new ArgumentException("whisper.cpp requires at least one audio sample.", nameof(samples));
+            }
+
+            await _operationGate.WaitAsync(cancellationToken).ConfigureAwait(false);
+            try
+            {
+                IWhisperCppNativeContext context;
+                lock (_sync)
+                {
+                    ThrowIfDisposed();
+                    context = _context!;
+                }
+
+                int status = context.Transcribe(samples, _language, _threadCount);
+                if (status != 0)
+                {
+                    throw new InvalidOperationException($"whisper.cpp transcription failed with native status {status}.");
+                }
+
+                int segmentCount = context.GetSegmentCount();
+                if (segmentCount < 0)
+                {
+                    throw new InvalidOperationException("whisper.cpp returned an invalid segment count.");
+                }
+
+                var segments = new List<WhisperCppSegment>(segmentCount);
+                for (int index = 0; index < segmentCount; index++)
+                {
+                    cancellationToken.ThrowIfCancellationRequested();
+                    segments.Add(context.GetSegment(index));
+                }
+
+                return new WhisperCppTranscriptionResult(segments);
+            }
+            finally
+            {
+                _operationGate.Release();
+            }
         }
 
-        return Task.FromResult(new WhisperCppTranscriptionResult(segments));
+        public ValueTask DisposeAsync()
+        {
+            Task disposeTask;
+            lock (_sync)
+            {
+                _disposeStarted = true;
+                _disposeTask ??= DisposeContextAsync();
+                disposeTask = _disposeTask;
+            }
+
+            return new ValueTask(disposeTask);
+        }
+
+        private async Task DisposeContextAsync()
+        {
+            await _operationGate.WaitAsync().ConfigureAwait(false);
+            try
+            {
+                IWhisperCppNativeContext? context;
+                lock (_sync)
+                {
+                    context = _context;
+                    _context = null;
+                }
+
+                context?.Dispose();
+            }
+            finally
+            {
+                _operationGate.Release();
+            }
+        }
+
+        private void ThrowIfDisposed()
+        {
+            if (_disposeStarted || _context is null)
+            {
+                throw new ObjectDisposedException(nameof(WhisperCppInferenceSession));
+            }
+        }
     }
 }

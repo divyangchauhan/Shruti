@@ -2,7 +2,9 @@
 
 #include "whisper.h"
 
+#include <algorithm>
 #include <new>
+#include <thread>
 
 struct shruti_whisper_context {
     whisper_context * native_context;
@@ -49,7 +51,11 @@ int shruti_whisper_transcribe(
 
     try {
         whisper_full_params parameters = whisper_full_default_params(WHISPER_SAMPLING_GREEDY);
-        parameters.n_threads = thread_count > 0 ? thread_count : 1;
+        const unsigned int available_threads = std::thread::hardware_concurrency();
+        const int default_thread_count = available_threads == 0
+            ? 1
+            : static_cast<int>(std::min(available_threads, 4u));
+        parameters.n_threads = thread_count > 0 ? thread_count : default_thread_count;
         parameters.language = language != nullptr && language[0] != '\0' ? language : "en";
         parameters.print_special = false;
         parameters.print_progress = false;

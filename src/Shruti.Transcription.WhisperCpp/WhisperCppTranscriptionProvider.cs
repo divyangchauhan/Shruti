@@ -67,12 +67,25 @@ public sealed class WhisperCppTranscriptionProvider : ITranscriptionProvider
                 "The selected whisper.cpp model is unavailable or the requested backend is unsupported.");
         }
 
-        return new WhisperCppTranscriptionSession(_engine, options);
+        IWhisperCppInferenceSession inferenceSession = await _engine.CreateSessionAsync(
+                new WhisperCppTranscriptionSessionOptions(options.Model.LocalPath, options.Language),
+                cancellationToken)
+            .ConfigureAwait(false);
+
+        try
+        {
+            return new WhisperCppTranscriptionSession(inferenceSession, options);
+        }
+        catch
+        {
+            await inferenceSession.DisposeAsync().ConfigureAwait(false);
+            throw;
+        }
     }
 
     private sealed class WhisperCppTranscriptionSession : ITranscriptionSession
     {
-        private readonly IWhisperCppTranscriptionEngine _engine;
+        private readonly IWhisperCppInferenceSession _inferenceSession;
         private readonly TranscriptionSessionOptions _options;
         private readonly StreamingTranscriptionOptions _streamingOptions;
         private readonly MemoryStream _pcmAudio = new();
@@ -80,16 +93,17 @@ public sealed class WhisperCppTranscriptionProvider : ITranscriptionProvider
         private readonly CancellationTokenSource _partialTranscriptionCancellation = new();
         private readonly object _sync = new();
         private Task? _partialTranscriptionTask;
+        private Task? _resourceDisposalTask;
         private int _nextPartialSampleCount;
         private bool _partialTranscriptionInProgress;
         private bool _completed;
         private bool _cancelled;
 
         public WhisperCppTranscriptionSession(
-            IWhisperCppTranscriptionEngine engine,
+            IWhisperCppInferenceSession inferenceSession,
             TranscriptionSessionOptions options)
         {
-            _engine = engine;
+            _inferenceSession = inferenceSession ?? throw new ArgumentNullException(nameof(inferenceSession));
             _options = options;
             _streamingOptions = options.EffectiveStreamingOptions;
             ValidateStreamingOptions(_streamingOptions);
@@ -144,11 +158,8 @@ public sealed class WhisperCppTranscriptionProvider : ITranscriptionProvider
                 }
 
                 byte[] audio = CopyBufferedAudio();
-                WhisperCppTranscriptionResult nativeResult = await _engine.TranscribeAsync(
-                        new WhisperCppTranscriptionRequest(
-                            _options.Model.LocalPath,
-                            ConvertPcm16ToFloat(audio),
-                            _options.Language),
+                WhisperCppTranscriptionResult nativeResult = await _inferenceSession.TranscribeAsync(
+                        ConvertPcm16ToFloat(audio),
                         cancellationToken)
                     .ConfigureAwait(false);
 
@@ -197,27 +208,20 @@ public sealed class WhisperCppTranscriptionProvider : ITranscriptionProvider
 
         public ValueTask DisposeAsync()
         {
-            Task? partialTranscriptionTask;
             lock (_sync)
             {
                 _cancelled = true;
                 _partialTranscriptionCancellation.Cancel();
-                partialTranscriptionTask = _partialTranscriptionTask;
                 _events.Writer.TryComplete();
-            }
 
-            _pcmAudio.Dispose();
-            if (partialTranscriptionTask is null || partialTranscriptionTask.IsCompleted)
-            {
-                _partialTranscriptionCancellation.Dispose();
-            }
-            else
-            {
-                _ = partialTranscriptionTask.ContinueWith(
-                    _ => _partialTranscriptionCancellation.Dispose(),
-                    CancellationToken.None,
-                    TaskContinuationOptions.ExecuteSynchronously,
-                    TaskScheduler.Default);
+                if (_resourceDisposalTask is null)
+                {
+                    Task? partialTranscriptionTask = _partialTranscriptionTask;
+                    _pcmAudio.Dispose();
+                    _resourceDisposalTask = Task.Run(
+                        () => DisposeResourcesAsync(partialTranscriptionTask),
+                        CancellationToken.None);
+                }
             }
 
             return ValueTask.CompletedTask;
@@ -254,11 +258,8 @@ public sealed class WhisperCppTranscriptionProvider : ITranscriptionProvider
         {
             try
             {
-                WhisperCppTranscriptionResult partialResult = await _engine.TranscribeAsync(
-                        new WhisperCppTranscriptionRequest(
-                            _options.Model.LocalPath,
-                            ConvertPcm16ToFloat(audioSnapshot),
-                            _options.Language),
+                WhisperCppTranscriptionResult partialResult = await _inferenceSession.TranscribeAsync(
+                        ConvertPcm16ToFloat(audioSnapshot),
                         _partialTranscriptionCancellation.Token)
                     .ConfigureAwait(false);
 
@@ -297,6 +298,22 @@ public sealed class WhisperCppTranscriptionProvider : ITranscriptionProvider
             lock (_sync)
             {
                 return _pcmAudio.ToArray();
+            }
+        }
+
+        private async Task DisposeResourcesAsync(Task? partialTranscriptionTask)
+        {
+            try
+            {
+                if (partialTranscriptionTask is not null)
+                {
+                    await partialTranscriptionTask.ConfigureAwait(false);
+                }
+            }
+            finally
+            {
+                _partialTranscriptionCancellation.Dispose();
+                await _inferenceSession.DisposeAsync().ConfigureAwait(false);
             }
         }
 
