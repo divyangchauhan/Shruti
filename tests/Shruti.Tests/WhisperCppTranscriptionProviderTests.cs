@@ -64,6 +64,24 @@ public sealed class WhisperCppTranscriptionProviderTests : IDisposable
     }
 
     [Fact]
+    public async Task PushAudioAsync_RejectsAudioBeyondTheConfiguredSessionLimit()
+    {
+        string modelPath = await CreateModelFileAsync();
+        var provider = new WhisperCppTranscriptionProvider(new FakeEngine(TranscriptResult: null));
+        ITranscriptionSession session = await provider.CreateSessionAsync(
+            CreateOptions(modelPath, maximumAudioDuration: TimeSpan.FromMilliseconds(1)),
+            CancellationToken.None);
+
+        await session.PushAudioAsync(new byte[32], CancellationToken.None);
+        InvalidOperationException exception = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            session.PushAudioAsync(new byte[sizeof(short)], CancellationToken.None).AsTask());
+
+        Assert.Contains("limited", exception.Message, StringComparison.Ordinal);
+
+        await session.DisposeAsync();
+    }
+
+    [Fact]
     public async Task CancelAsync_PreventsCompletion()
     {
         string modelPath = await CreateModelFileAsync();
@@ -278,7 +296,8 @@ public sealed class WhisperCppTranscriptionProviderTests : IDisposable
 
     private static TranscriptionSessionOptions CreateOptions(
         string modelPath,
-        StreamingTranscriptionOptions? streaming = null)
+        StreamingTranscriptionOptions? streaming = null,
+        TimeSpan? maximumAudioDuration = null)
     {
         return new TranscriptionSessionOptions(
             new TranscriptionModelDescriptor(
@@ -292,7 +311,8 @@ public sealed class WhisperCppTranscriptionProviderTests : IDisposable
             ComputeBackend.Cpu,
             "en",
             TranscriptionMode.Balanced,
-            streaming);
+            streaming,
+            maximumAudioDuration);
     }
 
     private static async Task<IReadOnlyList<TranscriptEvent>> ReadAllAsync(IAsyncEnumerable<TranscriptEvent> events)

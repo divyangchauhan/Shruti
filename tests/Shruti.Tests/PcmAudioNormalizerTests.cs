@@ -8,6 +8,19 @@ namespace Shruti.Tests;
 public sealed class PcmAudioNormalizerTests
 {
     [Fact]
+    public void Normalize_PreservesTheFullPcm16Range()
+    {
+        var normalizer = CreateNormalizer(AudioFormat.Speech16KhzMono.SampleRateHz);
+        byte[] input = new byte[2 * sizeof(short)];
+        BinaryPrimitives.WriteInt16LittleEndian(input.AsSpan(0, sizeof(short)), short.MinValue);
+        BinaryPrimitives.WriteInt16LittleEndian(input.AsSpan(sizeof(short), sizeof(short)), short.MaxValue);
+
+        byte[] output = normalizer.Normalize(input);
+
+        Assert.Equal(input, output);
+    }
+
+    [Fact]
     public void Normalize_DownsamplingAttenuatesFrequenciesAboveTheTargetNyquistLimit()
     {
         double speechBandRms = NormalizeSineWaveAndCalculateRms(2_000);

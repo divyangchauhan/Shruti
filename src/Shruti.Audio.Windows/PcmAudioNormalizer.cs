@@ -67,7 +67,7 @@ internal sealed class PcmAudioNormalizer
             {
                 float sample = InterpolateSample(currentInputFrame, currentFilteredSample);
                 short pcmSample = (short)Math.Clamp(
-                    (int)Math.Round(sample * short.MaxValue),
+                    (int)Math.Round(sample * AudioFormat.Pcm16SampleScale),
                     short.MinValue,
                     short.MaxValue);
                 BinaryPrimitives.WriteInt16LittleEndian(output.AsSpan(outputOffset, sizeof(short)), pcmSample);
@@ -153,7 +153,7 @@ internal sealed class PcmAudioNormalizer
 
         return sample.Length switch
         {
-            sizeof(short) => BinaryPrimitives.ReadInt16LittleEndian(sample) / (float)short.MaxValue,
+            sizeof(short) => BinaryPrimitives.ReadInt16LittleEndian(sample) / AudioFormat.Pcm16SampleScale,
             3 => ReadInt24LittleEndian(sample) / 8_388_607f,
             sizeof(int) => BinaryPrimitives.ReadInt32LittleEndian(sample) / (float)int.MaxValue,
             _ => throw new NotSupportedException("The Windows microphone PCM format is not supported.")

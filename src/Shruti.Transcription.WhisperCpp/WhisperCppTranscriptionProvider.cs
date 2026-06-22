@@ -107,6 +107,11 @@ public sealed class WhisperCppTranscriptionProvider : ITranscriptionProvider
             _options = options;
             _streamingOptions = options.EffectiveStreamingOptions;
             ValidateStreamingOptions(_streamingOptions);
+
+            if (_options.EffectiveMaximumAudioDuration <= TimeSpan.Zero)
+            {
+                throw new ArgumentOutOfRangeException(nameof(options), "Maximum audio duration must be positive.");
+            }
         }
 
         public AudioFormat RequiredInputFormat => AudioFormat.Speech16KhzMono;
@@ -125,6 +130,13 @@ public sealed class WhisperCppTranscriptionProvider : ITranscriptionProvider
             lock (_sync)
             {
                 ThrowIfUnavailable();
+                long maximumAudioBytes = GetMaximumAudioByteLength();
+                if (_pcmAudio.Length + pcmAudio.Length > maximumAudioBytes)
+                {
+                    throw new InvalidOperationException(
+                        $"whisper.cpp dictation is limited to {_options.EffectiveMaximumAudioDuration.TotalMinutes:0.#} minutes of audio.");
+                }
+
                 _pcmAudio.Write(pcmAudio.Span);
             }
 
@@ -157,9 +169,9 @@ public sealed class WhisperCppTranscriptionProvider : ITranscriptionProvider
                     await partialTranscriptionTask.WaitAsync(cancellationToken).ConfigureAwait(false);
                 }
 
-                byte[] audio = CopyBufferedAudio();
+                float[] audio = CopyBufferedAudioAsFloat();
                 WhisperCppTranscriptionResult nativeResult = await _inferenceSession.TranscribeAsync(
-                        ConvertPcm16ToFloat(audio),
+                        audio,
                         cancellationToken)
                     .ConfigureAwait(false);
 
@@ -293,11 +305,12 @@ public sealed class WhisperCppTranscriptionProvider : ITranscriptionProvider
             }
         }
 
-        private byte[] CopyBufferedAudio()
+        private float[] CopyBufferedAudioAsFloat()
         {
             lock (_sync)
             {
-                return _pcmAudio.ToArray();
+                int audioLength = checked((int)_pcmAudio.Length);
+                return ConvertPcm16ToFloat(_pcmAudio.GetBuffer().AsSpan(0, audioLength));
             }
         }
 
@@ -344,6 +357,11 @@ public sealed class WhisperCppTranscriptionProvider : ITranscriptionProvider
             return GetSampleCountForDuration(_streamingOptions.EffectiveUpdateInterval);
         }
 
+        private long GetMaximumAudioByteLength()
+        {
+            return checked((long)GetSampleCountForDuration(_options.EffectiveMaximumAudioDuration) * sizeof(short));
+        }
+
         private static int GetSampleCountForDuration(TimeSpan duration)
         {
             return checked((int)Math.Ceiling(duration.TotalSeconds * AudioFormat.Speech16KhzMono.SampleRateHz));
@@ -386,7 +404,7 @@ public sealed class WhisperCppTranscriptionProvider : ITranscriptionProvider
             for (int index = 0; index < samples.Length; index++)
             {
                 short sample = BinaryPrimitives.ReadInt16LittleEndian(pcmAudio.Slice(index * sizeof(short), sizeof(short)));
-                samples[index] = sample / 32768f;
+                samples[index] = sample / AudioFormat.Pcm16SampleScale;
             }
 
             return samples;
