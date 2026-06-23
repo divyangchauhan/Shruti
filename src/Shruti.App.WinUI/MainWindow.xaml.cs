@@ -9,6 +9,7 @@ using Shruti.Core.Triggers;
 using Shruti.Platform.Windows;
 using Shruti.Storage;
 using WinRT.Interop;
+using Windows.Graphics;
 
 namespace Shruti.App.WinUI;
 
@@ -65,10 +66,12 @@ public sealed partial class MainWindow : Window
         AppWindow.Closing += AppWindow_Closing;
         Activated += MainWindow_Activated;
         Closed += MainWindow_Closed;
+        AppWindow.Resize(new SizeInt32(1020, 760));
 
         InsertionModeComboBox.SelectedIndex = 0;
         ThemeComboBox.SelectedIndex = 0;
         AudioRetentionComboBox.SelectedIndex = 0;
+        ShowPage("Home");
         ConfigureNativeTriggers();
         StartTriggerDispatch();
         UpdateView();
@@ -108,9 +111,15 @@ public sealed partial class MainWindow : Window
 
     private void SettingsButton_Click(object sender, RoutedEventArgs e)
     {
-        SettingsPanel.Visibility = SettingsPanel.Visibility == Visibility.Visible
-            ? Visibility.Collapsed
-            : Visibility.Visible;
+        ShowPage("Settings");
+    }
+
+    private void NavigationButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is Button { Tag: string page })
+        {
+            ShowPage(page);
+        }
     }
 
     private async void InsertionModeComboBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
@@ -215,6 +224,7 @@ public sealed partial class MainWindow : Window
             if (devices.Count == 0)
             {
                 AudioDeviceComboBox.PlaceholderText = "No microphone available";
+                MicrophoneReadinessText.Text = "No microphone found";
                 return;
             }
 
@@ -223,10 +233,12 @@ public sealed partial class MainWindow : Window
                 devices[0].Id;
             SelectAudioDevice(selectedDeviceId);
             _audioDevicesLoaded = true;
+            MicrophoneReadinessText.Text = "Ready";
         }
         catch (Exception ex)
         {
             AudioDeviceComboBox.PlaceholderText = "Microphone unavailable";
+            MicrophoneReadinessText.Text = "Unavailable";
             TriggerStatusText.Text = ex.Message;
         }
     }
@@ -280,10 +292,11 @@ public sealed partial class MainWindow : Window
             ? Visibility.Collapsed
             : Visibility.Visible;
 
-        PrimaryDictationButton.Content = state.IsRunning ? "Stop" : "Start";
+        PrimaryButtonLabel.Text = state.IsRunning ? "Stop dictation" : "Start dictation";
+        PrimaryButtonIcon.Glyph = state.IsRunning ? "\uE71A" : "\uE720";
         PrimaryDictationButton.IsEnabled = state.CanStart || state.CanStop;
         CancelButton.IsEnabled = state.CanCancel;
-        PauseButton.Content = state.IsPaused ? "Resume" : "Pause";
+        PauseButtonLabel.Text = state.IsPaused ? "Resume" : "Pause";
         PauseButton.IsEnabled = state.CanPause;
         RetryButton.IsEnabled = state.CanRetry;
         CopyButton.IsEnabled = state.CanCopy;
@@ -304,6 +317,10 @@ public sealed partial class MainWindow : Window
         {
             AudioLevelBar.Value = 0;
         }
+
+        StatusPillText.Text = state.SessionState == DictationSessionState.Idle
+            ? "Ready"
+            : FormatState(state.SessionState);
 
         _trayIconService.UpdateDictationState(state.IsRunning);
         _floatingMicWindow?.UpdateState(state);
@@ -404,6 +421,9 @@ public sealed partial class MainWindow : Window
         {
             await _triggerService.ConfigureAsync(configuration, CancellationToken.None);
             _trayIconService.SetVisible(configuration.EnableTrayMenu);
+            HoldShortcutText.Text = string.IsNullOrWhiteSpace(configuration.PushToTalkKey)
+                ? "Hold shortcut"
+                : configuration.PushToTalkKey;
             UpdateFloatingMicWindow();
             TriggerStatusText.Text = "Triggers are active.";
             if (persist)
@@ -437,6 +457,9 @@ public sealed partial class MainWindow : Window
         TrayMenuCheckBox.IsChecked = configuration.EnableTrayMenu;
         HotkeyGestureTextBox.Text = configuration.HotkeyGesture ?? string.Empty;
         PushToTalkKeyTextBox.Text = configuration.PushToTalkKey ?? string.Empty;
+        HoldShortcutText.Text = string.IsNullOrWhiteSpace(configuration.PushToTalkKey)
+            ? "Hold shortcut"
+            : configuration.PushToTalkKey;
     }
 
     private async Task EnsureSettingsLoadedAsync()
@@ -550,19 +573,29 @@ public sealed partial class MainWindow : Window
         }
 
         _floatingMicWindow ??= CreateFloatingMicWindow();
-        _floatingMicWindow.Show(_controller.State, GetSelectedTheme());
+        _floatingMicWindow.Show(
+            _controller.State,
+            GetSelectedTheme(),
+            _triggerService.Configuration.PushToTalkKey);
     }
 
     private FloatingMicWindow CreateFloatingMicWindow()
     {
         var floatingMicWindow = new FloatingMicWindow(_windowVisibility);
         floatingMicWindow.TriggerRequested += FloatingMicWindow_TriggerRequested;
+        floatingMicWindow.DismissRequested += FloatingMicWindow_DismissRequested;
         return floatingMicWindow;
     }
 
     private async void FloatingMicWindow_TriggerRequested(object? sender, EventArgs e)
     {
         await RaiseTriggerAsync(DictationTriggerKind.FloatingButton, "floating-button");
+    }
+
+    private async void FloatingMicWindow_DismissRequested(object? sender, EventArgs e)
+    {
+        FloatingButtonCheckBox.IsChecked = false;
+        await ApplyTriggerConfigurationAsync();
     }
 
     private async void TrayIconService_CommandInvoked(WindowsTrayCommand command)
@@ -610,7 +643,46 @@ public sealed partial class MainWindow : Window
     private void ShowSettings()
     {
         _windowVisibility.ShowAndActivate(_windowHandle);
-        SettingsPanel.Visibility = Visibility.Visible;
+        ShowPage("Settings");
+    }
+
+    private void ShowPage(string page)
+    {
+        bool isHome = string.Equals(page, "Home", StringComparison.OrdinalIgnoreCase);
+        bool isHistory = string.Equals(page, "History", StringComparison.OrdinalIgnoreCase);
+        bool isModels = string.Equals(page, "Models", StringComparison.OrdinalIgnoreCase);
+        bool isSettings = string.Equals(page, "Settings", StringComparison.OrdinalIgnoreCase);
+
+        HomePage.Visibility = isHome ? Visibility.Visible : Visibility.Collapsed;
+        HistoryPage.Visibility = isHistory ? Visibility.Visible : Visibility.Collapsed;
+        ModelsPage.Visibility = isModels ? Visibility.Visible : Visibility.Collapsed;
+        SettingsPanel.Visibility = isSettings ? Visibility.Visible : Visibility.Collapsed;
+
+        PageTitleText.Text = page switch
+        {
+            "History" => "Dictation history",
+            "Models" => "Models",
+            "Settings" => "Settings",
+            _ => "Ready to dictate"
+        };
+        PageSubtitleText.Text = page switch
+        {
+            "History" => "Review dictations when local history is connected.",
+            "Models" => "Inspect the local speech models Shruti can use.",
+            "Settings" => "Configure Shruti for the way you work.",
+            _ => "Hold your shortcut, speak naturally, and release to finish."
+        };
+
+        SetNavigationButtonState(HomeNavButton, isHome);
+        SetNavigationButtonState(HistoryNavButton, isHistory);
+        SetNavigationButtonState(ModelsNavButton, isModels);
+        SetNavigationButtonState(SettingsNavButton, isSettings);
+    }
+
+    private static void SetNavigationButtonState(Button button, bool isSelected)
+    {
+        button.FontWeight = isSelected ? Microsoft.UI.Text.FontWeights.SemiBold : Microsoft.UI.Text.FontWeights.Normal;
+        button.Opacity = isSelected ? 1 : 0.72;
     }
 
     private void QuitApplication()

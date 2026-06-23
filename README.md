@@ -14,7 +14,7 @@ Shruti is under active development and is not packaged for end users yet. The Wi
 - Local `whisper.cpp` transcription with live partial text and a final transcript.
 - Auto-insert, preview-before-insert, and copy-only dictation modes.
 - Direct text insertion with clipboard fallback when direct insertion is unavailable.
-- Global trigger routing, a tray control, and a floating microphone control.
+- A default `Ctrl+Win+Space` hold-to-dictate shortcut, tray control, and optional floating microphone control.
 - Local model download, verification, import, and removal primitives.
 - System, light, and dark theme preferences.
 

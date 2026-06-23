@@ -46,7 +46,8 @@ public sealed class WindowsGlobalTriggerServiceTests
 
         Assert.Equal(DictationTriggerKind.PushToTalkPressed, first.Kind);
         Assert.Equal(DictationTriggerKind.PushToTalkReleased, second.Kind);
-        Assert.Equal((uint)0xA3, pushToTalkHook.VirtualKey);
+        Assert.Equal((uint)0xA3, pushToTalkHook.Hotkey?.VirtualKey);
+        Assert.Equal("RightControl", pushToTalkHook.Hotkey?.Gesture);
     }
 
     [Fact]
@@ -64,11 +65,34 @@ public sealed class WindowsGlobalTriggerServiceTests
     }
 
     [Fact]
+    public async Task PushToTalk_AcceptsDefaultHoldChord()
+    {
+        var pushToTalkHook = new FakePushToTalkHook();
+        using var service = new WindowsGlobalTriggerService(new FakeHotkeyRegistration(), pushToTalkHook);
+
+        await service.ConfigureAsync(
+            CreateConfiguration() with
+            {
+                EnableGlobalHotkey = false,
+                PushToTalkKey = "Ctrl+Win+Space"
+            },
+            CancellationToken.None);
+
+        Assert.True(pushToTalkHook.IsEnabled);
+        Assert.Equal("Ctrl+Win+Space", pushToTalkHook.Hotkey?.Gesture);
+        Assert.Equal(
+            WindowsHotkeyParser.ControlModifier | WindowsHotkeyParser.WindowsModifier,
+            pushToTalkHook.Hotkey?.Modifiers);
+        Assert.Equal((uint)0x20, pushToTalkHook.Hotkey?.VirtualKey);
+    }
+
+    [Fact]
     public async Task ReservedHotkey_IsRejectedBeforeExistingRegistrationChanges()
     {
         var registration = new FakeHotkeyRegistration();
         using var service = new WindowsGlobalTriggerService(registration, new FakePushToTalkHook());
 
+        await service.ConfigureAsync(CreateConfiguration(), CancellationToken.None);
         service.AttachWindow((IntPtr)42);
 
         var exception = await Assert.ThrowsAsync<ArgumentException>(() => service.ConfigureAsync(
@@ -146,12 +170,12 @@ public sealed class WindowsGlobalTriggerServiceTests
 
         public bool IsEnabled { get; private set; }
 
-        public uint VirtualKey { get; private set; }
+        public WindowsHotkey? Hotkey { get; private set; }
 
-        public void Configure(bool enabled, uint virtualKey)
+        public void Configure(bool enabled, WindowsHotkey? hotkey)
         {
             IsEnabled = enabled;
-            VirtualKey = virtualKey;
+            Hotkey = hotkey;
         }
 
         public void Raise(bool isPressed)

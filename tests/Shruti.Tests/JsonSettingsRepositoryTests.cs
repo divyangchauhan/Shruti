@@ -11,6 +11,17 @@ public sealed class JsonSettingsRepositoryTests : IDisposable
     private readonly string _rootPath = Path.Combine(Path.GetTempPath(), "Shruti.Tests", Guid.NewGuid().ToString("N"));
 
     [Fact]
+    public void DefaultTriggerConfiguration_UsesTheHoldToDictateExperience()
+    {
+        TriggerConfiguration configuration = ShrutiSettings.Default.TriggerConfiguration;
+
+        Assert.False(configuration.EnableGlobalHotkey);
+        Assert.True(configuration.EnablePushToTalk);
+        Assert.True(configuration.EnableFloatingButton);
+        Assert.Equal("Ctrl+Win+Space", configuration.PushToTalkKey);
+    }
+
+    [Fact]
     public async Task LoadAsync_CreatesTheLocalDataLayoutAndReturnsDefaults()
     {
         var paths = new AppDataPaths(_rootPath);

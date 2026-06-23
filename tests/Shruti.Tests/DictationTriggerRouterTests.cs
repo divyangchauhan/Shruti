@@ -86,6 +86,10 @@ public sealed class DictationTriggerRouterTests
         var dispatcher = new DictationTriggerDispatcher(triggerService, router);
         using var cancellation = new CancellationTokenSource(TimeSpan.FromSeconds(2));
 
+        await triggerService.ConfigureAsync(
+            triggerService.Configuration with { EnableGlobalHotkey = true },
+            CancellationToken.None);
+
         Task dispatchTask = dispatcher.RunAsync(cancellation.Token);
 
         Assert.True(triggerService.Publish(DictationTriggerKind.GlobalHotkey));

@@ -10,11 +10,18 @@ public sealed class WindowsPushToTalkHook : IWindowsPushToTalkHook
     private const uint KeyUp = 0x0101;
     private const uint SystemKeyDown = 0x0104;
     private const uint SystemKeyUp = 0x0105;
+    private const uint ControlVirtualKey = 0x11;
+    private const uint ShiftVirtualKey = 0x10;
+    private const uint AltVirtualKey = 0x12;
+    private const uint LeftWindowsVirtualKey = 0x5B;
+    private const uint RightWindowsVirtualKey = 0x5C;
+    private const int KeyPressedMask = 0x8000;
 
     private readonly NativeMethods.LowLevelKeyboardProc _callback;
     private IntPtr _hookHandle;
-    private uint _virtualKey;
+    private WindowsHotkey? _hotkey;
     private bool _isPressed;
+    private bool _isMainKeySuppressed;
     private bool _isDisposed;
 
     public WindowsPushToTalkHook()
@@ -24,7 +31,7 @@ public sealed class WindowsPushToTalkHook : IWindowsPushToTalkHook
 
     public event EventHandler<WindowsPushToTalkKeyStateChangedEventArgs>? KeyStateChanged;
 
-    public void Configure(bool enabled, uint virtualKey)
+    public void Configure(bool enabled, WindowsHotkey? hotkey)
     {
         ObjectDisposedException.ThrowIf(_isDisposed, this);
 
@@ -34,10 +41,13 @@ public sealed class WindowsPushToTalkHook : IWindowsPushToTalkHook
             return;
         }
 
-        if (_virtualKey != virtualKey)
+        ArgumentNullException.ThrowIfNull(hotkey);
+
+        if (!Equals(_hotkey, hotkey))
         {
             _isPressed = false;
-            _virtualKey = virtualKey;
+            _isMainKeySuppressed = false;
+            _hotkey = hotkey;
         }
         if (_hookHandle != IntPtr.Zero)
         {
@@ -70,24 +80,73 @@ public sealed class WindowsPushToTalkHook : IWindowsPushToTalkHook
 
     private IntPtr HookCallback(int code, IntPtr windowMessage, IntPtr keyboardDataPointer)
     {
+        bool suppressKey = false;
         if (code >= 0 && keyboardDataPointer != IntPtr.Zero)
         {
             var keyboardData = Marshal.PtrToStructure<NativeMethods.KbdLlHookStruct>(keyboardDataPointer);
-            if (keyboardData.VirtualKey == _virtualKey)
+            uint message = unchecked((uint)windowMessage.ToInt64());
+            WindowsHotkey? hotkey = _hotkey;
+            if (hotkey is not null && keyboardData.VirtualKey == hotkey.VirtualKey)
             {
-                uint message = unchecked((uint)windowMessage.ToInt64());
-                if (message is KeyDown or SystemKeyDown)
+                if ((message is KeyDown or SystemKeyDown) && AreModifiersPressed(hotkey.Modifiers))
                 {
                     RaiseKeyStateChanged(isPressed: true);
+                    _isMainKeySuppressed = hotkey.Modifiers != 0;
+                    suppressKey = _isMainKeySuppressed;
                 }
                 else if (message is KeyUp or SystemKeyUp)
                 {
                     RaiseKeyStateChanged(isPressed: false);
+                    suppressKey = _isMainKeySuppressed;
+                    _isMainKeySuppressed = false;
                 }
+                else if (_isMainKeySuppressed)
+                {
+                    suppressKey = true;
+                }
+            }
+            else if (_isPressed && hotkey is not null &&
+                (message is KeyUp or SystemKeyUp) &&
+                IsRequiredModifier(keyboardData.VirtualKey, hotkey.Modifiers))
+            {
+                RaiseKeyStateChanged(isPressed: false);
             }
         }
 
-        return NativeMethods.CallNextHookEx(_hookHandle, code, windowMessage, keyboardDataPointer);
+        return suppressKey
+            ? (IntPtr)1
+            : NativeMethods.CallNextHookEx(_hookHandle, code, windowMessage, keyboardDataPointer);
+    }
+
+    private static bool AreModifiersPressed(uint modifiers)
+    {
+        return (!HasModifier(modifiers, WindowsHotkeyParser.ControlModifier) || IsKeyPressed(ControlVirtualKey)) &&
+            (!HasModifier(modifiers, WindowsHotkeyParser.ShiftModifier) || IsKeyPressed(ShiftVirtualKey)) &&
+            (!HasModifier(modifiers, WindowsHotkeyParser.AltModifier) || IsKeyPressed(AltVirtualKey)) &&
+            (!HasModifier(modifiers, WindowsHotkeyParser.WindowsModifier) ||
+                IsKeyPressed(LeftWindowsVirtualKey) || IsKeyPressed(RightWindowsVirtualKey));
+    }
+
+    private static bool IsRequiredModifier(uint virtualKey, uint modifiers)
+    {
+        return ((virtualKey is ControlVirtualKey or 0xA2 or 0xA3) &&
+                HasModifier(modifiers, WindowsHotkeyParser.ControlModifier)) ||
+            ((virtualKey is ShiftVirtualKey or 0xA0 or 0xA1) &&
+                HasModifier(modifiers, WindowsHotkeyParser.ShiftModifier)) ||
+            ((virtualKey is AltVirtualKey or 0xA4 or 0xA5) &&
+                HasModifier(modifiers, WindowsHotkeyParser.AltModifier)) ||
+            ((virtualKey is LeftWindowsVirtualKey or RightWindowsVirtualKey) &&
+                HasModifier(modifiers, WindowsHotkeyParser.WindowsModifier));
+    }
+
+    private static bool HasModifier(uint modifiers, uint modifier)
+    {
+        return (modifiers & modifier) != 0;
+    }
+
+    private static bool IsKeyPressed(uint virtualKey)
+    {
+        return (NativeMethods.GetAsyncKeyState((int)virtualKey) & KeyPressedMask) != 0;
     }
 
     private void RaiseKeyStateChanged(bool isPressed)
@@ -114,12 +173,14 @@ public sealed class WindowsPushToTalkHook : IWindowsPushToTalkHook
         if (_hookHandle == IntPtr.Zero)
         {
             _isPressed = false;
+            _isMainKeySuppressed = false;
             return;
         }
 
         NativeMethods.UnhookWindowsHookEx(_hookHandle);
         _hookHandle = IntPtr.Zero;
         _isPressed = false;
+        _isMainKeySuppressed = false;
     }
 
     private static class NativeMethods
@@ -153,5 +214,8 @@ public sealed class WindowsPushToTalkHook : IWindowsPushToTalkHook
             int code,
             IntPtr windowMessage,
             IntPtr keyboardDataPointer);
+
+        [DllImport("user32.dll")]
+        public static extern short GetAsyncKeyState(int virtualKey);
     }
 }

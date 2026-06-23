@@ -2,7 +2,7 @@
 
 Date: 2026-06-19
 
-Status: PR-17 complete; PR-18 planned.
+Status: PR-19 complete; PR-20 in review.
 
 This plan turns `features.md` and `architecture.md` into an implementation roadmap. It assumes Windows-first development with WinUI 3, Windows App SDK, local transcription, and immediate system-wide text insertion as the central workflow.
 
@@ -67,17 +67,17 @@ Acceptance criteria:
 
 ### 3. Windows App Shell
 
-- [ ] Create main dictation window.
-- [ ] Create recording state UI: idle, requesting microphone, recording, paused, transcribing, failed, complete.
-- [ ] Add primary start/stop dictation button.
-- [ ] Add pause, resume, cancel, retry, copy controls.
-- [ ] Add transcript preview text area.
-- [ ] Add settings navigation.
-- [ ] Add app-level dependency injection composition.
-- [ ] Bind UI to `DictationCoordinator` state.
-- [ ] Add user-facing error/status surface.
-- [ ] Add theme support for system light/dark.
-- [ ] Add basic keyboard navigation.
+- [x] Create main dictation window.
+- [x] Create recording state UI: idle, requesting microphone, recording, paused, transcribing, failed, complete.
+- [x] Add primary start/stop dictation button.
+- [x] Add pause, resume, cancel, retry, copy controls.
+- [x] Add transcript preview text area.
+- [x] Add settings navigation.
+- [x] Add app-level dependency injection composition.
+- [x] Bind UI to `DictationCoordinator` state.
+- [x] Add user-facing error/status surface.
+- [x] Add theme support for system light/dark.
+- [x] Add basic keyboard navigation.
 
 Acceptance criteria:
 
@@ -358,18 +358,21 @@ Acceptance criteria:
 | PR-15 | Done | 2026-07-27 | End-to-end auto-insert dictation: trigger, record, transcribe, insert | Core MVP workflow |
 | PR-16 | Done | 2026-07-29 | Preview-before-insert, copy-only, cancel/retry, selected-text safety | Safe user control |
 | PR-17 | Done | 2026-07-31 | Live partial transcription from `whisper.cpp` through the WinUI transcript surface | Real-time dictation feedback |
-| PR-18 | Planned | 2026-08-03 | Provider registry, backend readiness, benchmark cache, slow-mode gate | Hardware/model eligibility |
-| PR-19 | Planned | 2026-08-05 | Per-app insertion policies and compatibility matrix | App-specific insertion reliability |
-| PR-20 | Planned | 2026-08-07 | Error handling, privacy copy, diagnostics, accessibility pass | User trust and recoverability |
-| PR-21 | Planned | 2026-08-09 | Manual QA fixes across Notepad, browser, Codex-style field, Word, Terminal, Electron, elevated app | Windows compatibility |
+| PR-18 | Done | 2026-06-23 | Live-transcription audio quality, performance, cancellation, and lifecycle fixes | Reliable real-time local transcription |
+| PR-19 | Done | 2026-06-23 | README and repository metadata polish | Clear project presentation |
+| PR-20 | In review | 2026-06-23 | Design-led WinUI shell, system theme support, configurable hold shortcut, optional floating control, and explicitly marked mock history/model surfaces | Complete, honest product surface around the real dictation loop |
+| PR-21 | Planned | 2026-08-03 | Provider registry, backend readiness, benchmark cache, slow-mode gate | Hardware/model eligibility |
+| PR-22 | Planned | 2026-08-05 | Per-app insertion policies and compatibility matrix | App-specific insertion reliability |
+| PR-23 | Planned | 2026-08-07 | Error handling, privacy copy, diagnostics, accessibility pass | User trust and recoverability |
+| PR-24 | Planned | 2026-08-09 | Manual QA fixes across Notepad, browser, Codex-style field, Word, Terminal, Electron, elevated app | Windows compatibility |
 
 ### Phase 5: Packaging
 
 | PR | Status | Target merge | Scope | Primary risk retired |
 | --- | --- | --- | --- | --- |
-| PR-22 | Planned | 2026-08-12 | MSIX packaging with native DLL inclusion | Installable Windows app |
-| PR-23 | Planned | 2026-08-14 | Signing, update preservation, clean-machine install test | Release readiness |
-| PR-24 | Planned | 2026-08-16 | Bootstrapper or installer adjustments, release notes, optional `winget` prep | Distribution polish |
+| PR-25 | Planned | 2026-08-12 | MSIX packaging with native DLL inclusion | Installable Windows app |
+| PR-26 | Planned | 2026-08-14 | Signing, update preservation, clean-machine install test | Release readiness |
+| PR-27 | Planned | 2026-08-16 | Bootstrapper or installer adjustments, release notes, optional `winget` prep | Distribution polish |
 
 ## Release Gates
 

@@ -27,11 +27,12 @@ public sealed class WindowsGlobalTriggerService : IGlobalTriggerService, IDispos
     }
 
     public TriggerConfiguration Configuration { get; private set; } = new(
-        EnableGlobalHotkey: true,
+        EnableGlobalHotkey: false,
         EnablePushToTalk: true,
         EnableFloatingButton: true,
         EnableTrayMenu: true,
-        HotkeyGesture: "Ctrl+Alt+Space");
+        HotkeyGesture: "Ctrl+Win+Space",
+        PushToTalkKey: "Ctrl+Win+Space");
 
     public IAsyncEnumerable<DictationTriggerEvent> Events => _events.Reader.ReadAllAsync();
 
@@ -132,16 +133,16 @@ public sealed class WindowsGlobalTriggerService : IGlobalTriggerService, IDispos
 
         if (configuration.EnablePushToTalk)
         {
-            if (!WindowsVirtualKey.TryParse(configuration.PushToTalkKey, out uint virtualKey, out string? _))
+            if (!TryParsePushToTalkHotkey(configuration.PushToTalkKey, out WindowsHotkey? hotkey, out string? error))
             {
-                throw new InvalidOperationException("The push-to-talk key is not supported.");
+                throw new InvalidOperationException(error);
             }
 
-            _pushToTalkHook.Configure(enabled: true, virtualKey);
+            _pushToTalkHook.Configure(enabled: true, hotkey!);
         }
         else
         {
-            _pushToTalkHook.Configure(enabled: false, virtualKey: 0);
+            _pushToTalkHook.Configure(enabled: false, hotkey: null);
         }
     }
 
@@ -154,10 +155,31 @@ public sealed class WindowsGlobalTriggerService : IGlobalTriggerService, IDispos
         }
 
         if (configuration.EnablePushToTalk &&
-            !WindowsVirtualKey.TryParse(configuration.PushToTalkKey, out _, out _))
+            !TryParsePushToTalkHotkey(configuration.PushToTalkKey, out _, out string? pushToTalkError))
         {
-            throw new ArgumentException("The push-to-talk key is not supported.", nameof(configuration));
+            throw new ArgumentException(pushToTalkError, nameof(configuration));
         }
+    }
+
+    private static bool TryParsePushToTalkHotkey(
+        string? gesture,
+        out WindowsHotkey? hotkey,
+        out string? error)
+    {
+        if (WindowsHotkeyParser.TryParse(gesture, out hotkey, out error))
+        {
+            return true;
+        }
+
+        if (WindowsVirtualKey.TryParse(gesture, out uint virtualKey, out string? canonicalKey))
+        {
+            hotkey = new WindowsHotkey(0, virtualKey, canonicalKey!);
+            error = null;
+            return true;
+        }
+
+        error = "The hold-to-dictate key or key combination is not supported.";
+        return false;
     }
 
     private void PushToTalkHook_KeyStateChanged(object? sender, WindowsPushToTalkKeyStateChangedEventArgs e)
