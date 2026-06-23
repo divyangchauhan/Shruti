@@ -1,4 +1,5 @@
 using NAudio.CoreAudioApi;
+using NAudio.Dmo;
 using NAudio.Wave;
 using Shruti.Transcription.Abstractions;
 
@@ -68,14 +69,25 @@ public sealed class WasapiAudioCaptureSource : IWindowsAudioCaptureSource
 
     private static WindowsAudioStreamFormat CreateStreamFormat(WaveFormat format)
     {
-        AudioSampleFormat sampleFormat = format.Encoding == WaveFormatEncoding.IeeeFloat
-            ? AudioSampleFormat.Float32
-            : AudioSampleFormat.Int16;
+        AudioSampleFormat sampleFormat = DetermineSampleFormat(
+            format.Encoding,
+            format is WaveFormatExtensible extensible ? extensible.SubFormat : null);
 
         return new WindowsAudioStreamFormat(
             format.SampleRate,
             format.Channels,
             sampleFormat,
             format.BitsPerSample);
+    }
+
+    internal static AudioSampleFormat DetermineSampleFormat(
+        WaveFormatEncoding encoding,
+        Guid? extensibleSubFormat)
+    {
+        bool isIeeeFloat = encoding == WaveFormatEncoding.IeeeFloat ||
+            (encoding == WaveFormatEncoding.Extensible &&
+             extensibleSubFormat == AudioMediaSubtypes.MEDIASUBTYPE_IEEE_FLOAT);
+
+        return isIeeeFloat ? AudioSampleFormat.Float32 : AudioSampleFormat.Int16;
     }
 }

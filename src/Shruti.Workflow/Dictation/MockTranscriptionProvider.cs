@@ -71,7 +71,7 @@ public sealed class MockTranscriptionProvider : ITranscriptionProvider
 
         public int CancelCount { get; private set; }
 
-        public ValueTask PushAudioAsync(
+        public ValueTask<TranscriptionAudioPushResult> PushAudioAsync(
             ReadOnlyMemory<byte> pcmAudio,
             CancellationToken cancellationToken)
         {
@@ -85,7 +85,7 @@ public sealed class MockTranscriptionProvider : ITranscriptionProvider
                     Text: "hello from the Shruti mock dictation"));
             }
 
-            return ValueTask.CompletedTask;
+            return ValueTask.FromResult(TranscriptionAudioPushResult.Continue);
         }
 
         public async Task<TranscriptResult> CompleteAsync(CancellationToken cancellationToken)

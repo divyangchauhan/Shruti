@@ -7,7 +7,7 @@ public interface IWhisperCppNativeApi
 
 public interface IWhisperCppNativeContext : IDisposable
 {
-    int Transcribe(float[] samples, string language, int threadCount);
+    int Transcribe(float[] samples, string language, int threadCount, CancellationToken cancellationToken);
 
     int GetSegmentCount();
 

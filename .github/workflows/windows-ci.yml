@@ -44,10 +44,12 @@ jobs:
           - DictationShellControllerTests
           - DictationTriggerRouterTests
           - JsonSettingsRepositoryTests
+          - PcmAudioNormalizerTests
           - SqliteSessionRepositoryTests
           - TranscriptExportServiceTests
           - WhisperCppTranscriptionEngineTests
           - WhisperCppTranscriptionProviderTests
+          - WasapiAudioCaptureSourceTests
           - WindowsAudioCaptureServiceTests
           - WindowsGlobalTriggerServiceTests
           - WindowsTargetFocusServiceTests

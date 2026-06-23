@@ -4,7 +4,8 @@ public sealed record StreamingTranscriptionOptions(
     bool EnablePartialTranscription = true,
     TimeSpan? MinimumAudioDuration = null,
     TimeSpan? UpdateInterval = null,
-    TimeSpan? PartialAudioWindow = null)
+    TimeSpan? MaximumPartialAudioDuration = null,
+    TimeSpan? PartialAudioOverlap = null)
 {
     public static StreamingTranscriptionOptions Default { get; } = new();
 
@@ -12,5 +13,7 @@ public sealed record StreamingTranscriptionOptions(
 
     public TimeSpan EffectiveUpdateInterval => UpdateInterval ?? TimeSpan.FromSeconds(1);
 
-    public TimeSpan EffectivePartialAudioWindow => PartialAudioWindow ?? TimeSpan.FromSeconds(15);
+    public TimeSpan EffectiveMaximumPartialAudioDuration => MaximumPartialAudioDuration ?? TimeSpan.FromSeconds(3);
+
+    public TimeSpan EffectivePartialAudioOverlap => PartialAudioOverlap ?? TimeSpan.FromMilliseconds(250);
 }

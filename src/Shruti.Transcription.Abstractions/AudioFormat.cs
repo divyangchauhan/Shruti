@@ -5,6 +5,8 @@ public sealed record AudioFormat(
     int ChannelCount,
     AudioSampleFormat SampleFormat)
 {
+    public const float Pcm16SampleScale = 32_768f;
+
     public static AudioFormat Speech16KhzMono { get; } = new(
         16_000,
         1,

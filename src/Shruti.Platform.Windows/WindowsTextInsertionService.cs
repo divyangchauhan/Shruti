@@ -42,28 +42,12 @@ public sealed class WindowsTextInsertionService : ITextInsertionService
         ArgumentNullException.ThrowIfNull(target);
         cancellationToken.ThrowIfCancellationRequested();
 
-        if (target.WindowHandle == IntPtr.Zero || !_windowing.IsWindow(target.WindowHandle))
+        CapturedTargetSafetyFailure? safetyFailure = GetCapturedTargetSafetyFailure(target);
+        if (safetyFailure is not null)
         {
-            return Task.FromResult(Unsupported("The captured target window is no longer available."));
-        }
-
-        if (target.IsElevated)
-        {
-            return Task.FromResult(PreviewRequired("Shruti cannot safely insert into an elevated target app."));
-        }
-
-        if (target.IsEditable is not true)
-        {
-            return Task.FromResult(PreviewRequired(
-                target.IsEditable is null
-                    ? "Shruti could not confirm that the captured target is editable."
-                    : "The captured target does not expose an editable field."));
-        }
-
-        if (target.HasSelectedText is null)
-        {
-            return Task.FromResult(PreviewRequired(
-                "Shruti could not determine whether the captured target has selected text."));
+            return Task.FromResult(safetyFailure.IsUnsupported
+                ? Unsupported(safetyFailure.Message)
+                : PreviewRequired(safetyFailure.Message));
         }
 
         if (target.HasSelectedText == true)
@@ -175,27 +159,10 @@ public sealed class WindowsTextInsertionService : ITextInsertionService
         FocusTarget target,
         TextInsertionOptions options)
     {
-        if (target.WindowHandle == IntPtr.Zero || !_windowing.IsWindow(target.WindowHandle))
+        CapturedTargetSafetyFailure? safetyFailure = GetCapturedTargetSafetyFailure(target);
+        if (safetyFailure is not null)
         {
-            return Failure("The captured target window is no longer available.");
-        }
-
-        if (target.IsElevated)
-        {
-            return Failure("Shruti cannot safely insert into an elevated target app.");
-        }
-
-        if (target.IsEditable is not true)
-        {
-            return Failure(
-                target.IsEditable is null
-                    ? "Shruti could not confirm that the captured target is editable."
-                    : "The captured target does not expose an editable field.");
-        }
-
-        if (target.HasSelectedText is null)
-        {
-            return Failure("Shruti could not determine whether the captured target has selected text.");
+            return Failure(safetyFailure.Message);
         }
 
         if (target.HasSelectedText == true && !options.AllowReplacingSelection)
@@ -234,6 +201,34 @@ public sealed class WindowsTextInsertionService : ITextInsertionService
         return null;
     }
 
+    private CapturedTargetSafetyFailure? GetCapturedTargetSafetyFailure(FocusTarget target)
+    {
+        if (target.WindowHandle == IntPtr.Zero || !_windowing.IsWindow(target.WindowHandle))
+        {
+            return new CapturedTargetSafetyFailure(true, "The captured target window is no longer available.");
+        }
+
+        if (target.IsElevated)
+        {
+            return new CapturedTargetSafetyFailure(false, "Shruti cannot safely insert into an elevated target app.");
+        }
+
+        if (target.IsEditable is not true)
+        {
+            return new CapturedTargetSafetyFailure(
+                false,
+                target.IsEditable is null
+                    ? "Shruti could not confirm that the captured target is editable."
+                    : "The captured target does not expose an editable field.");
+        }
+
+        return target.HasSelectedText is null
+            ? new CapturedTargetSafetyFailure(
+                false,
+                "Shruti could not determine whether the captured target has selected text.")
+            : null;
+    }
+
     private static TextInsertionCapability Unsupported(string message)
     {
         return new TextInsertionCapability(
@@ -257,6 +252,8 @@ public sealed class WindowsTextInsertionService : ITextInsertionService
             TextInsertionMethod.None,
             message);
     }
+
+    private sealed record CapturedTargetSafetyFailure(bool IsUnsupported, string Message);
 
     private static string DescribeClipboardWriteFailure(
         WindowsClipboardWriteResult write,

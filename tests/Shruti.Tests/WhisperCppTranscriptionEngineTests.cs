@@ -6,7 +6,7 @@ namespace Shruti.Tests;
 public sealed class WhisperCppTranscriptionEngineTests
 {
     [Fact]
-    public async Task TranscribeAsync_MapsNativeSegmentsAndDisposesContext()
+    public async Task InferenceSession_ReusesOneContextForMultipleTranscriptions()
     {
         var context = new FakeNativeContext(
             status: 0,
@@ -17,45 +17,102 @@ public sealed class WhisperCppTranscriptionEngineTests
         var nativeApi = new FakeNativeApi(context);
         var engine = new WhisperCppTranscriptionEngine(nativeApi);
 
-        WhisperCppTranscriptionResult result = await engine.TranscribeAsync(
-            new WhisperCppTranscriptionRequest("model.bin", [0.1f, -0.1f], "en", ThreadCount: 4),
+        IWhisperCppInferenceSession session = await engine.CreateSessionAsync(
+            new WhisperCppTranscriptionSessionOptions("model.bin", "en", ThreadCount: 3),
             CancellationToken.None);
 
+        WhisperCppTranscriptionResult first = await session.TranscribeAsync([0.1f, -0.1f], CancellationToken.None);
+        WhisperCppTranscriptionResult second = await session.TranscribeAsync([0.2f, -0.2f], CancellationToken.None);
+
         Assert.Equal("model.bin", nativeApi.LoadedModelPath);
-        Assert.Equal(4, context.ThreadCount);
+        Assert.Equal(1, nativeApi.LoadCount);
+        Assert.Equal(2, context.TranscriptionCount);
+        Assert.Equal(3, context.ThreadCount);
         Assert.Equal("en", context.Language);
-        Assert.Equal("hello world", result.Text);
-        Assert.Equal(2, result.Segments.Count);
+        Assert.Equal("hello world", first.Text);
+        Assert.Equal("hello world", second.Text);
+        Assert.False(context.Disposed);
+
+        await session.DisposeAsync();
+
         Assert.True(context.Disposed);
     }
 
     [Fact]
-    public async Task TranscribeAsync_ThrowsWhenNativeTranscriptionFails()
+    public async Task InferenceSession_UsesUpToFourThreadsWhenNoOverrideIsProvided()
+    {
+        var context = new FakeNativeContext(status: 0, []);
+        var engine = new WhisperCppTranscriptionEngine(new FakeNativeApi(context));
+
+        IWhisperCppInferenceSession session = await engine.CreateSessionAsync(
+            new WhisperCppTranscriptionSessionOptions("model.bin"),
+            CancellationToken.None);
+        await session.TranscribeAsync([0.1f], CancellationToken.None);
+
+        Assert.Equal(4, WhisperCppTranscriptionSessionOptions.MaximumDefaultThreadCount);
+        Assert.Equal(
+            Math.Clamp(
+                Environment.ProcessorCount,
+                1,
+                WhisperCppTranscriptionSessionOptions.MaximumDefaultThreadCount),
+            context.ThreadCount);
+
+        await session.DisposeAsync();
+    }
+
+    [Fact]
+    public async Task InferenceSession_ThrowsWhenNativeTranscriptionFails()
     {
         var context = new FakeNativeContext(status: -2, []);
         var engine = new WhisperCppTranscriptionEngine(new FakeNativeApi(context));
+        IWhisperCppInferenceSession session = await engine.CreateSessionAsync(
+            new WhisperCppTranscriptionSessionOptions("model.bin"),
+            CancellationToken.None);
 
-        InvalidOperationException exception = await Assert.ThrowsAsync<InvalidOperationException>(() => engine.TranscribeAsync(
-            new WhisperCppTranscriptionRequest("model.bin", [0.1f]),
-            CancellationToken.None));
+        InvalidOperationException exception = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            session.TranscribeAsync([0.1f], CancellationToken.None));
 
         Assert.Contains("-2", exception.Message, StringComparison.Ordinal);
+
+        await session.DisposeAsync();
+
         Assert.True(context.Disposed);
     }
 
     [Fact]
-    public async Task TranscribeAsync_HonorsCancellationBeforeLoadingModel()
+    public async Task CreateSessionAsync_HonorsCancellationBeforeLoadingModel()
     {
         var nativeApi = new FakeNativeApi(new FakeNativeContext(status: 0, []));
         var engine = new WhisperCppTranscriptionEngine(nativeApi);
         using var cancellation = new CancellationTokenSource();
         cancellation.Cancel();
 
-        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => engine.TranscribeAsync(
-            new WhisperCppTranscriptionRequest("model.bin", [0.1f]),
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => engine.CreateSessionAsync(
+            new WhisperCppTranscriptionSessionOptions("model.bin"),
             cancellation.Token));
 
         Assert.Null(nativeApi.LoadedModelPath);
+    }
+
+    [Fact]
+    public async Task InferenceSession_PropagatesCancellationToTheNativeContext()
+    {
+        var context = new CancellationAwareNativeContext();
+        var engine = new WhisperCppTranscriptionEngine(new FakeNativeApi(context));
+        IWhisperCppInferenceSession session = await engine.CreateSessionAsync(
+            new WhisperCppTranscriptionSessionOptions("model.bin"),
+            CancellationToken.None);
+        using var cancellation = new CancellationTokenSource();
+
+        Task<WhisperCppTranscriptionResult> transcription = Task.Run(
+            () => session.TranscribeAsync([0.1f], cancellation.Token));
+        await context.Started.Task.WaitAsync(TimeSpan.FromSeconds(2));
+        cancellation.Cancel();
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => transcription)
+            .WaitAsync(TimeSpan.FromSeconds(2));
+
+        await session.DisposeAsync();
     }
 
     [Fact]
@@ -77,10 +134,13 @@ public sealed class WhisperCppTranscriptionEngineTests
             _context = context;
         }
 
+        public int LoadCount { get; private set; }
+
         public string? LoadedModelPath { get; private set; }
 
         public IWhisperCppNativeContext LoadModel(string modelPath)
         {
+            LoadCount++;
             LoadedModelPath = modelPath;
             return _context;
         }
@@ -102,12 +162,15 @@ public sealed class WhisperCppTranscriptionEngineTests
 
         public int ThreadCount { get; private set; }
 
+        public int TranscriptionCount { get; private set; }
+
         private int Status { get; }
 
-        public int Transcribe(float[] samples, string language, int threadCount)
+        public int Transcribe(float[] samples, string language, int threadCount, CancellationToken cancellationToken)
         {
             Language = language;
             ThreadCount = threadCount;
+            TranscriptionCount++;
             return Status;
         }
 
@@ -124,6 +187,32 @@ public sealed class WhisperCppTranscriptionEngineTests
         public void Dispose()
         {
             Disposed = true;
+        }
+    }
+
+    private sealed class CancellationAwareNativeContext : IWhisperCppNativeContext
+    {
+        public TaskCompletionSource Started { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public int Transcribe(float[] samples, string language, int threadCount, CancellationToken cancellationToken)
+        {
+            Started.TrySetResult();
+            cancellationToken.WaitHandle.WaitOne();
+            return -1;
+        }
+
+        public int GetSegmentCount()
+        {
+            return 0;
+        }
+
+        public WhisperCppSegment GetSegment(int index)
+        {
+            throw new ArgumentOutOfRangeException(nameof(index));
+        }
+
+        public void Dispose()
+        {
         }
     }
 }

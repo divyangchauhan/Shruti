@@ -168,7 +168,7 @@ internal sealed class WindowsAudioCaptureSession : IAudioCaptureSession
         for (int index = 0; index < sampleCount; index++)
         {
             short rawSample = BitConverter.ToInt16(pcmAudio.Slice(index * sizeof(short), sizeof(short)));
-            float sample = rawSample / (float)short.MaxValue;
+            float sample = rawSample / AudioFormat.Pcm16SampleScale;
             float magnitude = MathF.Abs(sample);
             peak = MathF.Max(peak, magnitude);
             squaredTotal += sample * sample;

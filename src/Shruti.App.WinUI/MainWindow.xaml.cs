@@ -186,10 +186,7 @@ public sealed partial class MainWindow : Window
 
     private void Controller_StateChanged(object? sender, EventArgs e)
     {
-        if (!DispatcherQueue.TryEnqueue(UpdateView))
-        {
-            UpdateView();
-        }
+        _ = DispatcherQueue.TryEnqueue(UpdateView);
     }
 
     private void Controller_AudioLevelChanged(object? sender, AudioLevelFrame level)

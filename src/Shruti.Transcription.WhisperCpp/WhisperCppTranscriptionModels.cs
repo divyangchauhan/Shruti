@@ -1,10 +1,16 @@
 namespace Shruti.Transcription.WhisperCpp;
 
-public sealed record WhisperCppTranscriptionRequest(
+public sealed record WhisperCppTranscriptionSessionOptions(
     string ModelPath,
-    float[] Samples,
     string Language = "en",
-    int ThreadCount = 0);
+    int ThreadCount = 0)
+{
+    public const int MaximumDefaultThreadCount = 4;
+
+    public int EffectiveThreadCount => ThreadCount > 0
+        ? ThreadCount
+        : Math.Clamp(Environment.ProcessorCount, 1, MaximumDefaultThreadCount);
+}
 
 public sealed record WhisperCppSegment(TimeSpan Start, TimeSpan End, string Text);
 

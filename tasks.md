@@ -190,7 +190,7 @@ Acceptance criteria:
 - [x] Emit timestamped segments when available.
 - [x] Emit partial transcript events if supported by chosen integration strategy.
 - [x] Map native errors into engine-neutral errors.
-- [ ] Add cancellation.
+- [x] Add cancellation.
 - [ ] Add provider-level metrics: load time, transcription time, real-time factor.
 - [x] Add provider smoke test with a speech fixture audio file.
 

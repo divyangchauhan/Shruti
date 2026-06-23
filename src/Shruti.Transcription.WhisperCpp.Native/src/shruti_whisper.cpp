@@ -8,6 +8,16 @@ struct shruti_whisper_context {
     whisper_context * native_context;
 };
 
+struct shruti_whisper_abort_state {
+    shruti_whisper_abort_callback callback;
+    void * user_data;
+};
+
+static bool shruti_whisper_should_abort(void * user_data) {
+    auto * state = static_cast<shruti_whisper_abort_state *>(user_data);
+    return state != nullptr && state->callback != nullptr && state->callback(state->user_data) != 0;
+}
+
 shruti_whisper_context * shruti_whisper_create(const char * model_path) {
     if (model_path == nullptr || model_path[0] == '\0') {
         return nullptr;
@@ -42,14 +52,20 @@ int shruti_whisper_transcribe(
     const float * samples,
     int sample_count,
     const char * language,
-    int thread_count) {
-    if (context == nullptr || context->native_context == nullptr || samples == nullptr || sample_count <= 0) {
+    int thread_count,
+    shruti_whisper_abort_callback abort_callback,
+    void * abort_callback_user_data) {
+    if (context == nullptr || context->native_context == nullptr || samples == nullptr || sample_count <= 0 ||
+        thread_count <= 0) {
         return -1;
     }
 
     try {
         whisper_full_params parameters = whisper_full_default_params(WHISPER_SAMPLING_GREEDY);
-        parameters.n_threads = thread_count > 0 ? thread_count : 1;
+        shruti_whisper_abort_state abort_state { abort_callback, abort_callback_user_data };
+        parameters.n_threads = thread_count;
+        parameters.abort_callback = abort_callback == nullptr ? nullptr : shruti_whisper_should_abort;
+        parameters.abort_callback_user_data = abort_callback == nullptr ? nullptr : &abort_state;
         parameters.language = language != nullptr && language[0] != '\0' ? language : "en";
         parameters.print_special = false;
         parameters.print_progress = false;

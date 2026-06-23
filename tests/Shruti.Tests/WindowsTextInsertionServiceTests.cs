@@ -54,6 +54,24 @@ public sealed class WindowsTextInsertionServiceTests
     }
 
     [Fact]
+    public async Task CapturedTargetSafety_UsesTheSameMessageForInspectionAndInsertion()
+    {
+        var service = CreateService(new FakeWindowing { IsWindowResult = true });
+        FocusTarget target = CreateTarget(IsEditable: null);
+
+        TextInsertionCapability capability = await service.InspectAsync(target, CancellationToken.None);
+        TextInsertionResult result = await service.InsertAsync(
+            target,
+            "Hello, Shruti.",
+            new TextInsertionOptions(),
+            CancellationToken.None);
+
+        Assert.Equal(TextInsertionCapabilityOutcome.PreviewRecommended, capability.Outcome);
+        Assert.False(result.Inserted);
+        Assert.Equal(capability.Message, result.Message);
+    }
+
+    [Fact]
     public async Task InspectAsync_AllowsCoordinatorToRespectExplicitSelectionPermission()
     {
         var service = CreateService(new FakeWindowing { IsWindowResult = true });
