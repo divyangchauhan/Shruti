@@ -12,12 +12,6 @@ public sealed record WhisperCppTranscriptionSessionOptions(
         : Math.Clamp(Environment.ProcessorCount, 1, MaximumDefaultThreadCount);
 }
 
-public sealed record WhisperCppTranscriptionRequest(
-    string ModelPath,
-    float[] Samples,
-    string Language = "en",
-    int ThreadCount = 0);
-
 public sealed record WhisperCppSegment(TimeSpan Start, TimeSpan End, string Text);
 
 public sealed record WhisperCppTranscriptionResult(IReadOnlyList<WhisperCppSegment> Segments)

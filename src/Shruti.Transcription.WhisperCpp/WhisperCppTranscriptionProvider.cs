@@ -94,10 +94,12 @@ public sealed class WhisperCppTranscriptionProvider : ITranscriptionProvider
         private readonly object _sync = new();
         private Task? _partialTranscriptionTask;
         private Task? _resourceDisposalTask;
+        private int _lastPartialEndSampleCount;
         private int _nextPartialSampleCount;
         private bool _partialTranscriptionInProgress;
         private bool _completed;
         private bool _cancelled;
+        private bool _maximumAudioDurationReached;
 
         public WhisperCppTranscriptionSession(
             IWhisperCppInferenceSession inferenceSession,
@@ -118,7 +120,9 @@ public sealed class WhisperCppTranscriptionProvider : ITranscriptionProvider
 
         public IAsyncEnumerable<TranscriptEvent> Events => _events.Reader.ReadAllAsync();
 
-        public ValueTask PushAudioAsync(ReadOnlyMemory<byte> pcmAudio, CancellationToken cancellationToken)
+        public ValueTask<TranscriptionAudioPushResult> PushAudioAsync(
+            ReadOnlyMemory<byte> pcmAudio,
+            CancellationToken cancellationToken)
         {
             cancellationToken.ThrowIfCancellationRequested();
 
@@ -127,21 +131,34 @@ public sealed class WhisperCppTranscriptionProvider : ITranscriptionProvider
                 throw new ArgumentException("PCM16 audio must contain complete samples.", nameof(pcmAudio));
             }
 
+            TranscriptionAudioPushResult result;
             lock (_sync)
             {
                 ThrowIfUnavailable();
                 long maximumAudioBytes = GetMaximumAudioByteLength();
-                if (_pcmAudio.Length + pcmAudio.Length > maximumAudioBytes)
+                int acceptedAudioByteCount = checked((int)Math.Min(
+                    pcmAudio.Length,
+                    Math.Max(0, maximumAudioBytes - _pcmAudio.Length)));
+                if (acceptedAudioByteCount > 0)
                 {
-                    throw new InvalidOperationException(
-                        $"whisper.cpp dictation is limited to {_options.EffectiveMaximumAudioDuration.TotalMinutes:0.#} minutes of audio.");
+                    _pcmAudio.Write(pcmAudio.Span[..acceptedAudioByteCount]);
                 }
 
-                _pcmAudio.Write(pcmAudio.Span);
+                if (_pcmAudio.Length >= maximumAudioBytes && !_maximumAudioDurationReached)
+                {
+                    _maximumAudioDurationReached = true;
+                    _events.Writer.TryWrite(new TranscriptEvent(
+                        TranscriptEventKind.Warning,
+                        Message: $"Recording limit of {_options.EffectiveMaximumAudioDuration.TotalMinutes:0.#} minutes reached; finalizing captured audio."));
+                }
+
+                result = _maximumAudioDurationReached
+                    ? TranscriptionAudioPushResult.FinalizeAtMaximumDuration
+                    : TranscriptionAudioPushResult.Continue;
             }
 
             SchedulePartialTranscriptionIfRequired();
-            return ValueTask.CompletedTask;
+            return ValueTask.FromResult(result);
         }
 
         public async Task<TranscriptResult> CompleteAsync(CancellationToken cancellationToken)
@@ -259,8 +276,10 @@ public sealed class WhisperCppTranscriptionProvider : ITranscriptionProvider
                     return;
                 }
 
-                byte[] audioSnapshot = CopyPartialAudioSnapshot();
+                int partialStartSampleCount = GetPartialStartSampleCount(sampleCount);
+                byte[] audioSnapshot = CopyPartialAudioSnapshot(partialStartSampleCount, sampleCount);
                 _partialTranscriptionInProgress = true;
+                _lastPartialEndSampleCount = sampleCount;
                 _nextPartialSampleCount = checked(sampleCount + GetPartialUpdateSampleCount());
                 _partialTranscriptionTask = Task.Run(() => TranscribePartialAsync(audioSnapshot));
             }
@@ -330,13 +349,20 @@ public sealed class WhisperCppTranscriptionProvider : ITranscriptionProvider
             }
         }
 
-        private byte[] CopyPartialAudioSnapshot()
+        private byte[] CopyPartialAudioSnapshot(int startSampleCount, int endSampleCount)
         {
-            int audioLength = checked((int)_pcmAudio.Length);
-            int maximumPartialAudioLength = checked(GetSampleCountForDuration(
-                _streamingOptions.EffectivePartialAudioWindow) * sizeof(short));
-            int offset = Math.Max(0, audioLength - maximumPartialAudioLength);
-            return _pcmAudio.GetBuffer().AsSpan(offset, audioLength - offset).ToArray();
+            int startByteOffset = checked(startSampleCount * sizeof(short));
+            int endByteOffset = checked(endSampleCount * sizeof(short));
+            return _pcmAudio.GetBuffer().AsSpan(startByteOffset, endByteOffset - startByteOffset).ToArray();
+        }
+
+        private int GetPartialStartSampleCount(int endSampleCount)
+        {
+            int overlapSampleCount = GetSampleCountForDuration(_streamingOptions.EffectivePartialAudioOverlap);
+            int maximumPartialSampleCount = GetSampleCountForDuration(
+                _streamingOptions.EffectiveMaximumPartialAudioDuration);
+            int startSampleCount = Math.Max(0, _lastPartialEndSampleCount - overlapSampleCount);
+            return Math.Max(startSampleCount, endSampleCount - maximumPartialSampleCount);
         }
 
         private bool CanPublishPartialText()
@@ -379,9 +405,17 @@ public sealed class WhisperCppTranscriptionProvider : ITranscriptionProvider
                 throw new ArgumentOutOfRangeException(nameof(options), "Partial update interval must be positive.");
             }
 
-            if (options.EffectivePartialAudioWindow <= TimeSpan.Zero)
+            if (options.EffectiveMaximumPartialAudioDuration <= TimeSpan.Zero)
             {
-                throw new ArgumentOutOfRangeException(nameof(options), "Partial audio window must be positive.");
+                throw new ArgumentOutOfRangeException(nameof(options), "Maximum partial audio duration must be positive.");
+            }
+
+            if (options.EffectivePartialAudioOverlap < TimeSpan.Zero ||
+                options.EffectivePartialAudioOverlap >= options.EffectiveMaximumPartialAudioDuration)
+            {
+                throw new ArgumentOutOfRangeException(
+                    nameof(options),
+                    "Partial audio overlap must be non-negative and shorter than the maximum partial audio duration.");
             }
         }
 

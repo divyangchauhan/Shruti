@@ -73,7 +73,8 @@ public sealed class WhisperCppTranscriptionEngine : IWhisperCppTranscriptionEngi
                     context = _context!;
                 }
 
-                int status = context.Transcribe(samples, _language, _threadCount);
+                int status = context.Transcribe(samples, _language, _threadCount, cancellationToken);
+                cancellationToken.ThrowIfCancellationRequested();
                 if (status != 0)
                 {
                     throw new InvalidOperationException($"whisper.cpp transcription failed with native status {status}.");

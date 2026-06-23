@@ -4,6 +4,8 @@ namespace Shruti.Transcription.WhisperCpp;
 
 public sealed class WhisperCppNativeApi : IWhisperCppNativeApi
 {
+    private static readonly NativeAbortCallback AbortWhenCancellationRequested = IsCancellationRequested;
+
     public IWhisperCppNativeContext LoadModel(string modelPath)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(modelPath);
@@ -44,12 +46,30 @@ public sealed class WhisperCppNativeApi : IWhisperCppNativeApi
             _handle = handle;
         }
 
-        public int Transcribe(float[] samples, string language, int threadCount)
+        public int Transcribe(float[] samples, string language, int threadCount, CancellationToken cancellationToken)
         {
             ThrowIfDisposed();
             ArgumentNullException.ThrowIfNull(samples);
             ArgumentException.ThrowIfNullOrWhiteSpace(language);
-            return NativeMethods.Transcribe(_handle, samples, samples.Length, language, threadCount);
+            ArgumentOutOfRangeException.ThrowIfNegativeOrZero(threadCount);
+            cancellationToken.ThrowIfCancellationRequested();
+
+            GCHandle cancellationState = GCHandle.Alloc(new NativeCancellationState(cancellationToken));
+            try
+            {
+                return NativeMethods.Transcribe(
+                    _handle,
+                    samples,
+                    samples.Length,
+                    language,
+                    threadCount,
+                    AbortWhenCancellationRequested,
+                    GCHandle.ToIntPtr(cancellationState));
+            }
+            finally
+            {
+                cancellationState.Free();
+            }
         }
 
         public int GetSegmentCount()
@@ -96,6 +116,25 @@ public sealed class WhisperCppNativeApi : IWhisperCppNativeApi
         }
     }
 
+    [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
+    private delegate int NativeAbortCallback(IntPtr userData);
+
+    private sealed class NativeCancellationState
+    {
+        public NativeCancellationState(CancellationToken cancellationToken)
+        {
+            CancellationToken = cancellationToken;
+        }
+
+        public CancellationToken CancellationToken { get; }
+    }
+
+    private static int IsCancellationRequested(IntPtr userData)
+    {
+        var cancellationState = (NativeCancellationState?)GCHandle.FromIntPtr(userData).Target;
+        return cancellationState?.CancellationToken.IsCancellationRequested == true ? 1 : 0;
+    }
+
     private static class NativeMethods
     {
         private const string LibraryName = "shruti_whisper";
@@ -112,7 +151,9 @@ public sealed class WhisperCppNativeApi : IWhisperCppNativeApi
             [In] float[] samples,
             int sampleCount,
             [MarshalAs(UnmanagedType.LPUTF8Str)] string language,
-            int threadCount);
+            int threadCount,
+            NativeAbortCallback abortCallback,
+            IntPtr abortCallbackUserData);
 
         [DllImport(LibraryName, EntryPoint = "shruti_whisper_get_segment_count", CallingConvention = CallingConvention.Cdecl)]
         internal static extern int GetSegmentCount(IntPtr context);

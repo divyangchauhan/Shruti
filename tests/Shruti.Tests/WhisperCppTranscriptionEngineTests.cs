@@ -95,6 +95,27 @@ public sealed class WhisperCppTranscriptionEngineTests
     }
 
     [Fact]
+    public async Task InferenceSession_PropagatesCancellationToTheNativeContext()
+    {
+        var context = new CancellationAwareNativeContext();
+        var engine = new WhisperCppTranscriptionEngine(new FakeNativeApi(context));
+        IWhisperCppInferenceSession session = await engine.CreateSessionAsync(
+            new WhisperCppTranscriptionSessionOptions("model.bin"),
+            CancellationToken.None);
+        using var cancellation = new CancellationTokenSource();
+
+        Task<WhisperCppTranscriptionResult> transcription = Task.Run(
+            () => session.TranscribeAsync([0.1f], cancellation.Token));
+        await context.Started.Task.WaitAsync(TimeSpan.FromSeconds(2));
+        cancellation.Cancel();
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => transcription)
+            .WaitAsync(TimeSpan.FromSeconds(2));
+
+        await session.DisposeAsync();
+    }
+
+    [Fact]
     public void NativeApi_RejectsAMissingModelBeforeLoadingTheNativeLibrary()
     {
         var nativeApi = new WhisperCppNativeApi();
@@ -145,7 +166,7 @@ public sealed class WhisperCppTranscriptionEngineTests
 
         private int Status { get; }
 
-        public int Transcribe(float[] samples, string language, int threadCount)
+        public int Transcribe(float[] samples, string language, int threadCount, CancellationToken cancellationToken)
         {
             Language = language;
             ThreadCount = threadCount;
@@ -166,6 +187,32 @@ public sealed class WhisperCppTranscriptionEngineTests
         public void Dispose()
         {
             Disposed = true;
+        }
+    }
+
+    private sealed class CancellationAwareNativeContext : IWhisperCppNativeContext
+    {
+        public TaskCompletionSource Started { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public int Transcribe(float[] samples, string language, int threadCount, CancellationToken cancellationToken)
+        {
+            Started.TrySetResult();
+            cancellationToken.WaitHandle.WaitOne();
+            return -1;
+        }
+
+        public int GetSegmentCount()
+        {
+            return 0;
+        }
+
+        public WhisperCppSegment GetSegment(int index)
+        {
+            throw new ArgumentOutOfRangeException(nameof(index));
+        }
+
+        public void Dispose()
+        {
         }
     }
 }

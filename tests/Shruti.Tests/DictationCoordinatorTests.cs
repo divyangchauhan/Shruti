@@ -32,6 +32,24 @@ public sealed class DictationCoordinatorTests
     }
 
     [Fact]
+    public async Task AudioLimit_FinalizesCapturedAudioInsteadOfFailingTheRun()
+    {
+        var services = TestServices.Create(reachMaximumAudioDurationAfterFirstPush: true);
+
+        DictationRunResult result = await services.Coordinator.RunOnceAsync(
+            DictationRequest.AutoInsert(CreateTranscriptionOptions()),
+            CancellationToken.None);
+
+        Assert.Equal(DictationRunOutcome.Inserted, result.Outcome);
+        Assert.Equal(1, services.Transcription.LastSession?.PushedAudioChunkCount);
+        Assert.Equal(1, services.AudioCapture.LastSession?.StopCount);
+        Assert.DoesNotContain(result.StatusHistory, status => status.State == DictationSessionState.Failed);
+        Assert.Contains(
+            result.StatusHistory,
+            status => status.Message == "Recording limit reached; finalizing captured audio");
+    }
+
+    [Fact]
     public async Task TranscriptProgress_ForwardsLivePartialTextBeforeTheFinalResult()
     {
         var services = TestServices.Create();
@@ -216,7 +234,8 @@ public sealed class DictationCoordinatorTests
 
         public static TestServices Create(
             TextInsertionCapability? capability = null,
-            Action? onComplete = null)
+            Action? onComplete = null,
+            bool reachMaximumAudioDurationAfterFirstPush = false)
         {
             var targetFocus = new FakeTargetFocusService();
             var audioCapture = new FakeAudioCaptureService(
@@ -231,7 +250,7 @@ public sealed class DictationCoordinatorTests
                 new TextInsertionResult(
                     Inserted: true,
                     TextInsertionMethod.DirectInput));
-            var transcription = new FakeTranscriptionProvider(onComplete);
+            var transcription = new FakeTranscriptionProvider(onComplete, reachMaximumAudioDurationAfterFirstPush);
 
             return new TestServices(
                 targetFocus,
@@ -288,6 +307,8 @@ public sealed class DictationCoordinatorTests
 
         public AudioFormat? RequestedOutputFormat { get; private set; }
 
+        public FakeAudioCaptureSession? LastSession { get; private set; }
+
         public Task<IReadOnlyList<AudioInputDevice>> ListInputDevicesAsync(CancellationToken cancellationToken)
         {
             IReadOnlyList<AudioInputDevice> devices =
@@ -306,7 +327,8 @@ public sealed class DictationCoordinatorTests
             cancellationToken.ThrowIfCancellationRequested();
             StartCount++;
             RequestedOutputFormat = outputFormat;
-            return Task.FromResult<IAudioCaptureSession>(new FakeAudioCaptureSession(_frames));
+            LastSession = new FakeAudioCaptureSession(_frames);
+            return Task.FromResult<IAudioCaptureSession>(LastSession);
         }
     }
 
@@ -323,6 +345,8 @@ public sealed class DictationCoordinatorTests
 
         public IAsyncEnumerable<AudioLevelFrame> Levels => EnumerateLevels();
 
+        public int StopCount { get; private set; }
+
         public Task PauseAsync(CancellationToken cancellationToken)
         {
             cancellationToken.ThrowIfCancellationRequested();
@@ -337,6 +361,7 @@ public sealed class DictationCoordinatorTests
 
         public Task StopAsync(CancellationToken cancellationToken)
         {
+            StopCount++;
             return Task.CompletedTask;
         }
 
@@ -409,10 +434,12 @@ public sealed class DictationCoordinatorTests
     private sealed class FakeTranscriptionProvider : ITranscriptionProvider
     {
         private readonly Action? _onComplete;
+        private readonly bool _reachMaximumAudioDurationAfterFirstPush;
 
-        public FakeTranscriptionProvider(Action? onComplete)
+        public FakeTranscriptionProvider(Action? onComplete, bool reachMaximumAudioDurationAfterFirstPush)
         {
             _onComplete = onComplete;
+            _reachMaximumAudioDurationAfterFirstPush = reachMaximumAudioDurationAfterFirstPush;
         }
 
         public string Id => "mock-provider";
@@ -453,7 +480,7 @@ public sealed class DictationCoordinatorTests
             CancellationToken cancellationToken)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            LastSession = new FakeTranscriptionSession(_onComplete);
+            LastSession = new FakeTranscriptionSession(_onComplete, _reachMaximumAudioDurationAfterFirstPush);
             return Task.FromResult<ITranscriptionSession>(LastSession);
         }
     }
@@ -461,12 +488,14 @@ public sealed class DictationCoordinatorTests
     private sealed class FakeTranscriptionSession : ITranscriptionSession
     {
         private readonly Action? _onComplete;
+        private readonly bool _reachMaximumAudioDurationAfterFirstPush;
         private readonly Channel<TranscriptEvent> _events = Channel.CreateUnbounded<TranscriptEvent>();
         private bool _partialTranscriptSent;
 
-        public FakeTranscriptionSession(Action? onComplete)
+        public FakeTranscriptionSession(Action? onComplete, bool reachMaximumAudioDurationAfterFirstPush)
         {
             _onComplete = onComplete;
+            _reachMaximumAudioDurationAfterFirstPush = reachMaximumAudioDurationAfterFirstPush;
         }
 
         public AudioFormat RequiredInputFormat => AudioFormat.Speech16KhzMono;
@@ -477,7 +506,7 @@ public sealed class DictationCoordinatorTests
 
         public int CancelCount { get; private set; }
 
-        public ValueTask PushAudioAsync(
+        public ValueTask<TranscriptionAudioPushResult> PushAudioAsync(
             ReadOnlyMemory<byte> pcmAudio,
             CancellationToken cancellationToken)
         {
@@ -491,7 +520,10 @@ public sealed class DictationCoordinatorTests
                     Text: "hello from shruti partial"));
             }
 
-            return ValueTask.CompletedTask;
+            return ValueTask.FromResult(
+                _reachMaximumAudioDurationAfterFirstPush && PushedAudioChunkCount == 1
+                    ? TranscriptionAudioPushResult.FinalizeAtMaximumDuration
+                    : TranscriptionAudioPushResult.Continue);
         }
 
         public Task<TranscriptResult> CompleteAsync(CancellationToken cancellationToken)

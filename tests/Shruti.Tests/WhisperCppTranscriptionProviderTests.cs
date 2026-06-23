@@ -64,19 +64,23 @@ public sealed class WhisperCppTranscriptionProviderTests : IDisposable
     }
 
     [Fact]
-    public async Task PushAudioAsync_RejectsAudioBeyondTheConfiguredSessionLimit()
+    public async Task PushAudioAsync_ReachesTheSessionLimitAndRetainsCapturedAudioForFinalization()
     {
         string modelPath = await CreateModelFileAsync();
-        var provider = new WhisperCppTranscriptionProvider(new FakeEngine(TranscriptResult: null));
+        var engine = new FakeEngine(TranscriptResult: null);
+        var provider = new WhisperCppTranscriptionProvider(engine);
         ITranscriptionSession session = await provider.CreateSessionAsync(
             CreateOptions(modelPath, maximumAudioDuration: TimeSpan.FromMilliseconds(1)),
             CancellationToken.None);
 
-        await session.PushAudioAsync(new byte[32], CancellationToken.None);
-        InvalidOperationException exception = await Assert.ThrowsAsync<InvalidOperationException>(() =>
-            session.PushAudioAsync(new byte[sizeof(short)], CancellationToken.None).AsTask());
+        TranscriptionAudioPushResult atLimit = await session.PushAudioAsync(new byte[32], CancellationToken.None);
+        TranscriptionAudioPushResult afterLimit = await session.PushAudioAsync(new byte[sizeof(short)], CancellationToken.None);
+        TranscriptResult result = await session.CompleteAsync(CancellationToken.None);
 
-        Assert.Contains("limited", exception.Message, StringComparison.Ordinal);
+        Assert.True(atLimit.ReachedMaximumDuration);
+        Assert.True(afterLimit.ReachedMaximumDuration);
+        Assert.Empty(result.Segments);
+        Assert.Equal(16, engine.LastSamples?.Length);
 
         await session.DisposeAsync();
     }
@@ -173,7 +177,7 @@ public sealed class WhisperCppTranscriptionProviderTests : IDisposable
     }
 
     [Fact]
-    public async Task StreamingSession_UsesOnlyTheConfiguredTrailingAudioWindowForPartialText()
+    public async Task StreamingSession_UsesBoundedIncrementalAudioForPartialText()
     {
         string modelPath = await CreateModelFileAsync();
         var engine = new FakeEngine(new WhisperCppTranscriptionResult(
@@ -186,24 +190,20 @@ public sealed class WhisperCppTranscriptionProviderTests : IDisposable
                 modelPath,
                 new StreamingTranscriptionOptions(
                     MinimumAudioDuration: TimeSpan.FromMilliseconds(1),
-                    UpdateInterval: TimeSpan.FromSeconds(1),
-                    PartialAudioWindow: TimeSpan.FromMilliseconds(1))),
+                    UpdateInterval: TimeSpan.FromMilliseconds(1),
+                    MaximumPartialAudioDuration: TimeSpan.FromMilliseconds(3),
+                    PartialAudioOverlap: TimeSpan.FromMilliseconds(1))),
             CancellationToken.None);
-        var partialSeen = new TaskCompletionSource<TranscriptEvent>(TaskCreationOptions.RunContinuationsAsynchronously);
-        Task eventReader = ReadEventsAsync(
-            session.Events,
-            [],
-            partialSeen,
-            transcriptEvent => transcriptEvent.Kind == TranscriptEventKind.PartialText);
 
         await session.PushAudioAsync(new byte[64], CancellationToken.None);
-        await partialSeen.Task.WaitAsync(TimeSpan.FromSeconds(2));
+        await engine.WaitForNextTranscriptionAsync().WaitAsync(TimeSpan.FromSeconds(2));
+        await session.PushAudioAsync(new byte[64], CancellationToken.None);
+        await engine.WaitForNextTranscriptionAsync().WaitAsync(TimeSpan.FromSeconds(2));
 
-        Assert.Equal(16, engine.LastSamples?.Length);
+        Assert.Equal([32, 48], engine.TranscribedSampleCounts.Take(2));
 
         await session.CancelAsync();
         await session.DisposeAsync();
-        await eventReader;
     }
 
     [Fact]
@@ -345,6 +345,9 @@ public sealed class WhisperCppTranscriptionProviderTests : IDisposable
     private sealed class FakeEngine : IWhisperCppTranscriptionEngine
     {
         private readonly WhisperCppTranscriptionResult? _result;
+        private readonly object _sync = new();
+        private readonly SemaphoreSlim _transcriptionsObserved = new(0);
+        private readonly List<int> _transcribedSampleCounts = [];
 
         public FakeEngine(WhisperCppTranscriptionResult? TranscriptResult)
         {
@@ -356,6 +359,22 @@ public sealed class WhisperCppTranscriptionProviderTests : IDisposable
         public int SessionCreationCount { get; private set; }
 
         public int TranscriptionCount { get; private set; }
+
+        public IReadOnlyList<int> TranscribedSampleCounts
+        {
+            get
+            {
+                lock (_sync)
+                {
+                    return _transcribedSampleCounts.ToArray();
+                }
+            }
+        }
+
+        public Task WaitForNextTranscriptionAsync()
+        {
+            return _transcriptionsObserved.WaitAsync();
+        }
 
         public Task<IWhisperCppInferenceSession> CreateSessionAsync(
             WhisperCppTranscriptionSessionOptions options,
@@ -380,8 +399,14 @@ public sealed class WhisperCppTranscriptionProviderTests : IDisposable
                 CancellationToken cancellationToken)
             {
                 cancellationToken.ThrowIfCancellationRequested();
-                _owner.LastSamples = samples;
-                _owner.TranscriptionCount++;
+                lock (_owner._sync)
+                {
+                    _owner.LastSamples = samples;
+                    _owner.TranscriptionCount++;
+                    _owner._transcribedSampleCounts.Add(samples.Length);
+                }
+
+                _owner._transcriptionsObserved.Release();
                 return Task.FromResult(_owner._result ?? new WhisperCppTranscriptionResult([]));
             }
 

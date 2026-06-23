@@ -34,6 +34,7 @@ public sealed class DictationCoordinator
         ITranscriptionSession? transcriptionSession = null;
         IAudioCaptureSession? audioCaptureSession = null;
         Task? transcriptEventTask = null;
+        var maximumAudioDurationReached = false;
 
         void Transition(DictationSessionState state, string message)
         {
@@ -71,14 +72,24 @@ public sealed class DictationCoordinator
             Transition(DictationSessionState.Recording, "Recording");
             await foreach (var frame in audioCaptureSession.Frames.WithCancellation(cancellationToken).ConfigureAwait(false))
             {
-                await transcriptionSession
+                TranscriptionAudioPushResult pushResult = await transcriptionSession
                     .PushAudioAsync(frame.PcmAudio, cancellationToken)
                     .ConfigureAwait(false);
+
+                if (pushResult.ReachedMaximumDuration)
+                {
+                    maximumAudioDurationReached = true;
+                    break;
+                }
             }
 
             await audioCaptureSession.StopAsync(cancellationToken).ConfigureAwait(false);
 
-            Transition(DictationSessionState.TranscribingFinalAudio, "Transcribing final audio");
+            Transition(
+                DictationSessionState.TranscribingFinalAudio,
+                maximumAudioDurationReached
+                    ? "Recording limit reached; finalizing captured audio"
+                    : "Transcribing final audio");
             var transcript = await transcriptionSession.CompleteAsync(cancellationToken).ConfigureAwait(false);
             if (transcriptEventTask is not null)
             {

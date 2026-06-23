@@ -6,7 +6,7 @@ public interface ITranscriptionSession : IAsyncDisposable
 
     IAsyncEnumerable<TranscriptEvent> Events { get; }
 
-    ValueTask PushAudioAsync(
+    ValueTask<TranscriptionAudioPushResult> PushAudioAsync(
         ReadOnlyMemory<byte> pcmAudio,
         CancellationToken cancellationToken);
 

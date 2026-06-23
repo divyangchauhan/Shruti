@@ -176,7 +176,7 @@ Owns the MVP engine adapter:
 - Validates model files.
 - Creates transcription sessions.
 - Converts audio frames into provider input.
-- Emits periodic partial text from a bounded trailing audio window while audio is captured, then finalized segments, timestamps, and metrics after stop. Partial text may be revised by later audio and is never inserted until finalization.
+- Emits periodic partial text from bounded incremental audio chunks with a small overlap while audio is captured, then finalized segments, timestamps, and metrics after stop. Partial text is never inserted until finalization.
 - Maps `whisper.cpp` errors into engine-neutral errors.
 
 The native binding should be intentionally small. Prefer a C ABI shim over binding the app directly to broad C++ internals.
@@ -367,12 +367,14 @@ public interface ITranscriptionProvider
         CancellationToken cancellationToken);
 }
 
+public readonly record struct TranscriptionAudioPushResult(bool ReachedMaximumDuration);
+
 public interface ITranscriptionSession : IAsyncDisposable
 {
     AudioFormat RequiredInputFormat { get; }
     IAsyncEnumerable<TranscriptEvent> Events { get; }
 
-    ValueTask PushAudioAsync(
+    ValueTask<TranscriptionAudioPushResult> PushAudioAsync(
         ReadOnlyMemory<byte> pcmAudio,
         CancellationToken cancellationToken);
 

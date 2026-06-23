@@ -17,6 +17,7 @@ extern "C" {
 #endif
 
 typedef struct shruti_whisper_context shruti_whisper_context;
+typedef int (*shruti_whisper_abort_callback)(void * user_data);
 
 SHRUTI_WHISPER_API shruti_whisper_context * shruti_whisper_create(const char * model_path);
 SHRUTI_WHISPER_API void shruti_whisper_free(shruti_whisper_context * context);
@@ -26,7 +27,9 @@ SHRUTI_WHISPER_API int shruti_whisper_transcribe(
     const float * samples,
     int sample_count,
     const char * language,
-    int thread_count);
+    int thread_count,
+    shruti_whisper_abort_callback abort_callback,
+    void * abort_callback_user_data);
 
 SHRUTI_WHISPER_API int shruti_whisper_get_segment_count(const shruti_whisper_context * context);
 SHRUTI_WHISPER_API int shruti_whisper_get_segment(
