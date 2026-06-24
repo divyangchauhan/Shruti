@@ -16,9 +16,12 @@ public sealed record ShrutiSettings
     public AudioRetentionPolicy AudioRetentionPolicy { get; init; } = AudioRetentionPolicy.DeleteAfterTranscription;
 
     public TriggerConfiguration TriggerConfiguration { get; init; } = new(
-        EnableGlobalHotkey: true,
+        EnableGlobalHotkey: false,
         EnablePushToTalk: true,
         EnableFloatingButton: true,
         EnableTrayMenu: true,
-        HotkeyGesture: "Ctrl+Alt+Space");
+        HotkeyGesture: "Ctrl+Win+Space",
+        PushToTalkKey: "Ctrl+Win+Space",
+        EnableFloatingWindowShortcut: true,
+        FloatingWindowShortcut: "Ctrl+Alt+M");
 }

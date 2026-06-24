@@ -6,6 +6,7 @@ public sealed class Win32WindowVisibility : IWindowsWindowVisibility
 {
     private const int HideWindow = 0;
     private const int ShowWindowNormal = 1;
+    private const int ShowWindowNoActivate = 4;
     private const int ExtendedWindowStyleIndex = -20;
     private const nint NoActivateWindowStyle = 0x08000000;
 
@@ -26,6 +27,14 @@ public sealed class Win32WindowVisibility : IWindowsWindowVisibility
 
         NativeMethods.ShowWindow(windowHandle, ShowWindowNormal);
         NativeMethods.SetForegroundWindow(windowHandle);
+    }
+
+    public void ShowWithoutActivating(IntPtr windowHandle)
+    {
+        if (windowHandle != IntPtr.Zero)
+        {
+            NativeMethods.ShowWindow(windowHandle, ShowWindowNoActivate);
+        }
     }
 
     public void MakeNonActivating(IntPtr windowHandle)

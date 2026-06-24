@@ -6,4 +6,6 @@ public sealed record TriggerConfiguration(
     bool EnableFloatingButton,
     bool EnableTrayMenu,
     string? HotkeyGesture,
-    string? PushToTalkKey = "RightControl");
+    string? PushToTalkKey = "Ctrl+Win+Space",
+    bool EnableFloatingWindowShortcut = true,
+    string? FloatingWindowShortcut = "Ctrl+Alt+M");

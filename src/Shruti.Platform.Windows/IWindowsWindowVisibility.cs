@@ -6,5 +6,7 @@ public interface IWindowsWindowVisibility
 
     void ShowAndActivate(IntPtr windowHandle);
 
+    void ShowWithoutActivating(IntPtr windowHandle);
+
     void MakeNonActivating(IntPtr windowHandle);
 }

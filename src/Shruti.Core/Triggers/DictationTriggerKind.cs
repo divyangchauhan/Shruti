@@ -7,5 +7,6 @@ public enum DictationTriggerKind
     PushToTalkPressed,
     PushToTalkReleased,
     FloatingButton,
+    FloatingWindowToggle,
     TrayMenu
 }
