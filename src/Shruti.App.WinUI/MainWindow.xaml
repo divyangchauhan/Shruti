@@ -269,7 +269,7 @@
                                     </Border>
                                     <StackPanel Spacing="2">
                                         <TextBlock FontSize="13" FontWeight="SemiBold" Text="Model" />
-                                        <TextBlock FontSize="12" Style="{StaticResource MutedTextStyle}" Text="Whisper tiny.en" />
+                                        <TextBlock x:Name="ModelSummaryText" FontSize="12" Style="{StaticResource MutedTextStyle}" Text="Whisper tiny.en" />
                                     </StackPanel>
                                 </StackPanel>
                             </Border>
@@ -280,7 +280,7 @@
                                     </Border>
                                     <StackPanel Spacing="2">
                                         <TextBlock FontSize="13" FontWeight="SemiBold" Text="Backend" />
-                                        <TextBlock FontSize="12" Style="{StaticResource MutedTextStyle}" Text="whisper.cpp / CPU" />
+                                        <TextBlock x:Name="BackendSummaryText" FontSize="12" Style="{StaticResource MutedTextStyle}" Text="Checking readiness" />
                                     </StackPanel>
                                 </StackPanel>
                             </Border>
@@ -550,6 +550,41 @@
                                     <ComboBoxItem Content="Keep recordings" Tag="Keep" />
                                     <ComboBoxItem Content="Ask each time" Tag="AskEveryTime" />
                                 </ComboBox>
+                            </StackPanel>
+                        </Border>
+
+                        <Border Style="{StaticResource CardBorderStyle}" Padding="20">
+                            <StackPanel Spacing="13">
+                                <TextBlock FontSize="17" FontWeight="SemiBold" Text="Transcription" />
+                                <Grid ColumnSpacing="16">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="280" />
+                                        <ColumnDefinition Width="*" />
+                                    </Grid.ColumnDefinitions>
+                                    <ComboBox
+                                        x:Name="BackendPreferenceComboBox"
+                                        Header="Backend preference"
+                                        SelectionChanged="BackendPreferenceComboBox_SelectionChanged">
+                                        <ComboBoxItem Content="Auto" Tag="Auto" />
+                                        <ComboBoxItem Content="NPU" Tag="Npu" />
+                                        <ComboBoxItem Content="GPU" Tag="Gpu" />
+                                        <ComboBoxItem Content="CPU" Tag="Cpu" />
+                                    </ComboBox>
+                                    <StackPanel Grid.Column="1" Spacing="4" VerticalAlignment="Bottom">
+                                        <TextBlock FontSize="12" FontWeight="SemiBold" Text="Active provider/backend/device" />
+                                        <TextBlock x:Name="ActiveBackendText" Style="{StaticResource MutedTextStyle}" FontSize="12" Text="Checking readiness" />
+                                    </StackPanel>
+                                </Grid>
+                                <CheckBox
+                                    x:Name="AllowSlowTranscriptionCheckBox"
+                                    Click="AllowSlowTranscriptionCheckBox_Click"
+                                    Content="Allow slower-than-real-time transcription" />
+                                <TextBlock
+                                    x:Name="BackendReadinessText"
+                                    Style="{StaticResource MutedTextStyle}"
+                                    FontSize="12"
+                                    TextWrapping="Wrap"
+                                    Text="Backend readiness has not been checked yet." />
                             </StackPanel>
                         </Border>
 

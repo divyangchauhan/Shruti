@@ -20,6 +20,7 @@ public sealed class AppComposition
     private readonly ModelCatalogEntry defaultModel = RecommendedModelCatalog.Create().GetRequiredModel("whisper-tiny-en");
     private readonly WhisperCppTranscriptionProvider transcriptionProvider = new(
         new WhisperCppTranscriptionEngine(new WhisperCppNativeApi()));
+    private readonly TranscriptionOptionsProvider transcriptionOptionsProvider;
     private readonly ITargetFocusService targetFocusService;
     private readonly ITextInsertionService textInsertionService;
 
@@ -27,6 +28,14 @@ public sealed class AppComposition
     {
         targetFocusService = platformModule.CreateTargetFocusService();
         textInsertionService = platformModule.CreateTextInsertionService();
+        ITranscriptionProviderRegistry transcriptionProviderRegistry = new TranscriptionProviderRegistry([transcriptionProvider]);
+        var benchmarkCache = new JsonTranscriptionBenchmarkCache(appDataPaths);
+        transcriptionOptionsProvider = new TranscriptionOptionsProvider(
+            defaultModel,
+            appDataPaths,
+            new TranscriptionReadinessService(transcriptionProviderRegistry, benchmarkCache),
+            typeof(WhisperCppTranscriptionProvider).Assembly.GetName().Version?.ToString() ??
+                TranscriptionBenchmarkKey.UnknownProviderVersion);
     }
 
     public MainWindow CreateMainWindow()
@@ -41,33 +50,16 @@ public sealed class AppComposition
             coordinator,
             audioCaptureService,
             transcriptClipboard,
-            CreateTranscriptionOptions);
+            transcriptionOptionsProvider.Create);
         var triggerRouter = new DictationTriggerRouter(controller);
         return new MainWindow(
             controller,
             audioCaptureService,
             settingsRepository,
+            transcriptionOptionsProvider,
             triggerRouter,
             platformModule.CreateGlobalTriggerService(),
             platformModule.CreateTrayIconService(),
             platformModule.CreateWindowVisibility());
-    }
-
-    private TranscriptionSessionOptions CreateTranscriptionOptions()
-    {
-        var descriptor = new TranscriptionModelDescriptor(
-            defaultModel.Id,
-            defaultModel.DisplayName,
-            defaultModel.ProviderId,
-            Path.Combine(appDataPaths.ModelsDirectory, defaultModel.LocalFileName),
-            defaultModel.LanguageHint,
-            defaultModel.SizeBytes,
-            defaultModel.SupportedBackends.ToHashSet());
-
-        return new TranscriptionSessionOptions(
-            descriptor,
-            ComputeBackend.Cpu,
-            descriptor.LanguageHint,
-            TranscriptionMode.Balanced);
     }
 }

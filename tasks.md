@@ -2,7 +2,7 @@
 
 Date: 2026-06-19
 
-Status: PR-19 complete; PR-20 in review.
+Status: PR-20 complete; PR-21 in review.
 
 This plan turns `features.md` and `architecture.md` into an implementation roadmap. It assumes Windows-first development with WinUI 3, Windows App SDK, local transcription, and immediate system-wide text insertion as the central workflow.
 
@@ -201,15 +201,15 @@ Acceptance criteria:
 
 ### 10. Backend Selection and Readiness
 
-- [ ] Implement provider registry.
-- [ ] Implement backend preference setting: Auto, NPU, GPU, CPU.
-- [ ] Implement capability probing.
-- [ ] Implement model/provider/backend compatibility checks.
-- [ ] Implement short benchmark flow.
-- [ ] Cache benchmark results by provider version, model hash, backend, and device.
-- [ ] Gate slow non-real-time transcription behind explicit setting.
-- [ ] Show active provider/backend/device in settings.
-- [ ] Show unsupported hardware/model/backend messaging.
+- [x] Implement provider registry.
+- [x] Implement backend preference setting: Auto, NPU, GPU, CPU.
+- [x] Implement capability probing.
+- [x] Implement model/provider/backend compatibility checks.
+- [x] Implement short benchmark flow.
+- [x] Cache benchmark results by provider version, model hash, backend, and device.
+- [x] Gate slow non-real-time transcription behind explicit setting.
+- [x] Show active provider/backend/device in settings.
+- [x] Show unsupported hardware/model/backend messaging.
 
 Acceptance criteria:
 
@@ -360,8 +360,8 @@ Acceptance criteria:
 | PR-17 | Done | 2026-07-31 | Live partial transcription from `whisper.cpp` through the WinUI transcript surface | Real-time dictation feedback |
 | PR-18 | Done | 2026-06-23 | Live-transcription audio quality, performance, cancellation, and lifecycle fixes | Reliable real-time local transcription |
 | PR-19 | Done | 2026-06-23 | README and repository metadata polish | Clear project presentation |
-| PR-20 | In review | 2026-06-23 | Design-led WinUI shell, system theme support, configurable hold shortcut, optional floating control, and explicitly marked mock history/model surfaces | Complete, honest product surface around the real dictation loop |
-| PR-21 | Planned | 2026-08-03 | Provider registry, backend readiness, benchmark cache, slow-mode gate | Hardware/model eligibility |
+| PR-20 | Done | 2026-06-23 | Design-led WinUI shell, system theme support, configurable hold shortcut, optional floating control, and explicitly marked mock history/model surfaces | Complete, honest product surface around the real dictation loop |
+| PR-21 | In review | 2026-08-03 | Provider registry, backend readiness, benchmark cache, slow-mode gate | Hardware/model eligibility |
 | PR-22 | Planned | 2026-08-05 | Per-app insertion policies and compatibility matrix | App-specific insertion reliability |
 | PR-23 | Planned | 2026-08-07 | Error handling, privacy copy, diagnostics, accessibility pass | User trust and recoverability |
 | PR-24 | Planned | 2026-08-09 | Manual QA fixes across Notepad, browser, Codex-style field, Word, Terminal, Electron, elevated app | Windows compatibility |
