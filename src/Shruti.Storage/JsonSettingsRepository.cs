@@ -101,6 +101,10 @@ public sealed class JsonSettingsRepository : ISettingsRepository
             AudioRetentionPolicy = Enum.IsDefined(settings.AudioRetentionPolicy)
                 ? settings.AudioRetentionPolicy
                 : ShrutiSettings.Default.AudioRetentionPolicy,
+            BackendPreference = Enum.IsDefined(settings.BackendPreference)
+                ? settings.BackendPreference
+                : ShrutiSettings.Default.BackendPreference,
+            AllowSlowTranscription = settings.AllowSlowTranscription,
             TriggerConfiguration = settings.TriggerConfiguration ?? ShrutiSettings.Default.TriggerConfiguration
         };
     }

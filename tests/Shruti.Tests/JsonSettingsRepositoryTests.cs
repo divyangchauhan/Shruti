@@ -2,6 +2,7 @@ using System.Text.Json;
 using Shruti.Core.Dictation;
 using Shruti.Core.Triggers;
 using Shruti.Storage;
+using Shruti.Transcription.Abstractions;
 using Xunit;
 
 namespace Shruti.Tests;
@@ -51,6 +52,8 @@ public sealed class JsonSettingsRepositoryTests : IDisposable
             InsertionMode = DictationInsertionMode.PreviewFirst,
             ThemePreference = AppThemePreference.Dark,
             AudioRetentionPolicy = AudioRetentionPolicy.Keep,
+            BackendPreference = ComputeBackend.Cpu,
+            AllowSlowTranscription = true,
             TriggerConfiguration = new TriggerConfiguration(
                 EnableGlobalHotkey: true,
                 EnablePushToTalk: false,
@@ -89,7 +92,20 @@ public sealed class JsonSettingsRepositoryTests : IDisposable
         ShrutiSettings settings = await repository.LoadAsync(CancellationToken.None);
 
         Assert.Equal(ShrutiSettings.Default.ThemePreference, settings.ThemePreference);
+        Assert.Equal(ShrutiSettings.Default.BackendPreference, settings.BackendPreference);
         Assert.Equal(ShrutiSettings.Default.TriggerConfiguration, settings.TriggerConfiguration);
+    }
+
+    [Fact]
+    public async Task LoadAsync_NormalizesInvalidBackendPreference()
+    {
+        var paths = new AppDataPaths(_rootPath);
+        paths.EnsureCreated();
+        await File.WriteAllTextAsync(paths.SettingsFilePath, "{\"backendPreference\":99}");
+
+        ShrutiSettings settings = await new JsonSettingsRepository(paths).LoadAsync(CancellationToken.None);
+
+        Assert.Equal(ShrutiSettings.Default.BackendPreference, settings.BackendPreference);
     }
 
     [Fact]

@@ -349,6 +349,18 @@ public sealed class DictationShellController
             LastResult = result;
             SetState(CreateCompletedState(result, insertionMode));
         }
+        catch (Exception ex)
+        {
+            var result = new DictationRunResult(
+                DictationRunOutcome.Failed,
+                [new DictationStatus(DictationSessionState.Failed, "Failed")],
+                Target: null,
+                Transcript: null,
+                Message: ex.Message,
+                Error: ex);
+            LastResult = result;
+            SetState(CreateCompletedState(result, insertionMode));
+        }
         finally
         {
             captureStarted.TrySetResult();

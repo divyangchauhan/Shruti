@@ -8,6 +8,7 @@ using Shruti.Core.Dictation;
 using Shruti.Core.Triggers;
 using Shruti.Platform.Windows;
 using Shruti.Storage;
+using Shruti.Transcription.Abstractions;
 using WinRT.Interop;
 using Windows.Graphics;
 
@@ -18,6 +19,7 @@ public sealed partial class MainWindow : Window
     private readonly DictationShellController _controller;
     private readonly IAudioCaptureService _audioCaptureService;
     private readonly ISettingsRepository _settingsRepository;
+    private readonly TranscriptionOptionsProvider _transcriptionOptionsProvider;
     private readonly DictationTriggerRouter _triggerRouter;
     private readonly WindowsGlobalTriggerService _triggerService;
     private readonly WindowsTrayIconService _trayIconService;
@@ -43,6 +45,7 @@ public sealed partial class MainWindow : Window
         DictationShellController controller,
         IAudioCaptureService audioCaptureService,
         ISettingsRepository settingsRepository,
+        TranscriptionOptionsProvider transcriptionOptionsProvider,
         DictationTriggerRouter triggerRouter,
         WindowsGlobalTriggerService triggerService,
         WindowsTrayIconService trayIconService,
@@ -53,6 +56,7 @@ public sealed partial class MainWindow : Window
         _controller = controller ?? throw new ArgumentNullException(nameof(controller));
         _audioCaptureService = audioCaptureService ?? throw new ArgumentNullException(nameof(audioCaptureService));
         _settingsRepository = settingsRepository ?? throw new ArgumentNullException(nameof(settingsRepository));
+        _transcriptionOptionsProvider = transcriptionOptionsProvider ?? throw new ArgumentNullException(nameof(transcriptionOptionsProvider));
         _triggerRouter = triggerRouter ?? throw new ArgumentNullException(nameof(triggerRouter));
         _triggerService = triggerService ?? throw new ArgumentNullException(nameof(triggerService));
         _trayIconService = trayIconService ?? throw new ArgumentNullException(nameof(trayIconService));
@@ -76,6 +80,7 @@ public sealed partial class MainWindow : Window
         InsertionModeComboBox.SelectedIndex = 0;
         ThemeComboBox.SelectedIndex = 0;
         AudioRetentionComboBox.SelectedIndex = 0;
+        BackendPreferenceComboBox.SelectedIndex = 0;
         ShowPage("Home");
         ConfigureNativeTriggers();
         StartTriggerDispatch();
@@ -161,6 +166,16 @@ public sealed partial class MainWindow : Window
         await PersistSettingsAsync();
     }
 
+    private async void BackendPreferenceComboBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        await PersistSettingsAsync();
+    }
+
+    private async void AllowSlowTranscriptionCheckBox_Click(object sender, RoutedEventArgs e)
+    {
+        await PersistSettingsAsync();
+    }
+
     private async void TriggerConfigurationCheckBox_Click(object sender, RoutedEventArgs e)
     {
         if (ReferenceEquals(sender, FloatingButtonCheckBox))
@@ -180,6 +195,7 @@ public sealed partial class MainWindow : Window
     private async void MainWindow_Activated(object sender, WindowActivatedEventArgs args)
     {
         await EnsureSettingsLoadedAsync();
+        await RefreshTranscriptionReadinessAsync();
         UpdateFloatingMicWindow();
 
         if (!_audioDevicesLoaded)
@@ -438,6 +454,18 @@ public sealed partial class MainWindow : Window
         return AudioRetentionPolicy.DeleteAfterTranscription;
     }
 
+    private ComputeBackend GetSelectedBackendPreference()
+    {
+        if (BackendPreferenceComboBox.SelectedItem is ComboBoxItem item &&
+            item.Tag is string value &&
+            Enum.TryParse(value, out ComputeBackend backend))
+        {
+            return backend;
+        }
+
+        return ComputeBackend.Auto;
+    }
+
     private async Task RaiseTriggerAsync(DictationTriggerKind kind, string sourceId)
     {
         await _triggerRouter.HandleAsync(new DictationTriggerEvent(
@@ -565,11 +593,13 @@ public sealed partial class MainWindow : Window
             {
                 _settings = await _settingsRepository.LoadAsync(CancellationToken.None);
                 _isApplyingSettings = true;
+                _transcriptionOptionsProvider.ApplySettings(_settings);
                 ApplySettingsToControls(_settings);
                 _controller.SetInsertionMode(_settings.InsertionMode);
                 _controller.SetAudioInputDevice(_settings.AudioInputDeviceId);
                 Root.RequestedTheme = ToElementTheme(_settings.ThemePreference);
                 await ApplyTriggerConfigurationAsync(persist: false);
+                await RefreshTranscriptionReadinessAsync();
             }
             catch (Exception ex)
             {
@@ -592,6 +622,8 @@ public sealed partial class MainWindow : Window
         SelectComboBoxItem(InsertionModeComboBox, settings.InsertionMode.ToString());
         SelectComboBoxItem(ThemeComboBox, ToElementTheme(settings.ThemePreference).ToString());
         SelectComboBoxItem(AudioRetentionComboBox, settings.AudioRetentionPolicy.ToString());
+        SelectComboBoxItem(BackendPreferenceComboBox, settings.BackendPreference.ToString());
+        AllowSlowTranscriptionCheckBox.IsChecked = settings.AllowSlowTranscription;
         ApplyTriggerConfigurationToControls(settings.TriggerConfiguration);
     }
 
@@ -611,9 +643,13 @@ public sealed partial class MainWindow : Window
                 InsertionMode = GetSelectedInsertionMode(),
                 ThemePreference = GetSelectedThemePreference(),
                 AudioRetentionPolicy = GetSelectedAudioRetentionPolicy(),
+                BackendPreference = GetSelectedBackendPreference(),
+                AllowSlowTranscription = AllowSlowTranscriptionCheckBox.IsChecked == true,
                 TriggerConfiguration = GetTriggerConfigurationFromControls()
             };
+            _transcriptionOptionsProvider.ApplySettings(_settings);
             await _settingsRepository.SaveAsync(_settings, CancellationToken.None);
+            await RefreshTranscriptionReadinessAsync();
         }
         catch (Exception ex)
         {
@@ -645,6 +681,47 @@ public sealed partial class MainWindow : Window
             AppThemePreference.Light => ElementTheme.Light,
             AppThemePreference.Dark => ElementTheme.Dark,
             _ => ElementTheme.Default
+        };
+    }
+
+    private async Task RefreshTranscriptionReadinessAsync()
+    {
+        try
+        {
+            TranscriptionModelDescriptor model = _transcriptionOptionsProvider.CreateModelDescriptor();
+            TranscriptionReadinessResult readiness = await _transcriptionOptionsProvider
+                .EvaluateReadinessAsync(CancellationToken.None);
+            string backend = readiness.SelectedBackend?.ToString() ?? _settings.BackendPreference.ToString();
+            string device = readiness.DeviceName ?? "No compatible device";
+
+            ModelSummaryText.Text = model.DisplayName;
+            BackendSummaryText.Text = readiness.CanProceed
+                ? $"{readiness.Provider?.DisplayName ?? model.ProviderId} / {backend}"
+                : "Unavailable";
+            ActiveBackendText.Text = readiness.CanProceed
+                ? $"{readiness.Provider?.DisplayName ?? model.ProviderId} / {backend} / {device}"
+                : $"{model.ProviderId} / {backend} / unavailable";
+            BackendReadinessText.Text = FormatReadiness(readiness);
+        }
+        catch (Exception ex)
+        {
+            BackendSummaryText.Text = "Unavailable";
+            ActiveBackendText.Text = "Unavailable";
+            BackendReadinessText.Text = ex.Message;
+        }
+    }
+
+    private static string FormatReadiness(TranscriptionReadinessResult readiness)
+    {
+        string warnings = readiness.EffectiveWarnings.Count == 0
+            ? string.Empty
+            : $" {string.Join(" ", readiness.EffectiveWarnings)}";
+        return readiness.Status switch
+        {
+            TranscriptionReadinessStatus.Ready => $"{readiness.Message}{warnings}",
+            TranscriptionReadinessStatus.SlowModeRequired => $"{readiness.Message}{warnings}",
+            TranscriptionReadinessStatus.Unsupported => readiness.Message,
+            _ => readiness.Message
         };
     }
 

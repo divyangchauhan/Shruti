@@ -1,5 +1,6 @@
 using Shruti.Core.Dictation;
 using Shruti.Core.Triggers;
+using Shruti.Transcription.Abstractions;
 
 namespace Shruti.Storage;
 
@@ -14,6 +15,10 @@ public sealed record ShrutiSettings
     public AppThemePreference ThemePreference { get; init; } = AppThemePreference.System;
 
     public AudioRetentionPolicy AudioRetentionPolicy { get; init; } = AudioRetentionPolicy.DeleteAfterTranscription;
+
+    public ComputeBackend BackendPreference { get; init; } = ComputeBackend.Auto;
+
+    public bool AllowSlowTranscription { get; init; }
 
     public TriggerConfiguration TriggerConfiguration { get; init; } = new(
         EnableGlobalHotkey: false,
