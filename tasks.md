@@ -2,7 +2,7 @@
 
 Date: 2026-06-19
 
-Status: PR-21 complete; PR-22 in review.
+Status: PR-23 complete; PR-24 planned.
 
 This plan turns `features.md` and `architecture.md` into an implementation roadmap. It assumes Windows-first development with WinUI 3, Windows App SDK, local transcription, and immediate system-wide text insertion as the central workflow.
 
@@ -237,16 +237,16 @@ Acceptance criteria:
 
 ### 12. Reliability, Accessibility, and Polish
 
-- [ ] Add structured redacted local logging.
-- [ ] Add diagnostics view that omits transcript text by default.
-- [ ] Add first-run privacy explanation.
-- [ ] Add microphone permission recovery guidance.
-- [ ] Add keyboard-first operation for core controls.
-- [ ] Add screen-reader labels for controls and state changes.
-- [ ] Add high-contrast theme checks.
-- [ ] Add robust failure messages for unsupported hardware, missing model, and target insertion failure.
+- [x] Add structured redacted local logging.
+- [x] Add diagnostics view that omits transcript text by default.
+- [x] Add first-run privacy explanation.
+- [x] Add microphone permission recovery guidance.
+- [x] Add keyboard-first operation for core controls.
+- [x] Add screen-reader labels for controls and state changes.
+- [x] Add high-contrast theme checks.
+- [x] Add robust failure messages for unsupported hardware, missing model, and target insertion failure.
 - [x] Add app compatibility matrix document.
-- [ ] Add manual QA checklist.
+- [x] Add manual QA checklist.
 
 Acceptance criteria:
 
@@ -362,8 +362,8 @@ Acceptance criteria:
 | PR-19 | Done | 2026-06-23 | README and repository metadata polish | Clear project presentation |
 | PR-20 | Done | 2026-06-23 | Design-led WinUI shell, system theme support, configurable hold shortcut, optional floating control, and explicitly marked mock history/model surfaces | Complete, honest product surface around the real dictation loop |
 | PR-21 | Done | 2026-08-03 | Provider registry, backend readiness, benchmark cache, slow-mode gate | Hardware/model eligibility |
-| PR-22 | In review | 2026-08-05 | Per-app insertion policies and compatibility matrix | App-specific insertion reliability |
-| PR-23 | Planned | 2026-08-07 | Error handling, privacy copy, diagnostics, accessibility pass | User trust and recoverability |
+| PR-22 | Done | 2026-08-05 | Per-app insertion policies and compatibility matrix | App-specific insertion reliability |
+| PR-23 | Done | 2026-08-07 | Error handling, privacy copy, diagnostics, accessibility pass | User trust and recoverability |
 | PR-24 | Planned | 2026-08-09 | Manual QA fixes across Notepad, browser, Codex-style field, Word, Terminal, Electron, elevated app | Windows compatibility |
 
 ### Phase 5: Packaging

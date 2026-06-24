@@ -1,9 +1,11 @@
 using Microsoft.UI.Windowing;
 using Microsoft.UI.Xaml;
+using Microsoft.UI.Xaml.Automation;
 using Microsoft.UI.Xaml.Controls;
 using Shruti.Workflow.Dictation;
 using Shruti.Core;
 using Shruti.Core.Audio;
+using Shruti.Core.Diagnostics;
 using Shruti.Core.Dictation;
 using Shruti.Core.Triggers;
 using Shruti.Platform.Windows;
@@ -319,6 +321,7 @@ public sealed partial class MainWindow : Window
             {
                 AudioDeviceComboBox.PlaceholderText = "No microphone available";
                 MicrophoneReadinessText.Text = "No microphone found";
+                TriggerStatusText.Text = DiagnosticFailureText.MicrophoneRecovery;
                 return;
             }
 
@@ -333,7 +336,8 @@ public sealed partial class MainWindow : Window
         {
             AudioDeviceComboBox.PlaceholderText = "Microphone unavailable";
             MicrophoneReadinessText.Text = "Unavailable";
-            TriggerStatusText.Text = ex.Message;
+            TriggerStatusText.Text = DiagnosticFailureText.MicrophoneRecovery;
+            AutomationProperties.SetHelpText(AudioDeviceComboBox, DiagnosticTextRedactor.Redact(ex.Message));
         }
     }
 
@@ -381,16 +385,22 @@ public sealed partial class MainWindow : Window
         UserMessageText.Text = state.UserMessage;
         TranscriptPreviewBox.Text = state.TranscriptPreview;
 
-        ErrorText.Text = state.ErrorText ?? string.Empty;
-        ErrorText.Visibility = string.IsNullOrWhiteSpace(state.ErrorText)
+        string errorText = FormatErrorText(state);
+        ErrorText.Text = errorText;
+        ErrorText.Visibility = string.IsNullOrWhiteSpace(errorText)
             ? Visibility.Collapsed
             : Visibility.Visible;
 
         PrimaryButtonLabel.Text = state.IsRunning ? "Stop dictation" : "Start dictation";
         PrimaryButtonIcon.Glyph = state.IsRunning ? "\uE71A" : "\uE720";
+        AutomationProperties.SetName(PrimaryDictationButton, PrimaryButtonLabel.Text);
+        AutomationProperties.SetHelpText(PrimaryDictationButton, state.IsRunning
+            ? "Stop recording and finalize the current dictation."
+            : "Start recording from the selected microphone.");
         PrimaryDictationButton.IsEnabled = state.CanStart || state.CanStop;
         CancelButton.IsEnabled = state.CanCancel;
         PauseButtonLabel.Text = state.IsPaused ? "Resume" : "Pause";
+        AutomationProperties.SetName(PauseButton, state.IsPaused ? "Resume recording" : "Pause recording");
         PauseButton.IsEnabled = state.CanPause;
         RetryButton.IsEnabled = state.CanRetry;
         CopyButton.IsEnabled = state.CanCopy;
@@ -415,6 +425,11 @@ public sealed partial class MainWindow : Window
         StatusPillText.Text = state.SessionState == DictationSessionState.Idle
             ? "Ready"
             : FormatState(state.SessionState);
+        AutomationProperties.SetName(StateText, $"State: {FormatState(state.SessionState)}");
+        AutomationProperties.SetName(StatusText, $"Status: {state.StatusText}");
+        AutomationProperties.SetName(UserMessageText, state.UserMessage);
+        AutomationProperties.SetName(TargetText, $"Target: {state.TargetDescription}");
+        DiagnosticsSnapshotText.Text = FormatDiagnosticsSnapshot(_controller.LastResult);
 
         _trayIconService.UpdateDictationState(state.IsRunning);
         _floatingMicWindow?.UpdateState(state);
@@ -516,7 +531,7 @@ public sealed partial class MainWindow : Window
         }
         catch (Exception ex)
         {
-            DispatcherQueue.TryEnqueue(() => TriggerStatusText.Text = ex.Message);
+            DispatcherQueue.TryEnqueue(() => TriggerStatusText.Text = DiagnosticTextRedactor.Redact(ex.Message));
         }
     }
 
@@ -542,7 +557,7 @@ public sealed partial class MainWindow : Window
         catch (Exception ex)
         {
             ApplyTriggerConfigurationToControls(_triggerService.Configuration);
-            TriggerStatusText.Text = ex.Message;
+            TriggerStatusText.Text = DiagnosticTextRedactor.Redact(ex.Message);
         }
     }
 
@@ -603,7 +618,7 @@ public sealed partial class MainWindow : Window
             }
             catch (Exception ex)
             {
-                TriggerStatusText.Text = $"Settings could not be loaded: {ex.Message}";
+                TriggerStatusText.Text = $"Settings could not be loaded: {DiagnosticTextRedactor.Redact(ex.Message)}";
             }
             finally
             {
@@ -653,7 +668,7 @@ public sealed partial class MainWindow : Window
         }
         catch (Exception ex)
         {
-            TriggerStatusText.Text = $"Settings could not be saved: {ex.Message}";
+            TriggerStatusText.Text = $"Settings could not be saved: {DiagnosticTextRedactor.Redact(ex.Message)}";
         }
         finally
         {
@@ -707,22 +722,50 @@ public sealed partial class MainWindow : Window
         {
             BackendSummaryText.Text = "Unavailable";
             ActiveBackendText.Text = "Unavailable";
-            BackendReadinessText.Text = ex.Message;
+            BackendReadinessText.Text = DiagnosticTextRedactor.Redact(ex.Message);
         }
     }
 
     private static string FormatReadiness(TranscriptionReadinessResult readiness)
     {
-        string warnings = readiness.EffectiveWarnings.Count == 0
-            ? string.Empty
-            : $" {string.Join(" ", readiness.EffectiveWarnings)}";
-        return readiness.Status switch
+        return DiagnosticFailureText.ForReadiness(readiness);
+    }
+
+    private string FormatErrorText(DictationShellState state)
+    {
+        if (state.LastOutcome == DictationRunOutcome.Failed && _controller.LastResult is { } result)
         {
-            TranscriptionReadinessStatus.Ready => $"{readiness.Message}{warnings}",
-            TranscriptionReadinessStatus.SlowModeRequired => $"{readiness.Message}{warnings}",
-            TranscriptionReadinessStatus.Unsupported => readiness.Message,
-            _ => readiness.Message
-        };
+            return DiagnosticFailureText.ForDictationResult(result);
+        }
+
+        return DiagnosticTextRedactor.Redact(state.ErrorText);
+    }
+
+    private static string FormatDiagnosticsSnapshot(DictationRunResult? result)
+    {
+        if (result is null)
+        {
+            return "Run dictation to populate a redacted diagnostics snapshot.";
+        }
+
+        RedactedDiagnosticsSnapshot snapshot = RedactedDiagnosticsSnapshot.FromResult(result);
+        string targetProcess = string.IsNullOrWhiteSpace(snapshot.TargetProcessName)
+            ? "none"
+            : snapshot.TargetProcessName;
+
+        return string.Join(
+            Environment.NewLine,
+            $"State: {FormatState(snapshot.SessionState)}",
+            $"Outcome: {snapshot.Outcome}",
+            $"Target process: {targetProcess}",
+            snapshot.TargetWindowTitleRedacted
+                ? "Target window title: omitted"
+                : "Target window title: not captured",
+            $"Transcript characters: {snapshot.TranscriptCharacterCount}",
+            snapshot.TranscriptTextRedacted
+                ? "Transcript text: omitted"
+                : "Transcript text: not captured",
+            $"Failure summary: {snapshot.FailureSummary}");
     }
 
     private void UpdateFloatingMicWindow()
