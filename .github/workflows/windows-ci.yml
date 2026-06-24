@@ -40,6 +40,7 @@ jobs:
       matrix:
         test_class:
           - DictationCoordinatorTests
+          - DiagnosticsTests
           - DictationSessionStateTests
           - DictationShellControllerTests
           - DictationTriggerRouterTests
@@ -86,3 +87,26 @@ jobs:
 
       - name: Run native smoke test
         run: ctest --test-dir artifacts/whispercpp-native -C Release --output-on-failure
+
+  package:
+    name: Build unsigned MSIX package
+    needs: validate
+    runs-on: windows-2022
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+
+      - name: Build MSIX package
+        run: .\scripts\package-msix.ps1 -Configuration Release -Platform x64
+
+      - name: Upload MSIX package
+        uses: actions/upload-artifact@v4
+        with:
+          name: shruti-msix
+          path: artifacts/installer/output/*.msix
