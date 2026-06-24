@@ -45,6 +45,21 @@ public sealed class DictationTriggerRouterTests
     }
 
     [Fact]
+    public async Task FloatingWindowToggle_RaisesWindowEventWithoutChangingDictationState()
+    {
+        var services = MockDictationAppServices.Create();
+        var controller = services.CreateShellController();
+        var router = new DictationTriggerRouter(controller);
+        bool received = false;
+        router.FloatingWindowToggleRequested += (_, _) => received = true;
+
+        await router.HandleAsync(CreateTrigger(DictationTriggerKind.FloatingWindowToggle));
+
+        Assert.True(received);
+        Assert.False(controller.State.IsRunning);
+    }
+
+    [Fact]
     public async Task MockGlobalTriggerService_ConfigurationGatesDisabledTrigger()
     {
         var triggerService = new MockGlobalTriggerService();
@@ -74,6 +89,19 @@ public sealed class DictationTriggerRouterTests
         Assert.True(published);
         Assert.Equal(DictationTriggerKind.FloatingButton, received?.Kind);
         Assert.Equal("mock", received?.SourceId);
+    }
+
+    [Fact]
+    public async Task MockGlobalTriggerService_PublishesFloatingWindowToggle()
+    {
+        var triggerService = new MockGlobalTriggerService();
+        using var cancellation = new CancellationTokenSource(TimeSpan.FromSeconds(1));
+
+        bool published = triggerService.Publish(DictationTriggerKind.FloatingWindowToggle);
+        DictationTriggerEvent? received = await ReadFirstAsync(triggerService.Events, cancellation.Token);
+
+        Assert.True(published);
+        Assert.Equal(DictationTriggerKind.FloatingWindowToggle, received?.Kind);
     }
 
     [Fact]

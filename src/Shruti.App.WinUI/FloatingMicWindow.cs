@@ -2,6 +2,7 @@ using Microsoft.UI.Windowing;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Automation;
 using Microsoft.UI.Xaml.Controls;
+using System.Runtime.InteropServices;
 using Shruti.Platform.Windows;
 using Shruti.Workflow.Dictation;
 using WinRT.Interop;
@@ -11,6 +12,10 @@ namespace Shruti.App.WinUI;
 
 public sealed class FloatingMicWindow : Window
 {
+    private const double PreferredWindowWidthDip = 304;
+    private const double PreferredWindowHeightDip = 112;
+    private const double DefaultDpi = 96;
+
     private readonly Button _triggerButton;
     private readonly Button _dismissButton;
     private readonly FontIcon _triggerIcon;
@@ -19,6 +24,7 @@ public sealed class FloatingMicWindow : Window
     private readonly Border _root;
     private readonly IWindowsWindowVisibility _windowVisibility;
     private bool _isInitialized;
+    private bool _allowClose;
 
     public FloatingMicWindow(IWindowsWindowVisibility windowVisibility)
     {
@@ -35,7 +41,7 @@ public sealed class FloatingMicWindow : Window
         {
             Width = 42,
             Height = 42,
-            Background = new Microsoft.UI.Xaml.Media.SolidColorBrush(Windows.UI.Color.FromArgb(255, 245, 185, 79)),
+            Background = new Microsoft.UI.Xaml.Media.SolidColorBrush(Windows.UI.Color.FromArgb(255, 247, 190, 85)),
             Foreground = new Microsoft.UI.Xaml.Media.SolidColorBrush(Windows.UI.Color.FromArgb(255, 43, 29, 5)),
             Content = _triggerIcon
         };
@@ -102,28 +108,40 @@ public sealed class FloatingMicWindow : Window
         Content = _root;
         _root.ActualThemeChanged += Root_ActualThemeChanged;
         AppWindow.Closing += AppWindow_Closing;
+        ConfigurePresenter();
     }
 
     public event EventHandler? TriggerRequested;
 
     public event EventHandler? DismissRequested;
 
+    public bool IsVisible { get; private set; }
+
     public void Show(DictationShellState state, ElementTheme theme, string? shortcut)
     {
         ApplyTheme(theme);
         _shortcutText.Text = string.IsNullOrWhiteSpace(shortcut) ? "Hold shortcut" : shortcut;
         UpdateState(state);
-        Activate();
-        ApplyTheme(theme);
+        ResizeForCurrentDpi();
 
-        if (_isInitialized)
+        IntPtr windowHandle = WindowNative.GetWindowHandle(this);
+        if (!_isInitialized)
         {
+            _windowVisibility.MakeNonActivating(windowHandle);
+            Activate();
+            _windowVisibility.MakeNonActivating(windowHandle);
+            ApplyTheme(theme);
+            _isInitialized = true;
+            IsVisible = true;
             return;
         }
 
-        AppWindow.Resize(new SizeInt32(262, 64));
-        _windowVisibility.MakeNonActivating(WindowNative.GetWindowHandle(this));
-        _isInitialized = true;
+        if (!IsVisible)
+        {
+            _windowVisibility.ShowWithoutActivating(windowHandle);
+        }
+
+        IsVisible = true;
     }
 
     public void ApplyTheme(ElementTheme theme)
@@ -132,9 +150,10 @@ public sealed class FloatingMicWindow : Window
         bool isDark = theme == ElementTheme.Dark ||
             (theme == ElementTheme.Default && _root.ActualTheme == ElementTheme.Dark);
         _root.Background = new Microsoft.UI.Xaml.Media.SolidColorBrush(
-            isDark ? Windows.UI.Color.FromArgb(255, 48, 46, 41) : Windows.UI.Color.FromArgb(255, 255, 252, 246));
+            isDark ? Windows.UI.Color.FromArgb(255, 35, 33, 29) : Windows.UI.Color.FromArgb(255, 255, 255, 255));
         _root.BorderBrush = new Microsoft.UI.Xaml.Media.SolidColorBrush(
-            isDark ? Windows.UI.Color.FromArgb(255, 73, 69, 61) : Windows.UI.Color.FromArgb(255, 214, 208, 197));
+            isDark ? Windows.UI.Color.FromArgb(255, 63, 58, 50) : Windows.UI.Color.FromArgb(255, 216, 210, 199));
+        ApplyTitleBarTheme(isDark);
     }
 
     public void UpdateState(DictationShellState state)
@@ -155,6 +174,8 @@ public sealed class FloatingMicWindow : Window
 
     public void Hide()
     {
+        IsVisible = false;
+
         if (!_isInitialized)
         {
             return;
@@ -163,10 +184,43 @@ public sealed class FloatingMicWindow : Window
         _windowVisibility.Hide(WindowNative.GetWindowHandle(this));
     }
 
+    public void CloseForApplicationExit()
+    {
+        _allowClose = true;
+        IsVisible = false;
+        Close();
+    }
+
     private void AppWindow_Closing(AppWindow sender, AppWindowClosingEventArgs args)
     {
+        if (_allowClose)
+        {
+            return;
+        }
+
         args.Cancel = true;
         Hide();
+        DismissRequested?.Invoke(this, EventArgs.Empty);
+    }
+
+    private void ConfigurePresenter()
+    {
+        if (AppWindow.Presenter is OverlappedPresenter presenter)
+        {
+            presenter.IsMaximizable = false;
+            presenter.IsMinimizable = false;
+            presenter.IsResizable = false;
+        }
+    }
+
+    private void ResizeForCurrentDpi()
+    {
+        IntPtr windowHandle = WindowNative.GetWindowHandle(this);
+        uint dpi = GetDpiForWindow(windowHandle);
+        double scale = dpi == 0 ? 1 : dpi / DefaultDpi;
+        AppWindow.Resize(new SizeInt32(
+            checked((int)Math.Round(PreferredWindowWidthDip * scale)),
+            checked((int)Math.Round(PreferredWindowHeightDip * scale))));
     }
 
     private void Root_ActualThemeChanged(FrameworkElement sender, object args)
@@ -175,6 +229,39 @@ public sealed class FloatingMicWindow : Window
         {
             ApplyTheme(ElementTheme.Default);
         }
+    }
+
+    private void ApplyTitleBarTheme(bool isDark)
+    {
+        if (!AppWindowTitleBar.IsCustomizationSupported())
+        {
+            return;
+        }
+
+        Windows.UI.Color background = isDark
+            ? Windows.UI.Color.FromArgb(255, 17, 16, 14)
+            : Windows.UI.Color.FromArgb(255, 247, 245, 240);
+        Windows.UI.Color foreground = isDark
+            ? Windows.UI.Color.FromArgb(255, 250, 247, 239)
+            : Windows.UI.Color.FromArgb(255, 35, 33, 29);
+        Windows.UI.Color mutedForeground = isDark
+            ? Windows.UI.Color.FromArgb(255, 207, 199, 186)
+            : Windows.UI.Color.FromArgb(255, 98, 93, 84);
+        Windows.UI.Color hoverBackground = isDark
+            ? Windows.UI.Color.FromArgb(255, 35, 33, 29)
+            : Windows.UI.Color.FromArgb(255, 238, 234, 226);
+
+        AppWindowTitleBar titleBar = AppWindow.TitleBar;
+        titleBar.BackgroundColor = background;
+        titleBar.ForegroundColor = foreground;
+        titleBar.InactiveBackgroundColor = background;
+        titleBar.InactiveForegroundColor = mutedForeground;
+        titleBar.ButtonBackgroundColor = background;
+        titleBar.ButtonForegroundColor = foreground;
+        titleBar.ButtonHoverBackgroundColor = hoverBackground;
+        titleBar.ButtonHoverForegroundColor = foreground;
+        titleBar.ButtonInactiveBackgroundColor = background;
+        titleBar.ButtonInactiveForegroundColor = mutedForeground;
     }
 
     private void TriggerButton_Click(object sender, RoutedEventArgs e)
@@ -187,4 +274,7 @@ public sealed class FloatingMicWindow : Window
         Hide();
         DismissRequested?.Invoke(this, EventArgs.Empty);
     }
+
+    [DllImport("user32.dll")]
+    private static extern uint GetDpiForWindow(IntPtr hwnd);
 }

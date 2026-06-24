@@ -9,9 +9,14 @@
         MinHeight="620"
         Background="{ThemeResource ShrutiRootBrush}">
         <Grid.Resources>
+        <Style TargetType="TextBlock">
+            <Setter Property="FontFamily" Value="Segoe UI Variable Text, Segoe UI" />
+            <Setter Property="FontSize" Value="13" />
+            <Setter Property="Foreground" Value="{ThemeResource ShrutiTextBrush}" />
+        </Style>
         <Style x:Key="NavButtonStyle" TargetType="Button">
             <Setter Property="Margin" Value="0,2" />
-            <Setter Property="Padding" Value="12,10" />
+            <Setter Property="Padding" Value="12,9" />
             <Setter Property="HorizontalContentAlignment" Value="Left" />
             <Setter Property="Background" Value="Transparent" />
             <Setter Property="BorderThickness" Value="0" />
@@ -20,19 +25,59 @@
             <Setter Property="Background" Value="{ThemeResource ShrutiSurfaceBrush}" />
             <Setter Property="BorderBrush" Value="{ThemeResource ShrutiBorderBrush}" />
             <Setter Property="BorderThickness" Value="1" />
-            <Setter Property="CornerRadius" Value="8" />
+            <Setter Property="CornerRadius" Value="10" />
         </Style>
         <Style x:Key="MutedTextStyle" TargetType="TextBlock">
+            <Setter Property="FontFamily" Value="Segoe UI Variable Text, Segoe UI" />
+            <Setter Property="FontSize" Value="13" />
             <Setter Property="Foreground" Value="{ThemeResource ShrutiMutedTextBrush}" />
             <Setter Property="TextWrapping" Value="Wrap" />
         </Style>
         </Grid.Resources>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="40" />
+            <RowDefinition Height="*" />
+        </Grid.RowDefinitions>
         <Grid.ColumnDefinitions>
             <ColumnDefinition Width="184" />
             <ColumnDefinition Width="*" />
         </Grid.ColumnDefinitions>
 
+        <Grid
+            x:Name="AppTitleBar"
+            Grid.ColumnSpan="2"
+            Padding="16,0,140,0"
+            Background="{ThemeResource ShrutiRootBrush}">
+            <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                <Border
+                    Width="20"
+                    Height="20"
+                    Background="{ThemeResource ShrutiAccentBrush}"
+                    CornerRadius="10">
+                    <FontIcon
+                        HorizontalAlignment="Center"
+                        VerticalAlignment="Center"
+                        FontFamily="Segoe Fluent Icons"
+                        FontSize="11"
+                        Foreground="{ThemeResource ShrutiAccentForegroundBrush}"
+                        Glyph="&#xE720;" />
+                </Border>
+                <TextBlock
+                    FontFamily="Segoe UI Variable Text, Segoe UI"
+                    FontSize="12"
+                    FontWeight="SemiBold"
+                    Foreground="{ThemeResource ShrutiTextBrush}"
+                    Text="Shruti" />
+                <TextBlock
+                    FontFamily="Segoe UI Variable Text, Segoe UI"
+                    FontSize="12"
+                    Foreground="{ThemeResource ShrutiMutedTextBrush}"
+                    Text="Local dictation" />
+            </StackPanel>
+        </Grid>
+
         <Border
+            Grid.Row="1"
             Background="{ThemeResource ShrutiSidebarBrush}"
             BorderBrush="{ThemeResource ShrutiBorderBrush}"
             BorderThickness="0,0,1,0">
@@ -60,12 +105,13 @@
                         </Border>
                         <StackPanel VerticalAlignment="Center" Spacing="0">
                             <TextBlock
+                                FontFamily="Segoe UI Variable Display, Segoe UI"
                                 FontSize="18"
                                 FontWeight="SemiBold"
                                 Foreground="{ThemeResource ShrutiTextBrush}"
                                 Text="Shruti" />
                             <TextBlock
-                                FontSize="11"
+                                FontSize="10.5"
                                 Foreground="{ThemeResource ShrutiMutedTextBrush}"
                                 Text="LOCAL DICTATION" />
                         </StackPanel>
@@ -80,8 +126,8 @@
                         ToolTipService.ToolTip="Home"
                         Click="NavigationButton_Click">
                         <StackPanel Orientation="Horizontal" Spacing="11">
-                            <FontIcon FontFamily="Segoe Fluent Icons" Glyph="&#xE80F;" />
-                            <TextBlock Text="Home" />
+                            <FontIcon FontFamily="Segoe Fluent Icons" FontSize="16" Glyph="&#xE80F;" />
+                            <TextBlock FontSize="13.5" Text="Home" />
                         </StackPanel>
                     </Button>
                     <Button
@@ -91,8 +137,8 @@
                         ToolTipService.ToolTip="History"
                         Click="NavigationButton_Click">
                         <StackPanel Orientation="Horizontal" Spacing="11">
-                            <FontIcon FontFamily="Segoe Fluent Icons" Glyph="&#xE81C;" />
-                            <TextBlock Text="History" />
+                            <FontIcon FontFamily="Segoe Fluent Icons" FontSize="16" Glyph="&#xE81C;" />
+                            <TextBlock FontSize="13.5" Text="History" />
                         </StackPanel>
                     </Button>
                     <Button
@@ -102,8 +148,8 @@
                         ToolTipService.ToolTip="Models"
                         Click="NavigationButton_Click">
                         <StackPanel Orientation="Horizontal" Spacing="11">
-                            <FontIcon FontFamily="Segoe Fluent Icons" Glyph="&#xE7B8;" />
-                            <TextBlock Text="Models" />
+                            <FontIcon FontFamily="Segoe Fluent Icons" FontSize="16" Glyph="&#xE7B8;" />
+                            <TextBlock FontSize="13.5" Text="Models" />
                         </StackPanel>
                     </Button>
                     <Button
@@ -113,8 +159,8 @@
                         ToolTipService.ToolTip="Settings"
                         Click="NavigationButton_Click">
                         <StackPanel Orientation="Horizontal" Spacing="11">
-                            <FontIcon FontFamily="Segoe Fluent Icons" Glyph="&#xE713;" />
-                            <TextBlock Text="Settings" />
+                            <FontIcon FontFamily="Segoe Fluent Icons" FontSize="16" Glyph="&#xE713;" />
+                            <TextBlock FontSize="13.5" Text="Settings" />
                         </StackPanel>
                     </Button>
                 </StackPanel>
@@ -138,7 +184,7 @@
             </Grid>
         </Border>
 
-        <Grid Grid.Column="1" Padding="32,26,32,28">
+        <Grid Grid.Row="1" Grid.Column="1" Padding="32,26,32,28">
             <Grid.RowDefinitions>
                 <RowDefinition Height="Auto" />
                 <RowDefinition Height="*" />
@@ -152,114 +198,135 @@
                 <StackPanel Spacing="2">
                     <TextBlock
                         x:Name="PageTitleText"
-                        FontSize="25"
+                        FontFamily="Segoe UI Variable Display, Segoe UI"
+                        FontSize="23"
                         FontWeight="SemiBold"
                         Foreground="{ThemeResource ShrutiTextBrush}"
+                        LineHeight="29"
                         Text="Ready to dictate" />
                     <TextBlock
                         x:Name="PageSubtitleText"
+                        FontSize="13"
                         Style="{StaticResource MutedTextStyle}"
                         Text="Hold your shortcut, speak naturally, and release to finish." />
                 </StackPanel>
                 <Border
                     Grid.Column="1"
+                    MinHeight="34"
                     Padding="10,6"
+                    HorizontalAlignment="Right"
+                    VerticalAlignment="Top"
                     Background="{ThemeResource ShrutiSurfaceLowBrush}"
                     BorderBrush="{ThemeResource ShrutiBorderBrush}"
                     BorderThickness="1"
                     CornerRadius="16">
-                    <StackPanel Orientation="Horizontal" Spacing="7">
-                        <Ellipse Width="8" Height="8" Fill="{ThemeResource ShrutiSuccessBrush}" />
-                        <TextBlock x:Name="StatusPillText" FontSize="12" Text="Ready" />
-                    </StackPanel>
+                    <Grid
+                        ColumnSpacing="7"
+                        VerticalAlignment="Center">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <Ellipse
+                            Width="8"
+                            Height="8"
+                            VerticalAlignment="Center"
+                            Fill="{ThemeResource ShrutiSuccessBrush}" />
+                        <TextBlock
+                            x:Name="StatusPillText"
+                            Grid.Column="1"
+                            VerticalAlignment="Center"
+                            FontSize="12"
+                            Text="Ready" />
+                    </Grid>
                 </Border>
             </Grid>
 
             <Grid Grid.Row="1">
-                <ScrollViewer x:Name="HomePage" VerticalScrollBarVisibility="Auto">
-                    <StackPanel Padding="0,28,0,0" Spacing="20">
+                <ScrollViewer x:Name="HomePage" VerticalScrollBarVisibility="Hidden">
+                    <StackPanel Padding="0,24,0,0" Spacing="18">
                         <Grid ColumnSpacing="14">
                             <Grid.ColumnDefinitions>
                                 <ColumnDefinition Width="*" />
                                 <ColumnDefinition Width="*" />
                                 <ColumnDefinition Width="*" />
                             </Grid.ColumnDefinitions>
-                            <Border Style="{StaticResource CardBorderStyle}" Padding="14">
+                            <Border Style="{StaticResource CardBorderStyle}" Padding="13">
                                 <StackPanel Orientation="Horizontal" Spacing="10">
-                                    <Border Width="30" Height="30" Background="{ThemeResource ShrutiSurfaceLowBrush}" CornerRadius="15">
-                                        <FontIcon HorizontalAlignment="Center" VerticalAlignment="Center" FontFamily="Segoe Fluent Icons" Foreground="{ThemeResource ShrutiAccentBrush}" Glyph="&#xE720;" />
+                                    <Border Width="28" Height="28" Background="{ThemeResource ShrutiSurfaceLowBrush}" CornerRadius="14">
+                                        <FontIcon HorizontalAlignment="Center" VerticalAlignment="Center" FontFamily="Segoe Fluent Icons" FontSize="14" Foreground="{ThemeResource ShrutiAccentBrush}" Glyph="&#xE720;" />
                                     </Border>
                                     <StackPanel Spacing="2">
-                                        <TextBlock FontWeight="SemiBold" Text="Microphone" />
+                                        <TextBlock FontSize="13" FontWeight="SemiBold" Text="Microphone" />
                                         <TextBlock x:Name="MicrophoneReadinessText" FontSize="12" Style="{StaticResource MutedTextStyle}" Text="Checking device" />
                                     </StackPanel>
                                 </StackPanel>
                             </Border>
-                            <Border Grid.Column="1" Style="{StaticResource CardBorderStyle}" Padding="14">
+                            <Border Grid.Column="1" Style="{StaticResource CardBorderStyle}" Padding="13">
                                 <StackPanel Orientation="Horizontal" Spacing="10">
-                                    <Border Width="30" Height="30" Background="{ThemeResource ShrutiSurfaceLowBrush}" CornerRadius="15">
-                                        <FontIcon HorizontalAlignment="Center" VerticalAlignment="Center" FontFamily="Segoe Fluent Icons" Foreground="{ThemeResource ShrutiAccentBrush}" Glyph="&#xE7B8;" />
+                                    <Border Width="28" Height="28" Background="{ThemeResource ShrutiSurfaceLowBrush}" CornerRadius="14">
+                                        <FontIcon HorizontalAlignment="Center" VerticalAlignment="Center" FontFamily="Segoe Fluent Icons" FontSize="14" Foreground="{ThemeResource ShrutiAccentBrush}" Glyph="&#xE7B8;" />
                                     </Border>
                                     <StackPanel Spacing="2">
-                                        <TextBlock FontWeight="SemiBold" Text="Model" />
+                                        <TextBlock FontSize="13" FontWeight="SemiBold" Text="Model" />
                                         <TextBlock FontSize="12" Style="{StaticResource MutedTextStyle}" Text="Whisper tiny.en" />
                                     </StackPanel>
                                 </StackPanel>
                             </Border>
-                            <Border Grid.Column="2" Style="{StaticResource CardBorderStyle}" Padding="14">
+                            <Border Grid.Column="2" Style="{StaticResource CardBorderStyle}" Padding="13">
                                 <StackPanel Orientation="Horizontal" Spacing="10">
-                                    <Border Width="30" Height="30" Background="{ThemeResource ShrutiSurfaceLowBrush}" CornerRadius="15">
-                                        <FontIcon HorizontalAlignment="Center" VerticalAlignment="Center" FontFamily="Segoe Fluent Icons" Foreground="{ThemeResource ShrutiAccentBrush}" Glyph="&#xE73E;" />
+                                    <Border Width="28" Height="28" Background="{ThemeResource ShrutiSurfaceLowBrush}" CornerRadius="14">
+                                        <FontIcon HorizontalAlignment="Center" VerticalAlignment="Center" FontFamily="Segoe Fluent Icons" FontSize="14" Foreground="{ThemeResource ShrutiAccentBrush}" Glyph="&#xE73E;" />
                                     </Border>
                                     <StackPanel Spacing="2">
-                                        <TextBlock FontWeight="SemiBold" Text="Backend" />
+                                        <TextBlock FontSize="13" FontWeight="SemiBold" Text="Backend" />
                                         <TextBlock FontSize="12" Style="{StaticResource MutedTextStyle}" Text="whisper.cpp / CPU" />
                                     </StackPanel>
                                 </StackPanel>
                             </Border>
                         </Grid>
 
-                        <Border Style="{StaticResource CardBorderStyle}" Padding="24">
+                        <Border Style="{StaticResource CardBorderStyle}" Padding="22">
                             <Grid ColumnSpacing="28">
                                 <Grid.ColumnDefinitions>
                                     <ColumnDefinition Width="*" />
                                     <ColumnDefinition Width="260" />
                                 </Grid.ColumnDefinitions>
-                                <StackPanel Spacing="14">
-                                    <TextBlock FontSize="20" FontWeight="SemiBold" Text="Dictation" />
+                                <StackPanel Spacing="13">
+                                    <TextBlock FontFamily="Segoe UI Variable Display, Segoe UI" FontSize="19" FontWeight="SemiBold" Text="Dictation" />
                                     <TextBlock
                                         x:Name="StatusText"
-                                        FontSize="14"
+                                        FontSize="13"
                                         Foreground="{ThemeResource ShrutiMutedTextBrush}"
                                         Text="Ready when you are." />
                                     <StackPanel Orientation="Horizontal" Spacing="12">
                                         <Button
                                             x:Name="PrimaryDictationButton"
                                             Width="190"
-                                            Height="48"
+                                            Height="44"
                                             Background="{ThemeResource ShrutiAccentBrush}"
                                             Foreground="{ThemeResource ShrutiAccentForegroundBrush}"
                                             Click="PrimaryDictationButton_Click">
                                             <StackPanel HorizontalAlignment="Center" Orientation="Horizontal" Spacing="9">
-                                                <FontIcon x:Name="PrimaryButtonIcon" FontFamily="Segoe Fluent Icons" Glyph="&#xE720;" />
-                                                <TextBlock x:Name="PrimaryButtonLabel" FontWeight="SemiBold" Text="Start dictation" />
+                                                <FontIcon x:Name="PrimaryButtonIcon" FontFamily="Segoe Fluent Icons" FontSize="16" Glyph="&#xE720;" />
+                                                <TextBlock x:Name="PrimaryButtonLabel" FontSize="13" FontWeight="SemiBold" Text="Start dictation" />
                                             </StackPanel>
                                         </Button>
                                         <Button
                                             x:Name="PauseButton"
-                                            Height="48"
+                                            Height="44"
                                             Padding="14,0"
                                             Click="PauseButton_Click">
-                                            <TextBlock x:Name="PauseButtonLabel" Text="Pause" />
+                                            <TextBlock x:Name="PauseButtonLabel" FontSize="13" Text="Pause" />
                                         </Button>
                                         <Button
                                             x:Name="CancelButton"
-                                            Height="48"
+                                            Height="44"
                                             Padding="14,0"
                                             Click="CancelButton_Click">
                                             <StackPanel Orientation="Horizontal" Spacing="7">
                                                 <FontIcon FontFamily="Segoe Fluent Icons" Glyph="&#xE711;" />
-                                                <TextBlock Text="Cancel" />
+                                                <TextBlock FontSize="13" Text="Cancel" />
                                             </StackPanel>
                                         </Button>
                                     </StackPanel>
@@ -295,7 +362,7 @@
                                         <ColumnDefinition Width="Auto" />
                                     </Grid.ColumnDefinitions>
                                     <StackPanel Spacing="2">
-                                        <TextBlock FontWeight="SemiBold" Text="Live transcript" />
+                                        <TextBlock FontSize="13" FontWeight="SemiBold" Text="Live transcript" />
                                         <TextBlock x:Name="UserMessageText" FontSize="12" Style="{StaticResource MutedTextStyle}" Text="Dictation is ready." />
                                     </StackPanel>
                                     <ProgressBar
@@ -311,6 +378,9 @@
                                     x:Name="TranscriptPreviewBox"
                                     MinHeight="118"
                                     AcceptsReturn="True"
+                                    Background="{ThemeResource ShrutiSurfaceLowBrush}"
+                                    BorderBrush="{ThemeResource ShrutiBorderBrush}"
+                                    Foreground="{ThemeResource ShrutiTextBrush}"
                                     IsReadOnly="True"
                                     PlaceholderText="Your transcript will appear here while you dictate."
                                     TextWrapping="Wrap" />
@@ -382,7 +452,7 @@
                     </StackPanel>
                 </ScrollViewer>
 
-                <ScrollViewer x:Name="HistoryPage" Padding="0,28,0,0" Visibility="Collapsed" VerticalScrollBarVisibility="Auto">
+                <ScrollViewer x:Name="HistoryPage" Padding="0,28,0,0" Visibility="Collapsed" VerticalScrollBarVisibility="Hidden">
                     <StackPanel Spacing="18">
                         <Border Style="{StaticResource CardBorderStyle}" Padding="18" Background="{ThemeResource ShrutiSurfaceLowBrush}">
                             <StackPanel Orientation="Horizontal" Spacing="10">
@@ -407,7 +477,7 @@
                     </StackPanel>
                 </ScrollViewer>
 
-                <ScrollViewer x:Name="ModelsPage" Padding="0,28,0,0" Visibility="Collapsed" VerticalScrollBarVisibility="Auto">
+                <ScrollViewer x:Name="ModelsPage" Padding="0,28,0,0" Visibility="Collapsed" VerticalScrollBarVisibility="Hidden">
                     <StackPanel Spacing="18">
                         <Border Style="{StaticResource CardBorderStyle}" Padding="18" Background="{ThemeResource ShrutiSurfaceLowBrush}">
                             <StackPanel Orientation="Horizontal" Spacing="10">
@@ -446,7 +516,7 @@
                     </StackPanel>
                 </ScrollViewer>
 
-                <ScrollViewer x:Name="SettingsPanel" Padding="0,28,0,0" Visibility="Collapsed" VerticalScrollBarVisibility="Auto">
+                <ScrollViewer x:Name="SettingsPanel" Padding="0,28,0,0" Visibility="Collapsed" VerticalScrollBarVisibility="Hidden">
                     <StackPanel Spacing="20">
                         <Border Style="{StaticResource CardBorderStyle}" Padding="20">
                             <StackPanel Spacing="13">
@@ -499,13 +569,31 @@
                                 <CheckBox
                                     x:Name="FloatingButtonCheckBox"
                                     Click="TriggerConfigurationCheckBox_Click"
-                                    Content="Show the floating microphone control"
+                                    Content="Show the floating microphone control at startup"
                                     IsChecked="True" />
+                                <CheckBox
+                                    x:Name="FloatingWindowShortcutCheckBox"
+                                    Click="TriggerConfigurationCheckBox_Click"
+                                    Content="Enable floating-window shortcut"
+                                    IsChecked="True" />
+                                <TextBox
+                                    x:Name="FloatingWindowShortcutTextBox"
+                                    Header="Toggle floating window shortcut"
+                                    Text="Ctrl+Alt+M"
+                                    LostFocus="TriggerConfigurationInput_LostFocus" />
+                                <TextBlock
+                                    Style="{StaticResource MutedTextStyle}"
+                                    FontSize="12"
+                                    Text="Press once to show the floating control; press again to hide it for this session." />
                                 <CheckBox
                                     x:Name="TrayMenuCheckBox"
                                     Click="TriggerConfigurationCheckBox_Click"
-                                    Content="Show Shruti in the notification area"
+                                    Content="Enable dictation commands from the tray menu"
                                     IsChecked="True" />
+                                <TextBlock
+                                    Style="{StaticResource MutedTextStyle}"
+                                    FontSize="12"
+                                    Text="The tray icon stays available so you can restore Shruti or exit the process." />
                                 <CheckBox
                                     x:Name="GlobalHotkeyCheckBox"
                                     Click="TriggerConfigurationCheckBox_Click"

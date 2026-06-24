@@ -7,14 +7,16 @@ public sealed class WindowsGlobalTriggerService : IGlobalTriggerService, IDispos
 {
     public const uint HotkeyWindowMessage = 0x0312;
 
-    private const int GlobalHotkeyId = 0x5348;
+    public const int GlobalHotkeyId = 0x5348;
+    public const int FloatingWindowHotkeyId = 0x5349;
 
     private readonly IWindowsHotkeyRegistration _hotkeyRegistration;
     private readonly IWindowsPushToTalkHook _pushToTalkHook;
     private readonly Channel<DictationTriggerEvent> _events = Channel.CreateUnbounded<DictationTriggerEvent>();
 
     private IntPtr _windowHandle;
-    private bool _hotkeyRegistered;
+    private bool _globalHotkeyRegistered;
+    private bool _floatingWindowHotkeyRegistered;
     private bool _isDisposed;
 
     public WindowsGlobalTriggerService(
@@ -32,7 +34,9 @@ public sealed class WindowsGlobalTriggerService : IGlobalTriggerService, IDispos
         EnableFloatingButton: true,
         EnableTrayMenu: true,
         HotkeyGesture: "Ctrl+Win+Space",
-        PushToTalkKey: "Ctrl+Win+Space");
+        PushToTalkKey: "Ctrl+Win+Space",
+        EnableFloatingWindowShortcut: true,
+        FloatingWindowShortcut: "Ctrl+Alt+M");
 
     public IAsyncEnumerable<DictationTriggerEvent> Events => _events.Reader.ReadAllAsync();
 
@@ -50,7 +54,7 @@ public sealed class WindowsGlobalTriggerService : IGlobalTriggerService, IDispos
             return;
         }
 
-        UnregisterHotkey();
+        UnregisterHotkeys();
         _windowHandle = windowHandle;
         ApplyConfiguration(Configuration);
     }
@@ -67,13 +71,13 @@ public sealed class WindowsGlobalTriggerService : IGlobalTriggerService, IDispos
         TriggerConfiguration previousConfiguration = Configuration;
         try
         {
-            UnregisterHotkey();
+            UnregisterHotkeys();
             Configuration = configuration;
             ApplyConfiguration(configuration);
         }
         catch
         {
-            UnregisterHotkey();
+            UnregisterHotkeys();
             Configuration = previousConfiguration;
             ApplyConfiguration(previousConfiguration);
             throw;
@@ -84,18 +88,33 @@ public sealed class WindowsGlobalTriggerService : IGlobalTriggerService, IDispos
 
     public bool HandleWindowMessage(uint message, IntPtr windowParameter)
     {
-        if (message != HotkeyWindowMessage || windowParameter.ToInt64() != GlobalHotkeyId)
+        if (message != HotkeyWindowMessage)
         {
             return false;
         }
 
-        if (!Configuration.EnableGlobalHotkey)
+        int hotkeyId = checked((int)windowParameter.ToInt64());
+        if (hotkeyId == GlobalHotkeyId)
         {
+            if (Configuration.EnableGlobalHotkey)
+            {
+                Publish(DictationTriggerKind.GlobalHotkey, "windows-global-hotkey");
+            }
+
             return true;
         }
 
-        Publish(DictationTriggerKind.GlobalHotkey, "windows-global-hotkey");
-        return true;
+        if (hotkeyId == FloatingWindowHotkeyId)
+        {
+            if (Configuration.EnableFloatingWindowShortcut)
+            {
+                Publish(DictationTriggerKind.FloatingWindowToggle, "windows-floating-window-shortcut");
+            }
+
+            return true;
+        }
+
+        return false;
     }
 
     public void Dispose()
@@ -107,7 +126,7 @@ public sealed class WindowsGlobalTriggerService : IGlobalTriggerService, IDispos
 
         _isDisposed = true;
         _pushToTalkHook.KeyStateChanged -= PushToTalkHook_KeyStateChanged;
-        UnregisterHotkey();
+        UnregisterHotkeys();
         _pushToTalkHook.Dispose();
         _events.Writer.TryComplete();
         GC.SuppressFinalize(this);
@@ -115,50 +134,88 @@ public sealed class WindowsGlobalTriggerService : IGlobalTriggerService, IDispos
 
     private void ApplyConfiguration(TriggerConfiguration configuration)
     {
-        if (configuration.EnableGlobalHotkey && _windowHandle != IntPtr.Zero)
+        try
         {
-            if (!WindowsHotkeyParser.TryParse(configuration.HotkeyGesture, out WindowsHotkey? hotkey, out string? error))
+            if (configuration.EnableGlobalHotkey && _windowHandle != IntPtr.Zero)
             {
-                throw new InvalidOperationException(error);
+                if (!WindowsHotkeyParser.TryParse(configuration.HotkeyGesture, out WindowsHotkey? hotkey, out string? error))
+                {
+                    throw new InvalidOperationException(error);
+                }
+
+                RegisterHotkey(GlobalHotkeyId, hotkey!, "global dictation trigger");
             }
 
-            if (!_hotkeyRegistration.Register(_windowHandle, GlobalHotkeyId, hotkey!))
+            if (configuration.EnableFloatingWindowShortcut && _windowHandle != IntPtr.Zero)
             {
-                throw new InvalidOperationException(
-                    $"The global hotkey {hotkey!.Gesture} is already in use by another application.");
+                if (!WindowsHotkeyParser.TryParse(configuration.FloatingWindowShortcut, out WindowsHotkey? hotkey, out string? error))
+                {
+                    throw new InvalidOperationException(error);
+                }
+
+                RegisterHotkey(FloatingWindowHotkeyId, hotkey!, "floating window shortcut");
             }
 
-            _hotkeyRegistered = true;
+            if (configuration.EnablePushToTalk)
+            {
+                if (!TryParsePushToTalkHotkey(configuration.PushToTalkKey, out WindowsHotkey? hotkey, out string? error))
+                {
+                    throw new InvalidOperationException(error);
+                }
+
+                _pushToTalkHook.Configure(enabled: true, hotkey!);
+            }
+            else
+            {
+                _pushToTalkHook.Configure(enabled: false, hotkey: null);
+            }
         }
-
-        if (configuration.EnablePushToTalk)
+        catch
         {
-            if (!TryParsePushToTalkHotkey(configuration.PushToTalkKey, out WindowsHotkey? hotkey, out string? error))
-            {
-                throw new InvalidOperationException(error);
-            }
-
-            _pushToTalkHook.Configure(enabled: true, hotkey!);
-        }
-        else
-        {
-            _pushToTalkHook.Configure(enabled: false, hotkey: null);
+            UnregisterHotkeys();
+            throw;
         }
     }
 
     private static void ValidateConfiguration(TriggerConfiguration configuration)
     {
+        WindowsHotkey? globalHotkey = null;
+        WindowsHotkey? floatingWindowHotkey = null;
+        WindowsHotkey? pushToTalkHotkey = null;
+
         if (configuration.EnableGlobalHotkey &&
-            !WindowsHotkeyParser.TryParse(configuration.HotkeyGesture, out _, out string? hotkeyError))
+            !WindowsHotkeyParser.TryParse(configuration.HotkeyGesture, out globalHotkey, out string? hotkeyError))
         {
             throw new ArgumentException(hotkeyError, nameof(configuration));
         }
 
+        if (configuration.EnableFloatingWindowShortcut &&
+            !WindowsHotkeyParser.TryParse(configuration.FloatingWindowShortcut, out floatingWindowHotkey, out string? floatingWindowError))
+        {
+            throw new ArgumentException(floatingWindowError, nameof(configuration));
+        }
+
         if (configuration.EnablePushToTalk &&
-            !TryParsePushToTalkHotkey(configuration.PushToTalkKey, out _, out string? pushToTalkError))
+            !TryParsePushToTalkHotkey(configuration.PushToTalkKey, out pushToTalkHotkey, out string? pushToTalkError))
         {
             throw new ArgumentException(pushToTalkError, nameof(configuration));
         }
+
+        if (HotkeysMatch(globalHotkey, floatingWindowHotkey) ||
+            HotkeysMatch(globalHotkey, pushToTalkHotkey) ||
+            HotkeysMatch(floatingWindowHotkey, pushToTalkHotkey))
+        {
+            throw new ArgumentException(
+                "Each enabled shortcut must use a different key combination.",
+                nameof(configuration));
+        }
+    }
+
+    private static bool HotkeysMatch(WindowsHotkey? first, WindowsHotkey? second)
+    {
+        return first is not null && second is not null &&
+            first.Modifiers == second.Modifiers &&
+            first.VirtualKey == second.VirtualKey;
     }
 
     private static bool TryParsePushToTalkHotkey(
@@ -199,14 +256,40 @@ public sealed class WindowsGlobalTriggerService : IGlobalTriggerService, IDispos
         _events.Writer.TryWrite(new DictationTriggerEvent(kind, DateTimeOffset.UtcNow, sourceId));
     }
 
-    private void UnregisterHotkey()
+    private void RegisterHotkey(int hotkeyId, WindowsHotkey hotkey, string description)
     {
-        if (!_hotkeyRegistered || _windowHandle == IntPtr.Zero)
+        if (!_hotkeyRegistration.Register(_windowHandle, hotkeyId, hotkey))
+        {
+            throw new InvalidOperationException($"The {description} {hotkey.Gesture} is already in use by another application.");
+        }
+
+        if (hotkeyId == GlobalHotkeyId)
+        {
+            _globalHotkeyRegistered = true;
+        }
+        else if (hotkeyId == FloatingWindowHotkeyId)
+        {
+            _floatingWindowHotkeyRegistered = true;
+        }
+    }
+
+    private void UnregisterHotkeys()
+    {
+        if (_windowHandle == IntPtr.Zero)
         {
             return;
         }
 
-        _hotkeyRegistration.Unregister(_windowHandle, GlobalHotkeyId);
-        _hotkeyRegistered = false;
+        if (_globalHotkeyRegistered)
+        {
+            _hotkeyRegistration.Unregister(_windowHandle, GlobalHotkeyId);
+            _globalHotkeyRegistered = false;
+        }
+
+        if (_floatingWindowHotkeyRegistered)
+        {
+            _hotkeyRegistration.Unregister(_windowHandle, FloatingWindowHotkeyId);
+            _floatingWindowHotkeyRegistered = false;
+        }
     }
 }

@@ -18,7 +18,9 @@ public sealed class JsonSettingsRepositoryTests : IDisposable
         Assert.False(configuration.EnableGlobalHotkey);
         Assert.True(configuration.EnablePushToTalk);
         Assert.True(configuration.EnableFloatingButton);
+        Assert.True(configuration.EnableFloatingWindowShortcut);
         Assert.Equal("Ctrl+Win+Space", configuration.PushToTalkKey);
+        Assert.Equal("Ctrl+Alt+M", configuration.FloatingWindowShortcut);
     }
 
     [Fact]
@@ -88,6 +90,32 @@ public sealed class JsonSettingsRepositoryTests : IDisposable
 
         Assert.Equal(ShrutiSettings.Default.ThemePreference, settings.ThemePreference);
         Assert.Equal(ShrutiSettings.Default.TriggerConfiguration, settings.TriggerConfiguration);
+    }
+
+    [Fact]
+    public async Task LoadAsync_AddsFloatingWindowShortcutDefaultsToExistingSettings()
+    {
+        var paths = new AppDataPaths(_rootPath);
+        paths.EnsureCreated();
+        await File.WriteAllTextAsync(
+            paths.SettingsFilePath,
+            """
+            {
+              "triggerConfiguration": {
+                "enableGlobalHotkey": false,
+                "enablePushToTalk": true,
+                "enableFloatingButton": true,
+                "enableTrayMenu": true,
+                "hotkeyGesture": "Ctrl+Win+Space",
+                "pushToTalkKey": "Ctrl+Win+Space"
+              }
+            }
+            """);
+
+        ShrutiSettings settings = await new JsonSettingsRepository(paths).LoadAsync(CancellationToken.None);
+
+        Assert.True(settings.TriggerConfiguration.EnableFloatingWindowShortcut);
+        Assert.Equal("Ctrl+Alt+M", settings.TriggerConfiguration.FloatingWindowShortcut);
     }
 
     [Fact]

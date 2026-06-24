@@ -24,9 +24,34 @@ public sealed class WindowsGlobalTriggerServiceTests
 
         Assert.True(handled);
         Assert.Equal((IntPtr)42, registration.WindowHandle);
-        Assert.Equal("Ctrl+Alt+Space", registration.Hotkey?.Gesture);
+        Assert.Equal(
+            "Ctrl+Alt+Space",
+            registration.GetHotkey(WindowsGlobalTriggerService.GlobalHotkeyId)?.Gesture);
         Assert.Equal(DictationTriggerKind.GlobalHotkey, trigger.Kind);
         Assert.Equal("windows-global-hotkey", trigger.SourceId);
+    }
+
+    [Fact]
+    public async Task FloatingWindowShortcut_RegistersAndPublishesToggleEvent()
+    {
+        var registration = new FakeHotkeyRegistration();
+        using var service = new WindowsGlobalTriggerService(registration, new FakePushToTalkHook());
+        using var cancellation = new CancellationTokenSource(TimeSpan.FromSeconds(1));
+
+        await service.ConfigureAsync(CreateConfiguration(), CancellationToken.None);
+        service.AttachWindow((IntPtr)42);
+
+        bool handled = service.HandleWindowMessage(
+            WindowsGlobalTriggerService.HotkeyWindowMessage,
+            (IntPtr)WindowsGlobalTriggerService.FloatingWindowHotkeyId);
+        DictationTriggerEvent trigger = await ReadFirstAsync(service.Events, cancellation.Token);
+
+        Assert.True(handled);
+        Assert.Equal(
+            "Ctrl+Alt+M",
+            registration.GetHotkey(WindowsGlobalTriggerService.FloatingWindowHotkeyId)?.Gesture);
+        Assert.Equal(DictationTriggerKind.FloatingWindowToggle, trigger.Kind);
+        Assert.Equal("windows-floating-window-shortcut", trigger.SourceId);
     }
 
     [Fact]
@@ -61,7 +86,10 @@ public sealed class WindowsGlobalTriggerServiceTests
             CancellationToken.None);
         service.AttachWindow((IntPtr)42);
 
-        Assert.Equal(0, registration.RegisterCount);
+        Assert.Null(registration.GetHotkey(WindowsGlobalTriggerService.GlobalHotkeyId));
+        Assert.Equal(
+            "Ctrl+Alt+M",
+            registration.GetHotkey(WindowsGlobalTriggerService.FloatingWindowHotkeyId)?.Gesture);
     }
 
     [Fact]
@@ -100,7 +128,7 @@ public sealed class WindowsGlobalTriggerServiceTests
             CancellationToken.None));
 
         Assert.Contains("reserved", exception.Message, StringComparison.OrdinalIgnoreCase);
-        Assert.Equal(1, registration.RegisterCount);
+        Assert.Equal(2, registration.RegisterCount);
         Assert.Equal("Ctrl+Alt+Space", service.Configuration.HotkeyGesture);
     }
 
@@ -117,15 +145,29 @@ public sealed class WindowsGlobalTriggerServiceTests
         Assert.Contains("reserved", error, StringComparison.OrdinalIgnoreCase);
     }
 
+    [Fact]
+    public async Task MatchingFloatingWindowAndDictationShortcuts_AreRejected()
+    {
+        using var service = new WindowsGlobalTriggerService(new FakeHotkeyRegistration(), new FakePushToTalkHook());
+
+        var exception = await Assert.ThrowsAsync<ArgumentException>(() => service.ConfigureAsync(
+            CreateConfiguration() with { FloatingWindowShortcut = "Ctrl+Alt+Space" },
+            CancellationToken.None));
+
+        Assert.Contains("different", exception.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
     private static TriggerConfiguration CreateConfiguration()
     {
         return new TriggerConfiguration(
             EnableGlobalHotkey: true,
             EnablePushToTalk: true,
-            EnableFloatingButton: true,
-            EnableTrayMenu: true,
-            HotkeyGesture: "Ctrl+Alt+Space",
-            PushToTalkKey: "RightControl");
+        EnableFloatingButton: true,
+        EnableTrayMenu: true,
+        HotkeyGesture: "Ctrl+Alt+Space",
+        PushToTalkKey: "RightControl",
+        EnableFloatingWindowShortcut: true,
+        FloatingWindowShortcut: "Ctrl+Alt+M");
     }
 
     private static async Task<DictationTriggerEvent> ReadFirstAsync(
@@ -144,7 +186,7 @@ public sealed class WindowsGlobalTriggerServiceTests
     {
         public IntPtr WindowHandle { get; private set; }
 
-        public WindowsHotkey? Hotkey { get; private set; }
+        private readonly Dictionary<int, WindowsHotkey> _hotkeys = new();
 
         public int RegisterCount { get; private set; }
 
@@ -153,14 +195,20 @@ public sealed class WindowsGlobalTriggerServiceTests
         public bool Register(IntPtr windowHandle, int hotkeyId, WindowsHotkey hotkey)
         {
             WindowHandle = windowHandle;
-            Hotkey = hotkey;
+            _hotkeys[hotkeyId] = hotkey;
             RegisterCount++;
             return true;
         }
 
         public void Unregister(IntPtr windowHandle, int hotkeyId)
         {
+            _hotkeys.Remove(hotkeyId);
             UnregisterCount++;
+        }
+
+        public WindowsHotkey? GetHotkey(int hotkeyId)
+        {
+            return _hotkeys.GetValueOrDefault(hotkeyId);
         }
     }
 

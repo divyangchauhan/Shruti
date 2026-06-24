@@ -35,6 +35,8 @@ public sealed partial class MainWindow : Window
     private bool _audioDevicesLoaded;
     private bool _settingsLoaded;
     private bool _isApplyingSettings;
+    private bool _floatingMicDismissedForSession;
+    private bool _floatingMicShownForSession;
     private ShrutiSettings _settings = ShrutiSettings.Default;
 
     public MainWindow(
@@ -61,12 +63,15 @@ public sealed partial class MainWindow : Window
 
         _controller.StateChanged += Controller_StateChanged;
         _controller.AudioLevelChanged += Controller_AudioLevelChanged;
+        _triggerRouter.FloatingWindowToggleRequested += TriggerRouter_FloatingWindowToggleRequested;
         _windowMessageHost.MessageReceived += WindowMessageHost_MessageReceived;
         _trayIconService.CommandInvoked += TrayIconService_CommandInvoked;
         AppWindow.Closing += AppWindow_Closing;
         Activated += MainWindow_Activated;
         Closed += MainWindow_Closed;
+        Root.ActualThemeChanged += Root_ActualThemeChanged;
         AppWindow.Resize(new SizeInt32(1020, 760));
+        ConfigureAppTitleBar();
 
         InsertionModeComboBox.SelectedIndex = 0;
         ThemeComboBox.SelectedIndex = 0;
@@ -75,6 +80,11 @@ public sealed partial class MainWindow : Window
         ConfigureNativeTriggers();
         StartTriggerDispatch();
         UpdateView();
+    }
+
+    public void ShowFromExternalActivation()
+    {
+        ShowMainWindow();
     }
 
     private async void PrimaryDictationButton_Click(object sender, RoutedEventArgs e)
@@ -141,6 +151,7 @@ public sealed partial class MainWindow : Window
         }
 
         Root.RequestedTheme = GetSelectedTheme();
+        UpdateAppTitleBarTheme();
         _floatingMicWindow?.ApplyTheme(GetSelectedTheme());
         await PersistSettingsAsync();
     }
@@ -152,6 +163,12 @@ public sealed partial class MainWindow : Window
 
     private async void TriggerConfigurationCheckBox_Click(object sender, RoutedEventArgs e)
     {
+        if (ReferenceEquals(sender, FloatingButtonCheckBox))
+        {
+            _floatingMicDismissedForSession = false;
+            _floatingMicShownForSession = FloatingButtonCheckBox.IsChecked == true;
+        }
+
         await ApplyTriggerConfigurationAsync();
     }
 
@@ -169,6 +186,62 @@ public sealed partial class MainWindow : Window
         {
             await LoadAudioDevicesAsync();
         }
+    }
+
+    private void Root_ActualThemeChanged(FrameworkElement sender, object args)
+    {
+        UpdateAppTitleBarTheme();
+    }
+
+    private void ConfigureAppTitleBar()
+    {
+        if (!AppWindowTitleBar.IsCustomizationSupported())
+        {
+            return;
+        }
+
+        AppWindow.TitleBar.ExtendsContentIntoTitleBar = true;
+        SetTitleBar(AppTitleBar);
+        UpdateAppTitleBarTheme();
+    }
+
+    private void UpdateAppTitleBarTheme()
+    {
+        if (!AppWindowTitleBar.IsCustomizationSupported())
+        {
+            return;
+        }
+
+        bool isDark = Root.ActualTheme == ElementTheme.Dark;
+        Windows.UI.Color background = isDark
+            ? Windows.UI.Color.FromArgb(255, 17, 16, 14)
+            : Windows.UI.Color.FromArgb(255, 247, 245, 240);
+        Windows.UI.Color foreground = isDark
+            ? Windows.UI.Color.FromArgb(255, 250, 247, 239)
+            : Windows.UI.Color.FromArgb(255, 35, 33, 29);
+        Windows.UI.Color mutedForeground = isDark
+            ? Windows.UI.Color.FromArgb(255, 207, 199, 186)
+            : Windows.UI.Color.FromArgb(255, 98, 93, 84);
+        Windows.UI.Color hoverBackground = isDark
+            ? Windows.UI.Color.FromArgb(255, 35, 33, 29)
+            : Windows.UI.Color.FromArgb(255, 238, 234, 226);
+        Windows.UI.Color pressedBackground = isDark
+            ? Windows.UI.Color.FromArgb(255, 63, 58, 50)
+            : Windows.UI.Color.FromArgb(255, 216, 210, 199);
+
+        AppWindowTitleBar titleBar = AppWindow.TitleBar;
+        titleBar.BackgroundColor = background;
+        titleBar.ForegroundColor = foreground;
+        titleBar.InactiveBackgroundColor = background;
+        titleBar.InactiveForegroundColor = mutedForeground;
+        titleBar.ButtonBackgroundColor = background;
+        titleBar.ButtonForegroundColor = foreground;
+        titleBar.ButtonHoverBackgroundColor = hoverBackground;
+        titleBar.ButtonHoverForegroundColor = foreground;
+        titleBar.ButtonPressedBackgroundColor = pressedBackground;
+        titleBar.ButtonPressedForegroundColor = foreground;
+        titleBar.ButtonInactiveBackgroundColor = background;
+        titleBar.ButtonInactiveForegroundColor = mutedForeground;
     }
 
     private void AppWindow_Closing(AppWindow sender, AppWindowClosingEventArgs args)
@@ -202,6 +275,11 @@ public sealed partial class MainWindow : Window
     {
         DispatcherQueue.TryEnqueue(() =>
             AudioLevelBar.Value = Math.Clamp(level.Peak * 100, AudioLevelBar.Minimum, AudioLevelBar.Maximum));
+    }
+
+    private void TriggerRouter_FloatingWindowToggleRequested(object? sender, EventArgs e)
+    {
+        DispatcherQueue.TryEnqueue(ToggleFloatingMicWindow);
     }
 
     private async Task LoadAudioDevicesAsync()
@@ -384,7 +462,8 @@ public sealed partial class MainWindow : Window
         try
         {
             _trayIconService.AttachWindow(_windowHandle);
-            _trayIconService.SetVisible(_triggerService.Configuration.EnableTrayMenu);
+            _trayIconService.SetDictationCommandsEnabled(_triggerService.Configuration.EnableTrayMenu);
+            _trayIconService.SetVisible(isVisible: true);
         }
         catch (Exception ex)
         {
@@ -420,7 +499,8 @@ public sealed partial class MainWindow : Window
         try
         {
             await _triggerService.ConfigureAsync(configuration, CancellationToken.None);
-            _trayIconService.SetVisible(configuration.EnableTrayMenu);
+            _trayIconService.SetDictationCommandsEnabled(configuration.EnableTrayMenu);
+            _trayIconService.SetVisible(isVisible: true);
             HoldShortcutText.Text = string.IsNullOrWhiteSpace(configuration.PushToTalkKey)
                 ? "Hold shortcut"
                 : configuration.PushToTalkKey;
@@ -446,7 +526,9 @@ public sealed partial class MainWindow : Window
             EnableFloatingButton: FloatingButtonCheckBox.IsChecked == true,
             EnableTrayMenu: TrayMenuCheckBox.IsChecked == true,
             HotkeyGesture: HotkeyGestureTextBox.Text,
-            PushToTalkKey: PushToTalkKeyTextBox.Text);
+            PushToTalkKey: PushToTalkKeyTextBox.Text,
+            EnableFloatingWindowShortcut: FloatingWindowShortcutCheckBox.IsChecked == true,
+            FloatingWindowShortcut: FloatingWindowShortcutTextBox.Text);
     }
 
     private void ApplyTriggerConfigurationToControls(TriggerConfiguration configuration)
@@ -454,9 +536,11 @@ public sealed partial class MainWindow : Window
         GlobalHotkeyCheckBox.IsChecked = configuration.EnableGlobalHotkey;
         PushToTalkCheckBox.IsChecked = configuration.EnablePushToTalk;
         FloatingButtonCheckBox.IsChecked = configuration.EnableFloatingButton;
+        FloatingWindowShortcutCheckBox.IsChecked = configuration.EnableFloatingWindowShortcut;
         TrayMenuCheckBox.IsChecked = configuration.EnableTrayMenu;
         HotkeyGestureTextBox.Text = configuration.HotkeyGesture ?? string.Empty;
         PushToTalkKeyTextBox.Text = configuration.PushToTalkKey ?? string.Empty;
+        FloatingWindowShortcutTextBox.Text = configuration.FloatingWindowShortcut ?? string.Empty;
         HoldShortcutText.Text = string.IsNullOrWhiteSpace(configuration.PushToTalkKey)
             ? "Hold shortcut"
             : configuration.PushToTalkKey;
@@ -566,7 +650,9 @@ public sealed partial class MainWindow : Window
 
     private void UpdateFloatingMicWindow()
     {
-        if (!_triggerService.Configuration.EnableFloatingButton)
+        bool shouldShow = (_triggerService.Configuration.EnableFloatingButton || _floatingMicShownForSession) &&
+            !_floatingMicDismissedForSession;
+        if (!shouldShow)
         {
             HideFloatingMicWindow();
             return;
@@ -592,22 +678,50 @@ public sealed partial class MainWindow : Window
         await RaiseTriggerAsync(DictationTriggerKind.FloatingButton, "floating-button");
     }
 
-    private async void FloatingMicWindow_DismissRequested(object? sender, EventArgs e)
+    private void FloatingMicWindow_DismissRequested(object? sender, EventArgs e)
     {
-        FloatingButtonCheckBox.IsChecked = false;
-        await ApplyTriggerConfigurationAsync();
+        _floatingMicDismissedForSession = true;
+        _floatingMicShownForSession = false;
+        HideFloatingMicWindow();
+    }
+
+    private void ToggleFloatingMicWindow()
+    {
+        if (_floatingMicWindow?.IsVisible == true)
+        {
+            _floatingMicDismissedForSession = true;
+            _floatingMicShownForSession = false;
+            HideFloatingMicWindow();
+            return;
+        }
+
+        _floatingMicDismissedForSession = false;
+        _floatingMicShownForSession = true;
+        UpdateFloatingMicWindow();
     }
 
     private async void TrayIconService_CommandInvoked(WindowsTrayCommand command)
     {
         switch (command)
         {
+            case WindowsTrayCommand.ShowWindow:
+                ShowMainWindow();
+                break;
+
             case WindowsTrayCommand.Toggle:
-                await RaiseTriggerAsync(DictationTriggerKind.TrayMenu, "tray-menu");
+                if (_triggerService.Configuration.EnableTrayMenu)
+                {
+                    await RaiseTriggerAsync(DictationTriggerKind.TrayMenu, "tray-menu");
+                }
+                else
+                {
+                    ShowMainWindow();
+                }
+
                 break;
 
             case WindowsTrayCommand.Start:
-                if (!_controller.State.IsRunning)
+                if (_triggerService.Configuration.EnableTrayMenu && !_controller.State.IsRunning)
                 {
                     await RaiseTriggerAsync(DictationTriggerKind.TrayMenu, "tray-menu");
                 }
@@ -615,7 +729,7 @@ public sealed partial class MainWindow : Window
                 break;
 
             case WindowsTrayCommand.Stop:
-                if (_controller.State.IsRunning)
+                if (_triggerService.Configuration.EnableTrayMenu && _controller.State.IsRunning)
                 {
                     await RaiseTriggerAsync(DictationTriggerKind.TrayMenu, "tray-menu");
                 }
@@ -623,7 +737,11 @@ public sealed partial class MainWindow : Window
                 break;
 
             case WindowsTrayCommand.Cancel:
-                await _controller.CancelAsync();
+                if (_triggerService.Configuration.EnableTrayMenu)
+                {
+                    await _controller.CancelAsync();
+                }
+
                 break;
 
             case WindowsTrayCommand.ShowSettings:
@@ -642,8 +760,13 @@ public sealed partial class MainWindow : Window
 
     private void ShowSettings()
     {
-        _windowVisibility.ShowAndActivate(_windowHandle);
+        ShowMainWindow();
         ShowPage("Settings");
+    }
+
+    private void ShowMainWindow()
+    {
+        _windowVisibility.ShowAndActivate(_windowHandle);
     }
 
     private void ShowPage(string page)
@@ -688,14 +811,28 @@ public sealed partial class MainWindow : Window
     private void QuitApplication()
     {
         _allowClose = true;
-        HideFloatingMicWindow();
+        CloseFloatingMicWindowForApplicationExit();
         DisposeNativeTriggers();
         Close();
+        Application.Current.Exit();
     }
 
     private void HideFloatingMicWindow()
     {
         _floatingMicWindow?.Hide();
+    }
+
+    private void CloseFloatingMicWindowForApplicationExit()
+    {
+        if (_floatingMicWindow is null)
+        {
+            return;
+        }
+
+        _floatingMicWindow.TriggerRequested -= FloatingMicWindow_TriggerRequested;
+        _floatingMicWindow.DismissRequested -= FloatingMicWindow_DismissRequested;
+        _floatingMicWindow.CloseForApplicationExit();
+        _floatingMicWindow = null;
     }
 
     private void DisposeNativeTriggers()
@@ -707,6 +844,7 @@ public sealed partial class MainWindow : Window
 
         _isDisposed = true;
         _controller.AudioLevelChanged -= Controller_AudioLevelChanged;
+        _triggerRouter.FloatingWindowToggleRequested -= TriggerRouter_FloatingWindowToggleRequested;
         _triggerDispatchCancellation.Cancel();
         _trayIconService.CommandInvoked -= TrayIconService_CommandInvoked;
         _trayIconService.Dispose();

@@ -14,7 +14,7 @@ Shruti is under active development and is not packaged for end users yet. The Wi
 - Local `whisper.cpp` transcription with live partial text and a final transcript.
 - Auto-insert, preview-before-insert, and copy-only dictation modes.
 - Direct text insertion with clipboard fallback when direct insertion is unavailable.
-- A default `Ctrl+Win+Space` hold-to-dictate shortcut, tray control, and optional floating microphone control.
+- A default `Ctrl+Win+Space` hold-to-dictate shortcut, tray control, and optional floating microphone control. Press `Ctrl+Alt+M` to show or hide the floating control for the current session. Closing the main window keeps Shruti running in the Windows notification area; launching Shruti again restores the running instance instead of opening a duplicate. Right-click the tray icon and choose **Exit Shruti** to stop the process.
 - Local model download, verification, import, and removal primitives.
 - System, light, and dark theme preferences.
 

@@ -9,45 +9,45 @@
             </ResourceDictionary.MergedDictionaries>
             <ResourceDictionary.ThemeDictionaries>
                 <ResourceDictionary x:Key="Default">
-                    <SolidColorBrush x:Key="ShrutiRootBrush" Color="#F6F3ED" />
-                    <SolidColorBrush x:Key="ShrutiSidebarBrush" Color="#E9E4DB" />
-                    <SolidColorBrush x:Key="ShrutiSurfaceBrush" Color="#FFFCF6" />
-                    <SolidColorBrush x:Key="ShrutiSurfaceLowBrush" Color="#F0ECE4" />
-                    <SolidColorBrush x:Key="ShrutiBorderBrush" Color="#D6D0C5" />
-                    <SolidColorBrush x:Key="ShrutiTextBrush" Color="#282620" />
-                    <SolidColorBrush x:Key="ShrutiMutedTextBrush" Color="#6B665D" />
-                    <SolidColorBrush x:Key="ShrutiAccentBrush" Color="#C97905" />
-                    <SolidColorBrush x:Key="ShrutiAccentStrongBrush" Color="#9A5D00" />
+                    <SolidColorBrush x:Key="ShrutiRootBrush" Color="#F7F5F0" />
+                    <SolidColorBrush x:Key="ShrutiSidebarBrush" Color="#EEEAE2" />
+                    <SolidColorBrush x:Key="ShrutiSurfaceBrush" Color="#FFFFFF" />
+                    <SolidColorBrush x:Key="ShrutiSurfaceLowBrush" Color="#F2EFE8" />
+                    <SolidColorBrush x:Key="ShrutiBorderBrush" Color="#D8D2C7" />
+                    <SolidColorBrush x:Key="ShrutiTextBrush" Color="#23211D" />
+                    <SolidColorBrush x:Key="ShrutiMutedTextBrush" Color="#625D54" />
+                    <SolidColorBrush x:Key="ShrutiAccentBrush" Color="#C87905" />
+                    <SolidColorBrush x:Key="ShrutiAccentStrongBrush" Color="#8F5700" />
                     <SolidColorBrush x:Key="ShrutiAccentForegroundBrush" Color="#FFFFFF" />
                     <SolidColorBrush x:Key="ShrutiSuccessBrush" Color="#2E7D4C" />
                     <SolidColorBrush x:Key="ShrutiCriticalBrush" Color="#B42318" />
                 </ResourceDictionary>
                 <ResourceDictionary x:Key="Light">
-                    <SolidColorBrush x:Key="ShrutiRootBrush" Color="#F6F3ED" />
-                    <SolidColorBrush x:Key="ShrutiSidebarBrush" Color="#E9E4DB" />
-                    <SolidColorBrush x:Key="ShrutiSurfaceBrush" Color="#FFFCF6" />
-                    <SolidColorBrush x:Key="ShrutiSurfaceLowBrush" Color="#F0ECE4" />
-                    <SolidColorBrush x:Key="ShrutiBorderBrush" Color="#D6D0C5" />
-                    <SolidColorBrush x:Key="ShrutiTextBrush" Color="#282620" />
-                    <SolidColorBrush x:Key="ShrutiMutedTextBrush" Color="#6B665D" />
-                    <SolidColorBrush x:Key="ShrutiAccentBrush" Color="#C97905" />
-                    <SolidColorBrush x:Key="ShrutiAccentStrongBrush" Color="#9A5D00" />
+                    <SolidColorBrush x:Key="ShrutiRootBrush" Color="#F7F5F0" />
+                    <SolidColorBrush x:Key="ShrutiSidebarBrush" Color="#EEEAE2" />
+                    <SolidColorBrush x:Key="ShrutiSurfaceBrush" Color="#FFFFFF" />
+                    <SolidColorBrush x:Key="ShrutiSurfaceLowBrush" Color="#F2EFE8" />
+                    <SolidColorBrush x:Key="ShrutiBorderBrush" Color="#D8D2C7" />
+                    <SolidColorBrush x:Key="ShrutiTextBrush" Color="#23211D" />
+                    <SolidColorBrush x:Key="ShrutiMutedTextBrush" Color="#625D54" />
+                    <SolidColorBrush x:Key="ShrutiAccentBrush" Color="#C87905" />
+                    <SolidColorBrush x:Key="ShrutiAccentStrongBrush" Color="#8F5700" />
                     <SolidColorBrush x:Key="ShrutiAccentForegroundBrush" Color="#FFFFFF" />
                     <SolidColorBrush x:Key="ShrutiSuccessBrush" Color="#2E7D4C" />
                     <SolidColorBrush x:Key="ShrutiCriticalBrush" Color="#B42318" />
                 </ResourceDictionary>
                 <ResourceDictionary x:Key="Dark">
-                    <SolidColorBrush x:Key="ShrutiRootBrush" Color="#1E1D1A" />
-                    <SolidColorBrush x:Key="ShrutiSidebarBrush" Color="#25231F" />
-                    <SolidColorBrush x:Key="ShrutiSurfaceBrush" Color="#302E29" />
-                    <SolidColorBrush x:Key="ShrutiSurfaceLowBrush" Color="#292722" />
-                    <SolidColorBrush x:Key="ShrutiBorderBrush" Color="#49453D" />
-                    <SolidColorBrush x:Key="ShrutiTextBrush" Color="#F3F0E8" />
-                    <SolidColorBrush x:Key="ShrutiMutedTextBrush" Color="#BEB8AD" />
-                    <SolidColorBrush x:Key="ShrutiAccentBrush" Color="#F5B94F" />
-                    <SolidColorBrush x:Key="ShrutiAccentStrongBrush" Color="#FFD37D" />
+                    <SolidColorBrush x:Key="ShrutiRootBrush" Color="#11100E" />
+                    <SolidColorBrush x:Key="ShrutiSidebarBrush" Color="#191815" />
+                    <SolidColorBrush x:Key="ShrutiSurfaceBrush" Color="#23211D" />
+                    <SolidColorBrush x:Key="ShrutiSurfaceLowBrush" Color="#1B1A17" />
+                    <SolidColorBrush x:Key="ShrutiBorderBrush" Color="#3F3A32" />
+                    <SolidColorBrush x:Key="ShrutiTextBrush" Color="#FAF7EF" />
+                    <SolidColorBrush x:Key="ShrutiMutedTextBrush" Color="#CFC7BA" />
+                    <SolidColorBrush x:Key="ShrutiAccentBrush" Color="#F7BE55" />
+                    <SolidColorBrush x:Key="ShrutiAccentStrongBrush" Color="#FFD47A" />
                     <SolidColorBrush x:Key="ShrutiAccentForegroundBrush" Color="#2B1D05" />
-                    <SolidColorBrush x:Key="ShrutiSuccessBrush" Color="#81C995" />
+                    <SolidColorBrush x:Key="ShrutiSuccessBrush" Color="#7DD88C" />
                     <SolidColorBrush x:Key="ShrutiCriticalBrush" Color="#F17D74" />
                 </ResourceDictionary>
             </ResourceDictionary.ThemeDictionaries>

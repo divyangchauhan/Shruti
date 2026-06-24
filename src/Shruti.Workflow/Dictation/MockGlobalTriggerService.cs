@@ -13,7 +13,9 @@ public sealed class MockGlobalTriggerService : IGlobalTriggerService
         EnableFloatingButton: true,
         EnableTrayMenu: true,
         HotkeyGesture: "Ctrl+Win+Space",
-        PushToTalkKey: "Ctrl+Win+Space");
+        PushToTalkKey: "Ctrl+Win+Space",
+        EnableFloatingWindowShortcut: true,
+        FloatingWindowShortcut: "Ctrl+Alt+M");
 
     public IAsyncEnumerable<DictationTriggerEvent> Events => _events.Reader.ReadAllAsync();
 
@@ -49,6 +51,7 @@ public sealed class MockGlobalTriggerService : IGlobalTriggerService
             DictationTriggerKind.PushToTalkPressed or DictationTriggerKind.PushToTalkReleased =>
                 Configuration.EnablePushToTalk,
             DictationTriggerKind.FloatingButton => Configuration.EnableFloatingButton,
+            DictationTriggerKind.FloatingWindowToggle => Configuration.EnableFloatingWindowShortcut,
             DictationTriggerKind.TrayMenu => Configuration.EnableTrayMenu,
             _ => false
         };

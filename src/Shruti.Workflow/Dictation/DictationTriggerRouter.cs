@@ -11,6 +11,8 @@ public sealed class DictationTriggerRouter
         _controller = controller ?? throw new ArgumentNullException(nameof(controller));
     }
 
+    public event EventHandler? FloatingWindowToggleRequested;
+
     public async Task HandleAsync(
         DictationTriggerEvent trigger,
         CancellationToken cancellationToken = default)
@@ -36,6 +38,10 @@ public sealed class DictationTriggerRouter
                     await _controller.StopAsync().ConfigureAwait(false);
                 }
 
+                break;
+
+            case DictationTriggerKind.FloatingWindowToggle:
+                FloatingWindowToggleRequested?.Invoke(this, EventArgs.Empty);
                 break;
 
             case DictationTriggerKind.AppButton:

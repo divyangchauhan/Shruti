@@ -21,5 +21,7 @@ public sealed record ShrutiSettings
         EnableFloatingButton: true,
         EnableTrayMenu: true,
         HotkeyGesture: "Ctrl+Win+Space",
-        PushToTalkKey: "Ctrl+Win+Space");
+        PushToTalkKey: "Ctrl+Win+Space",
+        EnableFloatingWindowShortcut: true,
+        FloatingWindowShortcut: "Ctrl+Alt+M");
 }

@@ -1,190 +1,291 @@
+using System.ComponentModel;
+using System.Drawing;
+using System.Drawing.Drawing2D;
 using System.Runtime.InteropServices;
+using System.Windows.Forms;
 
 namespace Shruti.Platform.Windows;
 
-public sealed class Win32TrayIconApi : IWindowsTrayIconApi
+public sealed class Win32TrayIconApi : IWindowsTrayIconApi, IDisposable
 {
-    private const uint NotifyIconAdd = 0x00000000;
-    private const uint NotifyIconModify = 0x00000001;
-    private const uint NotifyIconDelete = 0x00000002;
-    private const uint NotifyIconMessage = 0x00000001;
-    private const uint NotifyIconIcon = 0x00000002;
-    private const uint NotifyIconTip = 0x00000004;
-    private const uint MenuString = 0x00000000;
-    private const uint MenuSeparator = 0x00000800;
-    private const uint MenuDisabled = 0x00000003;
-    private const uint TrackPopupReturnCommand = 0x0100;
-    private const uint TrackPopupRightButton = 0x0002;
-    private const int ApplicationIcon = 32512;
-    private const uint StartCommandId = 1;
-    private const uint StopCommandId = 2;
-    private const uint CancelCommandId = 3;
-    private const uint SettingsCommandId = 4;
-    private const uint QuitCommandId = 5;
+    private NotifyIcon? _notifyIcon;
+    private ContextMenuStrip? _menu;
+    private ToolStripMenuItem? _startMenuItem;
+    private ToolStripMenuItem? _stopMenuItem;
+    private ToolStripMenuItem? _cancelMenuItem;
+    private Icon? _icon;
+    private bool _isDictationRunning;
+    private bool _areDictationCommandsEnabled = true;
+    private bool _isDisposed;
+
+    public event Action<WindowsTrayCommand>? CommandInvoked;
 
     public bool AddIcon(IntPtr windowHandle, uint iconId, uint callbackMessage, string tooltip)
     {
-        var data = CreateIconData(windowHandle, iconId, callbackMessage, tooltip);
-        return NativeMethods.ShellNotifyIcon(NotifyIconAdd, ref data);
+        ObjectDisposedException.ThrowIf(_isDisposed, this);
+
+        try
+        {
+            EnsureNotifyIcon();
+            UpdateIconState(tooltip);
+            _notifyIcon!.Visible = true;
+            return true;
+        }
+        catch (ExternalException)
+        {
+            return false;
+        }
+        catch (InvalidOperationException)
+        {
+            return false;
+        }
     }
 
     public bool UpdateIcon(IntPtr windowHandle, uint iconId, uint callbackMessage, string tooltip)
     {
-        var data = CreateIconData(windowHandle, iconId, callbackMessage, tooltip);
-        return NativeMethods.ShellNotifyIcon(NotifyIconModify, ref data);
-    }
+        ObjectDisposedException.ThrowIf(_isDisposed, this);
 
-    public void RemoveIcon(IntPtr windowHandle, uint iconId)
-    {
-        var data = new NativeMethods.NotifyIconData
+        if (_notifyIcon is null)
         {
-            Size = Marshal.SizeOf<NativeMethods.NotifyIconData>(),
-            WindowHandle = windowHandle,
-            IconId = iconId
-        };
-
-        NativeMethods.ShellNotifyIcon(NotifyIconDelete, ref data);
-    }
-
-    public WindowsTrayCommand? ShowMenu(IntPtr windowHandle, bool isDictationRunning)
-    {
-        IntPtr menu = NativeMethods.CreatePopupMenu();
-        if (menu == IntPtr.Zero)
-        {
-            return null;
+            return false;
         }
 
         try
         {
-            AppendMenuItem(menu, StartCommandId, "Start dictation", isDictationRunning);
-            AppendMenuItem(menu, StopCommandId, "Stop dictation", !isDictationRunning);
-            NativeMethods.AppendMenu(menu, MenuSeparator, UIntPtr.Zero, null);
-            AppendMenuItem(menu, CancelCommandId, "Cancel dictation", !isDictationRunning);
-            NativeMethods.AppendMenu(menu, MenuSeparator, UIntPtr.Zero, null);
-            AppendMenuItem(menu, SettingsCommandId, "Settings", isDisabled: false);
-            AppendMenuItem(menu, QuitCommandId, "Quit", isDisabled: false);
+            UpdateIconState(tooltip);
+            _notifyIcon.Visible = true;
+            return true;
+        }
+        catch (ExternalException)
+        {
+            return false;
+        }
+        catch (InvalidOperationException)
+        {
+            return false;
+        }
+    }
 
-            NativeMethods.GetCursorPos(out NativeMethods.Point cursorPosition);
-            NativeMethods.SetForegroundWindow(windowHandle);
-            uint selection = NativeMethods.TrackPopupMenuEx(
-                menu,
-                TrackPopupReturnCommand | TrackPopupRightButton,
-                cursorPosition.X,
-                cursorPosition.Y,
-                windowHandle,
-                IntPtr.Zero);
+    public void RemoveIcon(IntPtr windowHandle, uint iconId)
+    {
+        if (_notifyIcon is not null)
+        {
+            _notifyIcon.Visible = false;
+        }
+    }
 
-            return selection switch
-            {
-                StartCommandId => WindowsTrayCommand.Start,
-                StopCommandId => WindowsTrayCommand.Stop,
-                CancelCommandId => WindowsTrayCommand.Cancel,
-                SettingsCommandId => WindowsTrayCommand.ShowSettings,
-                QuitCommandId => WindowsTrayCommand.Quit,
-                _ => null
-            };
+    public void SetCommandState(bool isDictationRunning, bool areDictationCommandsEnabled)
+    {
+        _isDictationRunning = isDictationRunning;
+        _areDictationCommandsEnabled = areDictationCommandsEnabled;
+        UpdateMenuState();
+    }
+
+    public WindowsTrayCommand? ShowMenu(
+        IntPtr windowHandle,
+        bool isDictationRunning,
+        bool areDictationCommandsEnabled)
+    {
+        SetCommandState(isDictationRunning, areDictationCommandsEnabled);
+        return null;
+    }
+
+    public void Dispose()
+    {
+        if (_isDisposed)
+        {
+            return;
+        }
+
+        _isDisposed = true;
+        if (_notifyIcon is not null)
+        {
+            _notifyIcon.Visible = false;
+            _notifyIcon.MouseClick -= NotifyIcon_MouseClick;
+            _notifyIcon.MouseDoubleClick -= NotifyIcon_MouseDoubleClick;
+            _notifyIcon.Dispose();
+            _notifyIcon = null;
+        }
+
+        _menu?.Dispose();
+        _menu = null;
+        _icon?.Dispose();
+        _icon = null;
+        GC.SuppressFinalize(this);
+    }
+
+    private void EnsureNotifyIcon()
+    {
+        if (_notifyIcon is not null)
+        {
+            return;
+        }
+
+        _icon = CreateTrayIcon();
+        _menu = CreateMenu();
+        _notifyIcon = new NotifyIcon
+        {
+            Icon = _icon,
+            ContextMenuStrip = _menu,
+            Text = "Shruti - Ready"
+        };
+        _notifyIcon.MouseClick += NotifyIcon_MouseClick;
+        _notifyIcon.MouseDoubleClick += NotifyIcon_MouseDoubleClick;
+    }
+
+    private ContextMenuStrip CreateMenu()
+    {
+        var menu = new ContextMenuStrip
+        {
+            ShowImageMargin = false
+        };
+        menu.Opening += (_, _) => UpdateMenuState();
+        menu.Items.Add(CreateMenuItem("Show Shruti", WindowsTrayCommand.ShowWindow));
+        menu.Items.Add(new ToolStripSeparator());
+        _startMenuItem = CreateMenuItem("Start dictation", WindowsTrayCommand.Start);
+        _stopMenuItem = CreateMenuItem("Stop dictation", WindowsTrayCommand.Stop);
+        menu.Items.Add(_startMenuItem);
+        menu.Items.Add(_stopMenuItem);
+        menu.Items.Add(new ToolStripSeparator());
+        _cancelMenuItem = CreateMenuItem("Cancel dictation", WindowsTrayCommand.Cancel);
+        menu.Items.Add(_cancelMenuItem);
+        menu.Items.Add(new ToolStripSeparator());
+        menu.Items.Add(CreateMenuItem("Settings", WindowsTrayCommand.ShowSettings));
+        menu.Items.Add(CreateMenuItem("Exit Shruti", WindowsTrayCommand.Quit));
+        UpdateMenuState();
+        return menu;
+    }
+
+    private ToolStripMenuItem CreateMenuItem(string text, WindowsTrayCommand command)
+    {
+        var item = new ToolStripMenuItem(text)
+        {
+            Tag = command
+        };
+        item.Click += (_, _) => RaiseCommand(command);
+        return item;
+    }
+
+    private void UpdateIconState(string tooltip)
+    {
+        EnsureNotifyIcon();
+        _notifyIcon!.Text = TruncateTooltip(tooltip);
+        UpdateMenuState();
+    }
+
+    private void UpdateMenuState()
+    {
+        if (_startMenuItem is null || _stopMenuItem is null || _cancelMenuItem is null)
+        {
+            return;
+        }
+
+        _startMenuItem.Enabled = _areDictationCommandsEnabled && !_isDictationRunning;
+        _stopMenuItem.Enabled = _areDictationCommandsEnabled && _isDictationRunning;
+        _cancelMenuItem.Enabled = _areDictationCommandsEnabled && _isDictationRunning;
+    }
+
+    private void NotifyIcon_MouseClick(object? sender, MouseEventArgs e)
+    {
+        if (e.Button == MouseButtons.Left)
+        {
+            RaiseCommand(_areDictationCommandsEnabled
+                ? WindowsTrayCommand.Toggle
+                : WindowsTrayCommand.ShowWindow);
+        }
+    }
+
+    private void NotifyIcon_MouseDoubleClick(object? sender, MouseEventArgs e)
+    {
+        if (e.Button == MouseButtons.Left)
+        {
+            RaiseCommand(WindowsTrayCommand.ShowSettings);
+        }
+    }
+
+    private void RaiseCommand(WindowsTrayCommand command)
+    {
+        CommandInvoked?.Invoke(command);
+    }
+
+    private static string TruncateTooltip(string tooltip)
+    {
+        const int maxTooltipLength = 63;
+        return tooltip.Length <= maxTooltipLength
+            ? tooltip
+            : tooltip[..maxTooltipLength];
+    }
+
+    private Icon CreateTrayIcon()
+    {
+        Size iconSize = SystemInformation.SmallIconSize;
+        int width = Math.Max(iconSize.Width, 16);
+        int height = Math.Max(iconSize.Height, 16);
+        using var bitmap = new Bitmap(width, height);
+        using Graphics graphics = Graphics.FromImage(bitmap);
+        graphics.SmoothingMode = SmoothingMode.AntiAlias;
+        graphics.Clear(Color.Transparent);
+
+        float circleDiameter = Math.Min(width, height) - 2;
+        float circleX = (width - circleDiameter) / 2;
+        float circleY = (height - circleDiameter) / 2;
+        using var accentBrush = new SolidBrush(Color.FromArgb(245, 185, 79));
+        graphics.FillEllipse(accentBrush, circleX, circleY, circleDiameter, circleDiameter);
+
+        using var inkBrush = new SolidBrush(Color.FromArgb(43, 29, 5));
+        float scale = Math.Min(width, height);
+        FillRoundedRectangle(
+            graphics,
+            inkBrush,
+            new RectangleF(scale * 0.39f, scale * 0.20f, scale * 0.22f, scale * 0.38f),
+            scale * 0.09f);
+        graphics.FillRectangle(inkBrush, scale * 0.47f, scale * 0.62f, scale * 0.06f, scale * 0.18f);
+        FillRoundedRectangle(
+            graphics,
+            inkBrush,
+            new RectangleF(scale * 0.31f, scale * 0.77f, scale * 0.38f, scale * 0.10f),
+            scale * 0.04f);
+        using var pen = new Pen(inkBrush, Math.Max(2, scale * 0.07f));
+        graphics.DrawArc(pen, scale * 0.27f, scale * 0.43f, scale * 0.46f, scale * 0.30f, 0, 180);
+
+        IntPtr handle = bitmap.GetHicon();
+        try
+        {
+            using Icon icon = Icon.FromHandle(handle);
+            return (Icon)icon.Clone();
         }
         finally
         {
-            NativeMethods.DestroyMenu(menu);
+            NativeMethods.DestroyIcon(handle);
         }
     }
 
-    private static NativeMethods.NotifyIconData CreateIconData(
-        IntPtr windowHandle,
-        uint iconId,
-        uint callbackMessage,
-        string tooltip)
+    private static void FillRoundedRectangle(
+        Graphics graphics,
+        Brush brush,
+        RectangleF bounds,
+        float radius)
     {
-        return new NativeMethods.NotifyIconData
-        {
-            Size = Marshal.SizeOf<NativeMethods.NotifyIconData>(),
-            WindowHandle = windowHandle,
-            IconId = iconId,
-            Flags = NotifyIconMessage | NotifyIconIcon | NotifyIconTip,
-            CallbackMessage = callbackMessage,
-            IconHandle = NativeMethods.LoadIcon(IntPtr.Zero, (IntPtr)ApplicationIcon),
-            Tooltip = tooltip
-        };
+        using GraphicsPath path = CreateRoundedRectanglePath(bounds, radius);
+        graphics.FillPath(brush, path);
     }
 
-    private static void AppendMenuItem(IntPtr menu, uint commandId, string text, bool isDisabled)
+    private static GraphicsPath CreateRoundedRectanglePath(RectangleF bounds, float radius)
     {
-        uint flags = MenuString | (isDisabled ? MenuDisabled : 0);
-        NativeMethods.AppendMenu(menu, flags, (UIntPtr)commandId, text);
+        float diameter = radius * 2;
+        var path = new GraphicsPath();
+        path.AddArc(bounds.Left, bounds.Top, diameter, diameter, 180, 90);
+        path.AddArc(bounds.Right - diameter, bounds.Top, diameter, diameter, 270, 90);
+        path.AddArc(bounds.Right - diameter, bounds.Bottom - diameter, diameter, diameter, 0, 90);
+        path.AddArc(bounds.Left, bounds.Bottom - diameter, diameter, diameter, 90, 90);
+        path.CloseFigure();
+        return path;
     }
 
     private static class NativeMethods
     {
-        [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
-        public struct NotifyIconData
-        {
-            public int Size;
-            public IntPtr WindowHandle;
-            public uint IconId;
-            public uint Flags;
-            public uint CallbackMessage;
-            public IntPtr IconHandle;
-
-            [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 128)]
-            public string Tooltip;
-
-            public uint State;
-            public uint StateMask;
-
-            [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 256)]
-            public string Info;
-
-            public uint TimeoutOrVersion;
-
-            [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 64)]
-            public string InfoTitle;
-
-            public uint InfoFlags;
-            public Guid GuidItem;
-            public IntPtr BalloonIconHandle;
-        }
-
-        [StructLayout(LayoutKind.Sequential)]
-        public struct Point
-        {
-            public int X;
-            public int Y;
-        }
-
-        [DllImport("shell32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
-        [return: MarshalAs(UnmanagedType.Bool)]
-        public static extern bool ShellNotifyIcon(uint message, ref NotifyIconData data);
-
-        [DllImport("user32.dll", SetLastError = true)]
-        public static extern IntPtr CreatePopupMenu();
-
-        [DllImport("user32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
-        [return: MarshalAs(UnmanagedType.Bool)]
-        public static extern bool AppendMenu(IntPtr menu, uint flags, UIntPtr commandId, string? text);
-
         [DllImport("user32.dll", SetLastError = true)]
         [return: MarshalAs(UnmanagedType.Bool)]
-        public static extern bool DestroyMenu(IntPtr menu);
-
-        [DllImport("user32.dll", SetLastError = true)]
-        [return: MarshalAs(UnmanagedType.Bool)]
-        public static extern bool GetCursorPos(out Point point);
-
-        [DllImport("user32.dll", SetLastError = true)]
-        [return: MarshalAs(UnmanagedType.Bool)]
-        public static extern bool SetForegroundWindow(IntPtr windowHandle);
-
-        [DllImport("user32.dll", SetLastError = true)]
-        public static extern uint TrackPopupMenuEx(
-            IntPtr menu,
-            uint flags,
-            int x,
-            int y,
-            IntPtr windowHandle,
-            IntPtr parameters);
-
-        [DllImport("user32.dll", SetLastError = true)]
-        public static extern IntPtr LoadIcon(IntPtr instanceHandle, IntPtr iconName);
+        public static extern bool DestroyIcon(IntPtr iconHandle);
     }
 }
