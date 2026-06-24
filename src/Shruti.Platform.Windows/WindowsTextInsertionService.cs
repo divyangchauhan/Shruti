@@ -8,6 +8,7 @@ public sealed class WindowsTextInsertionService : ITextInsertionService
     private readonly IWindowsTextInput _textInput;
     private readonly IWindowsClipboard _clipboard;
     private readonly IWindowsFocusedElementInspector _focusedElementInspector;
+    private readonly TextInsertionPolicyEvaluator _policyEvaluator;
     private readonly TimeSpan _clipboardPasteSettleDelay;
 
     public WindowsTextInsertionService()
@@ -25,13 +26,15 @@ public sealed class WindowsTextInsertionService : ITextInsertionService
         IWindowsTextInput textInput,
         IWindowsClipboard clipboard,
         IWindowsFocusedElementInspector focusedElementInspector,
-        TimeSpan? clipboardPasteSettleDelay = null)
+        TimeSpan? clipboardPasteSettleDelay = null,
+        TextInsertionPolicyEvaluator? policyEvaluator = null)
     {
         _windowing = windowing ?? throw new ArgumentNullException(nameof(windowing));
         _textInput = textInput ?? throw new ArgumentNullException(nameof(textInput));
         _clipboard = clipboard ?? throw new ArgumentNullException(nameof(clipboard));
         _focusedElementInspector = focusedElementInspector ??
             throw new ArgumentNullException(nameof(focusedElementInspector));
+        _policyEvaluator = policyEvaluator ?? new TextInsertionPolicyEvaluator();
         _clipboardPasteSettleDelay = clipboardPasteSettleDelay ?? TimeSpan.FromMilliseconds(100);
     }
 
@@ -56,6 +59,13 @@ public sealed class WindowsTextInsertionService : ITextInsertionService
                 TextInsertionCapabilityOutcome.DirectInputAvailable,
                 TextInsertionMethod.DirectInput,
                 "The captured target has selected text and requires explicit replacement permission."));
+        }
+
+        TextInsertionPolicy policy = _policyEvaluator.Evaluate(target);
+        TextInsertionCapability? policyCapability = GetPolicyCapability(policy);
+        if (policyCapability is not null)
+        {
+            return Task.FromResult(policyCapability);
         }
 
         return Task.FromResult(new TextInsertionCapability(
@@ -85,6 +95,23 @@ public sealed class WindowsTextInsertionService : ITextInsertionService
             return Failure("Shruti will not insert an empty transcript.");
         }
 
+        TextInsertionPolicy policy = _policyEvaluator.Evaluate(target);
+        if (policy.Mode == TextInsertionPolicyMode.PreviewRequired)
+        {
+            return Failure(policy.Message);
+        }
+
+        if (policy.Mode == TextInsertionPolicyMode.ClipboardPastePreferred)
+        {
+            if (!options.AllowClipboardFallback)
+            {
+                return Failure(
+                    $"{policy.Message} Clipboard fallback is disabled.");
+            }
+
+            return await PasteViaClipboardAsync(text, cancellationToken).ConfigureAwait(false);
+        }
+
         WindowsInputSendResult directInput = _textInput.SendUnicodeText(text);
         if (directInput.Outcome == WindowsInputSendOutcome.Complete)
         {
@@ -104,6 +131,13 @@ public sealed class WindowsTextInsertionService : ITextInsertionService
             return Failure("Direct input failed and clipboard fallback is disabled.");
         }
 
+        return await PasteViaClipboardAsync(text, cancellationToken).ConfigureAwait(false);
+    }
+
+    private async Task<TextInsertionResult> PasteViaClipboardAsync(
+        string text,
+        CancellationToken cancellationToken)
+    {
         WindowsClipboardSnapshot snapshot = _clipboard.Capture();
         if (!snapshot.CanRestore)
         {
@@ -243,6 +277,19 @@ public sealed class WindowsTextInsertionService : ITextInsertionService
             TextInsertionCapabilityOutcome.PreviewRecommended,
             TextInsertionMethod.None,
             message);
+    }
+
+    private static TextInsertionCapability? GetPolicyCapability(TextInsertionPolicy policy)
+    {
+        return policy.Mode switch
+        {
+            TextInsertionPolicyMode.PreviewRequired => PreviewRequired(policy.Message),
+            TextInsertionPolicyMode.ClipboardPastePreferred => new TextInsertionCapability(
+                TextInsertionCapabilityOutcome.ClipboardFallbackOnly,
+                TextInsertionMethod.ClipboardPaste,
+                policy.Message),
+            _ => null
+        };
     }
 
     private static TextInsertionResult Failure(string message)

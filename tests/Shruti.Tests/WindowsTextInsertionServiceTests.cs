@@ -88,6 +88,52 @@ public sealed class WindowsTextInsertionServiceTests
     }
 
     [Fact]
+    public async Task InspectAsync_RequiresPreviewForTerminalTargets()
+    {
+        var service = CreateService(new FakeWindowing { IsWindowResult = true });
+
+        TextInsertionCapability capability = await service.InspectAsync(
+            CreateTarget(ProcessName: "WindowsTerminal.exe", WindowTitle: "PowerShell"),
+            CancellationToken.None);
+
+        Assert.Equal(TextInsertionCapabilityOutcome.PreviewRecommended, capability.Outcome);
+        Assert.Equal(TextInsertionMethod.None, capability.PreferredMethod);
+        Assert.Equal("Terminal and shell targets require preview before insertion.", capability.Message);
+    }
+
+    [Fact]
+    public async Task InspectAsync_UsesClipboardFallbackOnlyForClipboardPreferredTargets()
+    {
+        var service = CreateService(new FakeWindowing { IsWindowResult = true });
+
+        TextInsertionCapability capability = await service.InspectAsync(
+            CreateTarget(ProcessName: "WINWORD", WindowTitle: "Document1 - Word"),
+            CancellationToken.None);
+
+        Assert.Equal(TextInsertionCapabilityOutcome.ClipboardFallbackOnly, capability.Outcome);
+        Assert.Equal(TextInsertionMethod.ClipboardPaste, capability.PreferredMethod);
+        Assert.Equal(
+            "This target is more reliable with clipboard paste than direct text input.",
+            capability.Message);
+    }
+
+    [Fact]
+    public async Task InspectAsync_PrioritizesSelectedTextSafetyBeforeClipboardPreferredPolicy()
+    {
+        var service = CreateService(new FakeWindowing { IsWindowResult = true });
+
+        TextInsertionCapability capability = await service.InspectAsync(
+            CreateTarget(HasSelectedText: true, ProcessName: "winword"),
+            CancellationToken.None);
+
+        Assert.Equal(TextInsertionCapabilityOutcome.DirectInputAvailable, capability.Outcome);
+        Assert.Equal(TextInsertionMethod.DirectInput, capability.PreferredMethod);
+        Assert.Equal(
+            "The captured target has selected text and requires explicit replacement permission.",
+            capability.Message);
+    }
+
+    [Fact]
     public async Task InsertAsync_UsesDirectUnicodeInputWhenAvailable()
     {
         var input = new FakeTextInput
@@ -109,6 +155,93 @@ public sealed class WindowsTextInsertionServiceTests
         Assert.True(result.Inserted);
         Assert.Equal(TextInsertionMethod.DirectInput, result.Method);
         Assert.Equal("Hello, Shruti.", input.LastUnicodeText);
+        Assert.Equal(0, input.SendPasteShortcutCount);
+        Assert.Equal(0, clipboard.CaptureCount);
+    }
+
+    [Fact]
+    public async Task InsertAsync_RefusesTerminalTargetsWithoutSendingInput()
+    {
+        var input = new FakeTextInput
+        {
+            UnicodeResult = CompleteResult(requestedInputCount: 28),
+            PasteResult = CompleteResult(requestedInputCount: 4)
+        };
+        var clipboard = new FakeClipboard();
+        var service = CreateService(
+            new FakeWindowing { IsWindowResult = true },
+            input,
+            clipboard);
+
+        TextInsertionResult result = await service.InsertAsync(
+            CreateTarget(ProcessName: "pwsh"),
+            "Hello, Shruti.",
+            new TextInsertionOptions(),
+            CancellationToken.None);
+
+        Assert.False(result.Inserted);
+        Assert.Equal(TextInsertionMethod.None, result.Method);
+        Assert.Equal("Terminal and shell targets require preview before insertion.", result.Message);
+        Assert.Equal(0, input.SendUnicodeTextCount);
+        Assert.Equal(0, input.SendPasteShortcutCount);
+        Assert.Equal(0, clipboard.CaptureCount);
+    }
+
+    [Fact]
+    public async Task InsertAsync_ClipboardPreferredTargetSkipsDirectInputAndSubmitsPaste()
+    {
+        var input = new FakeTextInput
+        {
+            UnicodeResult = CompleteResult(requestedInputCount: 28),
+            PasteResult = CompleteResult(requestedInputCount: 4)
+        };
+        var clipboard = new FakeClipboard(
+            new WindowsClipboardSnapshot(CanRestore: true, Text: "previous clipboard text", SequenceNumber: 11));
+        var service = CreateService(
+            new FakeWindowing { IsWindowResult = true },
+            input,
+            clipboard);
+
+        TextInsertionResult result = await service.InsertAsync(
+            CreateTarget(ProcessName: "winword"),
+            "Hello, Shruti.",
+            new TextInsertionOptions(),
+            CancellationToken.None);
+
+        Assert.False(result.Inserted);
+        Assert.Equal(TextInsertionMethod.ClipboardPaste, result.Method);
+        Assert.Equal(0, input.SendUnicodeTextCount);
+        Assert.Equal(1, input.SendPasteShortcutCount);
+        Assert.Equal(1, clipboard.CaptureCount);
+        Assert.Equal("Hello, Shruti.", clipboard.LastSetText);
+    }
+
+    [Fact]
+    public async Task InsertAsync_ClipboardPreferredTargetRespectsDisabledClipboardFallback()
+    {
+        var input = new FakeTextInput
+        {
+            UnicodeResult = CompleteResult(requestedInputCount: 28),
+            PasteResult = CompleteResult(requestedInputCount: 4)
+        };
+        var clipboard = new FakeClipboard();
+        var service = CreateService(
+            new FakeWindowing { IsWindowResult = true },
+            input,
+            clipboard);
+
+        TextInsertionResult result = await service.InsertAsync(
+            CreateTarget(ProcessName: "winword"),
+            "Hello, Shruti.",
+            new TextInsertionOptions(AllowClipboardFallback: false),
+            CancellationToken.None);
+
+        Assert.False(result.Inserted);
+        Assert.Equal(TextInsertionMethod.None, result.Method);
+        Assert.Equal(
+            "This target is more reliable with clipboard paste than direct text input. Clipboard fallback is disabled.",
+            result.Message);
+        Assert.Equal(0, input.SendUnicodeTextCount);
         Assert.Equal(0, input.SendPasteShortcutCount);
         Assert.Equal(0, clipboard.CaptureCount);
     }
@@ -332,6 +465,36 @@ public sealed class WindowsTextInsertionServiceTests
     }
 
     [Fact]
+    public async Task InsertAsync_ClipboardPreferredTargetDoesNotReplaceSelectedTextWithoutExplicitPermission()
+    {
+        var input = new FakeTextInput
+        {
+            UnicodeResult = CompleteResult(requestedInputCount: 28),
+            PasteResult = CompleteResult(requestedInputCount: 4)
+        };
+        var clipboard = new FakeClipboard();
+        var service = CreateService(
+            new FakeWindowing { IsWindowResult = true },
+            input,
+            clipboard);
+
+        TextInsertionResult result = await service.InsertAsync(
+            CreateTarget(HasSelectedText: true, ProcessName: "winword"),
+            "Hello, Shruti.",
+            new TextInsertionOptions(AllowReplacingSelection: false),
+            CancellationToken.None);
+
+        Assert.False(result.Inserted);
+        Assert.Equal(TextInsertionMethod.None, result.Method);
+        Assert.Equal(
+            "The target has selected text. Enable explicit replacement permission before inserting.",
+            result.Message);
+        Assert.Equal(0, input.SendUnicodeTextCount);
+        Assert.Equal(0, input.SendPasteShortcutCount);
+        Assert.Equal(0, clipboard.CaptureCount);
+    }
+
+    [Fact]
     public async Task InsertAsync_ReplacesSelectedTextWhenExplicitPermissionIsEnabled()
     {
         var input = new FakeTextInput { UnicodeResult = CompleteResult(requestedInputCount: 28) };
@@ -420,13 +583,15 @@ public sealed class WindowsTextInsertionServiceTests
     private static FocusTarget CreateTarget(
         bool? IsEditable = true,
         bool? HasSelectedText = false,
-        bool IsElevated = false)
+        bool IsElevated = false,
+        string ProcessName = "notepad",
+        string? WindowTitle = "Untitled - Notepad")
     {
         return new FocusTarget(
             new IntPtr(42),
             ProcessId: 123,
-            ProcessName: "notepad",
-            WindowTitle: "Untitled - Notepad",
+            ProcessName: ProcessName,
+            WindowTitle: WindowTitle,
             IsEditable: IsEditable,
             HasSelectedText: HasSelectedText,
             IsElevated: IsElevated,
