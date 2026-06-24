@@ -2,7 +2,7 @@
 
 Date: 2026-06-19
 
-Status: PR-23 complete; PR-24 planned.
+Status: PR-24 installer complete; PR-25 manual QA planned.
 
 This plan turns `features.md` and `architecture.md` into an implementation roadmap. It assumes Windows-first development with WinUI 3, Windows App SDK, local transcription, and immediate system-wide text insertion as the central workflow.
 
@@ -255,9 +255,9 @@ Acceptance criteria:
 
 ### 13. Packaging and Release Readiness
 
-- [ ] Create MSIX packaging project.
+- [x] Create MSIX packaging project.
 - [ ] Configure Windows App SDK runtime requirements.
-- [ ] Bundle required native DLLs.
+- [x] Bundle required native DLLs.
 - [ ] Configure code signing.
 - [ ] Verify install/update/uninstall.
 - [ ] Ensure app updates preserve models, settings, transcripts, and retained recordings.
@@ -364,13 +364,13 @@ Acceptance criteria:
 | PR-21 | Done | 2026-08-03 | Provider registry, backend readiness, benchmark cache, slow-mode gate | Hardware/model eligibility |
 | PR-22 | Done | 2026-08-05 | Per-app insertion policies and compatibility matrix | App-specific insertion reliability |
 | PR-23 | Done | 2026-08-07 | Error handling, privacy copy, diagnostics, accessibility pass | User trust and recoverability |
-| PR-24 | Planned | 2026-08-09 | Manual QA fixes across Notepad, browser, Codex-style field, Word, Terminal, Electron, elevated app | Windows compatibility |
+| PR-24 | Done | 2026-08-09 | MSIX installer foundation, native DLL inclusion, package script, and CI package artifact | Installable Windows app |
+| PR-25 | Planned | 2026-08-12 | Manual QA fixes across Notepad, browser, Codex-style field, Word, Terminal, Electron, elevated app | Windows compatibility |
 
 ### Phase 5: Packaging
 
 | PR | Status | Target merge | Scope | Primary risk retired |
 | --- | --- | --- | --- | --- |
-| PR-25 | Planned | 2026-08-12 | MSIX packaging with native DLL inclusion | Installable Windows app |
 | PR-26 | Planned | 2026-08-14 | Signing, update preservation, clean-machine install test | Release readiness |
 | PR-27 | Planned | 2026-08-16 | Bootstrapper or installer adjustments, release notes, optional `winget` prep | Distribution polish |
 
