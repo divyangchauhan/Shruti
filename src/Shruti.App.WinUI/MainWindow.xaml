@@ -121,6 +121,7 @@
                 <StackPanel Grid.Row="1" Margin="0,32,0,0" VerticalAlignment="Top">
                     <Button
                         x:Name="HomeNavButton"
+                        AutomationProperties.Name="Home"
                         Style="{StaticResource NavButtonStyle}"
                         Tag="Home"
                         ToolTipService.ToolTip="Home"
@@ -132,6 +133,7 @@
                     </Button>
                     <Button
                         x:Name="HistoryNavButton"
+                        AutomationProperties.Name="History"
                         Style="{StaticResource NavButtonStyle}"
                         Tag="History"
                         ToolTipService.ToolTip="History"
@@ -143,6 +145,7 @@
                     </Button>
                     <Button
                         x:Name="ModelsNavButton"
+                        AutomationProperties.Name="Models"
                         Style="{StaticResource NavButtonStyle}"
                         Tag="Models"
                         ToolTipService.ToolTip="Models"
@@ -154,6 +157,7 @@
                     </Button>
                     <Button
                         x:Name="SettingsNavButton"
+                        AutomationProperties.Name="Settings"
                         Style="{StaticResource NavButtonStyle}"
                         Tag="Settings"
                         ToolTipService.ToolTip="Settings"
@@ -296,12 +300,15 @@
                                     <TextBlock FontFamily="Segoe UI Variable Display, Segoe UI" FontSize="19" FontWeight="SemiBold" Text="Dictation" />
                                     <TextBlock
                                         x:Name="StatusText"
+                                        AutomationProperties.LiveSetting="Polite"
                                         FontSize="13"
                                         Foreground="{ThemeResource ShrutiMutedTextBrush}"
                                         Text="Ready when you are." />
                                     <StackPanel Orientation="Horizontal" Spacing="12">
                                         <Button
                                             x:Name="PrimaryDictationButton"
+                                            AutomationProperties.HelpText="Start recording from the selected microphone, or stop an active dictation."
+                                            AutomationProperties.Name="Start dictation"
                                             Width="190"
                                             Height="44"
                                             Background="{ThemeResource ShrutiAccentBrush}"
@@ -314,6 +321,7 @@
                                         </Button>
                                         <Button
                                             x:Name="PauseButton"
+                                            AutomationProperties.Name="Pause recording"
                                             Height="44"
                                             Padding="14,0"
                                             Click="PauseButton_Click">
@@ -321,6 +329,8 @@
                                         </Button>
                                         <Button
                                             x:Name="CancelButton"
+                                            AutomationProperties.HelpText="Cancel the current dictation without inserting text."
+                                            AutomationProperties.Name="Cancel dictation"
                                             Height="44"
                                             Padding="14,0"
                                             Click="CancelButton_Click">
@@ -344,6 +354,8 @@
                                     <TextBlock FontSize="12" Foreground="{ThemeResource ShrutiMutedTextBrush}" Text="INSERTION MODE" />
                                     <ComboBox
                                         x:Name="InsertionModeComboBox"
+                                        AutomationProperties.HelpText="Choose whether Shruti inserts text automatically, shows a preview first, or only copies the transcript."
+                                        AutomationProperties.Name="Insertion mode"
                                         SelectionChanged="InsertionModeComboBox_SelectionChanged">
                                         <ComboBoxItem Content="Auto-insert" Tag="AutoInsert" />
                                         <ComboBoxItem Content="Preview first" Tag="PreviewFirst" />
@@ -363,10 +375,11 @@
                                     </Grid.ColumnDefinitions>
                                     <StackPanel Spacing="2">
                                         <TextBlock FontSize="13" FontWeight="SemiBold" Text="Live transcript" />
-                                        <TextBlock x:Name="UserMessageText" FontSize="12" Style="{StaticResource MutedTextStyle}" Text="Dictation is ready." />
+                                        <TextBlock x:Name="UserMessageText" AutomationProperties.LiveSetting="Polite" FontSize="12" Style="{StaticResource MutedTextStyle}" Text="Dictation is ready." />
                                     </StackPanel>
                                     <ProgressBar
                                         x:Name="AudioLevelBar"
+                                        AutomationProperties.Name="Microphone input level"
                                         Grid.Column="1"
                                         Width="118"
                                         Height="6"
@@ -376,6 +389,8 @@
                                 </Grid>
                                 <TextBox
                                     x:Name="TranscriptPreviewBox"
+                                    AutomationProperties.HelpText="Transcript text is omitted from diagnostics by default."
+                                    AutomationProperties.Name="Transcript preview"
                                     MinHeight="118"
                                     AcceptsReturn="True"
                                     Background="{ThemeResource ShrutiSurfaceLowBrush}"
@@ -387,21 +402,22 @@
                                 <StackPanel Orientation="Horizontal" Spacing="10">
                                     <CheckBox
                                         x:Name="ReplaceSelectionCheckBox"
+                                        AutomationProperties.HelpText="Allow preview insertion to replace selected text in the target app."
                                         Content="Replace selected text"
                                         Visibility="Collapsed" />
-                                    <Button x:Name="CopyButton" Click="CopyButton_Click">
+                                    <Button x:Name="CopyButton" AutomationProperties.Name="Copy transcript" Click="CopyButton_Click">
                                         <StackPanel Orientation="Horizontal" Spacing="7">
                                             <FontIcon FontFamily="Segoe Fluent Icons" Glyph="&#xE8C8;" />
                                             <TextBlock Text="Copy" />
                                         </StackPanel>
                                     </Button>
-                                    <Button x:Name="InsertPreviewButton" Click="InsertPreviewButton_Click">
+                                    <Button x:Name="InsertPreviewButton" AutomationProperties.Name="Insert preview transcript" Click="InsertPreviewButton_Click">
                                         <StackPanel Orientation="Horizontal" Spacing="7">
                                             <FontIcon FontFamily="Segoe Fluent Icons" Glyph="&#xE8A7;" />
                                             <TextBlock Text="Insert" />
                                         </StackPanel>
                                     </Button>
-                                    <Button x:Name="RetryButton" Click="RetryButton_Click">
+                                    <Button x:Name="RetryButton" AutomationProperties.Name="Retry dictation" Click="RetryButton_Click">
                                         <StackPanel Orientation="Horizontal" Spacing="7">
                                             <FontIcon FontFamily="Segoe Fluent Icons" Glyph="&#xE72C;" />
                                             <TextBlock Text="Retry" />
@@ -410,6 +426,7 @@
                                 </StackPanel>
                                 <TextBlock
                                     x:Name="ErrorText"
+                                    AutomationProperties.LiveSetting="Assertive"
                                     Foreground="{ThemeResource ShrutiCriticalBrush}"
                                     TextWrapping="Wrap"
                                     Visibility="Collapsed" />
@@ -537,15 +554,43 @@
                         </Border>
 
                         <Border Style="{StaticResource CardBorderStyle}" Padding="20">
+                            <StackPanel Spacing="10">
+                                <TextBlock FontSize="17" FontWeight="SemiBold" Text="Privacy and diagnostics" />
+                                <TextBlock
+                                    Style="{StaticResource MutedTextStyle}"
+                                    FontSize="12"
+                                    Text="Shruti records and transcribes locally. Diagnostics describe state, model/backend readiness, microphone status, and insertion outcomes; transcript text is omitted by default." />
+                                <TextBlock
+                                    Style="{StaticResource MutedTextStyle}"
+                                    FontSize="12"
+                                    Text="If microphone access fails, open Windows Settings &gt; Privacy &amp; security &gt; Microphone and allow Shruti and desktop apps." />
+                            </StackPanel>
+                        </Border>
+
+                        <Border Style="{StaticResource CardBorderStyle}" Padding="20">
+                            <StackPanel Spacing="10">
+                                <TextBlock FontSize="17" FontWeight="SemiBold" Text="Diagnostics snapshot" />
+                                <TextBlock
+                                    x:Name="DiagnosticsSnapshotText"
+                                    AutomationProperties.Name="Latest redacted diagnostics snapshot"
+                                    Style="{StaticResource MutedTextStyle}"
+                                    FontSize="12"
+                                    Text="Run dictation to populate a redacted diagnostics snapshot."
+                                    TextWrapping="Wrap" />
+                            </StackPanel>
+                        </Border>
+
+                        <Border Style="{StaticResource CardBorderStyle}" Padding="20">
                             <StackPanel Spacing="13">
                                 <TextBlock FontSize="17" FontWeight="SemiBold" Text="Audio" />
                                 <ComboBox
                                     x:Name="AudioDeviceComboBox"
+                                    AutomationProperties.HelpText="Choose the microphone Shruti uses for local dictation."
                                     Header="Microphone"
                                     IsEnabled="False"
                                     PlaceholderText="Loading microphones"
                                     SelectionChanged="AudioDeviceComboBox_SelectionChanged" />
-                                <ComboBox x:Name="AudioRetentionComboBox" Header="Audio retention" SelectionChanged="AudioRetentionComboBox_SelectionChanged">
+                                <ComboBox x:Name="AudioRetentionComboBox" AutomationProperties.HelpText="Choose whether recordings are deleted after transcription, kept locally, or confirmed each time." Header="Audio retention" SelectionChanged="AudioRetentionComboBox_SelectionChanged">
                                     <ComboBoxItem Content="Delete after transcription" Tag="DeleteAfterTranscription" />
                                     <ComboBoxItem Content="Keep recordings" Tag="Keep" />
                                     <ComboBoxItem Content="Ask each time" Tag="AskEveryTime" />
@@ -563,6 +608,7 @@
                                     </Grid.ColumnDefinitions>
                                     <ComboBox
                                         x:Name="BackendPreferenceComboBox"
+                                        AutomationProperties.HelpText="Choose Auto unless a specific backend is required for troubleshooting."
                                         Header="Backend preference"
                                         SelectionChanged="BackendPreferenceComboBox_SelectionChanged">
                                         <ComboBoxItem Content="Auto" Tag="Auto" />
@@ -577,10 +623,12 @@
                                 </Grid>
                                 <CheckBox
                                     x:Name="AllowSlowTranscriptionCheckBox"
+                                    AutomationProperties.HelpText="Allow transcription even when the selected model/backend is slower than real time."
                                     Click="AllowSlowTranscriptionCheckBox_Click"
                                     Content="Allow slower-than-real-time transcription" />
                                 <TextBlock
                                     x:Name="BackendReadinessText"
+                                    AutomationProperties.LiveSetting="Polite"
                                     Style="{StaticResource MutedTextStyle}"
                                     FontSize="12"
                                     TextWrapping="Wrap"
@@ -593,26 +641,31 @@
                                 <TextBlock FontSize="17" FontWeight="SemiBold" Text="Activation" />
                                 <CheckBox
                                     x:Name="PushToTalkCheckBox"
+                                    AutomationProperties.HelpText="Enable the hold shortcut for push-to-talk dictation."
                                     Click="TriggerConfigurationCheckBox_Click"
                                     Content="Enable hold-to-dictate shortcut"
                                     IsChecked="True" />
                                 <TextBox
                                     x:Name="PushToTalkKeyTextBox"
+                                    AutomationProperties.HelpText="Shortcut held while speaking."
                                     Header="Hold shortcut"
                                     Text="Ctrl+Win+Space"
                                     LostFocus="TriggerConfigurationInput_LostFocus" />
                                 <CheckBox
                                     x:Name="FloatingButtonCheckBox"
+                                    AutomationProperties.HelpText="Show or hide the floating microphone control at startup."
                                     Click="TriggerConfigurationCheckBox_Click"
                                     Content="Show the floating microphone control at startup"
                                     IsChecked="True" />
                                 <CheckBox
                                     x:Name="FloatingWindowShortcutCheckBox"
+                                    AutomationProperties.HelpText="Enable a shortcut to show or hide the floating microphone window."
                                     Click="TriggerConfigurationCheckBox_Click"
                                     Content="Enable floating-window shortcut"
                                     IsChecked="True" />
                                 <TextBox
                                     x:Name="FloatingWindowShortcutTextBox"
+                                    AutomationProperties.HelpText="Shortcut that toggles the floating microphone window."
                                     Header="Toggle floating window shortcut"
                                     Text="Ctrl+Alt+M"
                                     LostFocus="TriggerConfigurationInput_LostFocus" />
@@ -622,6 +675,7 @@
                                     Text="Press once to show the floating control; press again to hide it for this session." />
                                 <CheckBox
                                     x:Name="TrayMenuCheckBox"
+                                    AutomationProperties.HelpText="Allow dictation commands from the Windows tray menu."
                                     Click="TriggerConfigurationCheckBox_Click"
                                     Content="Enable dictation commands from the tray menu"
                                     IsChecked="True" />
@@ -631,11 +685,13 @@
                                     Text="The tray icon stays available so you can restore Shruti or exit the process." />
                                 <CheckBox
                                     x:Name="GlobalHotkeyCheckBox"
+                                    AutomationProperties.HelpText="Enable a single-press global dictation shortcut."
                                     Click="TriggerConfigurationCheckBox_Click"
                                     Content="Enable single-press global trigger"
                                     IsChecked="False" />
                                 <TextBox
                                     x:Name="HotkeyGestureTextBox"
+                                    AutomationProperties.HelpText="Shortcut that starts or stops dictation."
                                     Header="Single-press shortcut"
                                     Text="Ctrl+Win+Space"
                                     LostFocus="TriggerConfigurationInput_LostFocus" />
