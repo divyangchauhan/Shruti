@@ -9,6 +9,8 @@ public sealed class WhisperCppTranscriptionEngine : IWhisperCppTranscriptionEngi
         _nativeApi = nativeApi ?? throw new ArgumentNullException(nameof(nativeApi));
     }
 
+    public WhisperCppBackendCapabilities Capabilities => _nativeApi.GetCapabilities();
+
     public Task<IWhisperCppInferenceSession> CreateSessionAsync(
         WhisperCppTranscriptionSessionOptions options,
         CancellationToken cancellationToken)
@@ -23,7 +25,15 @@ public sealed class WhisperCppTranscriptionEngine : IWhisperCppTranscriptionEngi
             throw new ArgumentOutOfRangeException(nameof(options), "Thread count cannot be negative.");
         }
 
-        IWhisperCppNativeContext context = _nativeApi.LoadModel(options.ModelPath);
+        if (options.GpuDevice < 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(options), "GPU device index cannot be negative.");
+        }
+
+        IWhisperCppNativeContext context = _nativeApi.LoadModel(
+            options.ModelPath,
+            options.Backend,
+            options.GpuDevice);
         IWhisperCppInferenceSession session = new WhisperCppInferenceSession(
             context,
             options.Language,

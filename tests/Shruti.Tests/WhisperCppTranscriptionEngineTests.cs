@@ -1,4 +1,5 @@
 using Shruti.Transcription.WhisperCpp;
+using Shruti.Transcription.Abstractions;
 using Xunit;
 
 namespace Shruti.Tests;
@@ -25,6 +26,7 @@ public sealed class WhisperCppTranscriptionEngineTests
         WhisperCppTranscriptionResult second = await session.TranscribeAsync([0.2f, -0.2f], CancellationToken.None);
 
         Assert.Equal("model.bin", nativeApi.LoadedModelPath);
+        Assert.Equal(ComputeBackend.Cpu, nativeApi.LoadedBackend);
         Assert.Equal(1, nativeApi.LoadCount);
         Assert.Equal(2, context.TranscriptionCount);
         Assert.Equal(3, context.ThreadCount);
@@ -95,6 +97,25 @@ public sealed class WhisperCppTranscriptionEngineTests
     }
 
     [Fact]
+    public async Task CreateSessionAsync_PassesRequestedBackendToNativeApi()
+    {
+        var nativeApi = new FakeNativeApi(new FakeNativeContext(status: 0, []));
+        var engine = new WhisperCppTranscriptionEngine(nativeApi);
+
+        IWhisperCppInferenceSession session = await engine.CreateSessionAsync(
+            new WhisperCppTranscriptionSessionOptions(
+                "model.bin",
+                Backend: ComputeBackend.Gpu,
+                GpuDevice: 2),
+            CancellationToken.None);
+
+        Assert.Equal(ComputeBackend.Gpu, nativeApi.LoadedBackend);
+        Assert.Equal(2, nativeApi.LoadedGpuDevice);
+
+        await session.DisposeAsync();
+    }
+
+    [Fact]
     public async Task InferenceSession_PropagatesCancellationToTheNativeContext()
     {
         var context = new CancellationAwareNativeContext();
@@ -120,7 +141,10 @@ public sealed class WhisperCppTranscriptionEngineTests
     {
         var nativeApi = new WhisperCppNativeApi();
 
-        FileNotFoundException exception = Assert.Throws<FileNotFoundException>(() => nativeApi.LoadModel("missing-model.bin"));
+        FileNotFoundException exception = Assert.Throws<FileNotFoundException>(() => nativeApi.LoadModel(
+            "missing-model.bin",
+            ComputeBackend.Cpu,
+            gpuDevice: 0));
 
         Assert.Contains("missing-model.bin", exception.FileName, StringComparison.Ordinal);
     }
@@ -138,10 +162,25 @@ public sealed class WhisperCppTranscriptionEngineTests
 
         public string? LoadedModelPath { get; private set; }
 
-        public IWhisperCppNativeContext LoadModel(string modelPath)
+        public ComputeBackend? LoadedBackend { get; private set; }
+
+        public int? LoadedGpuDevice { get; private set; }
+
+        public WhisperCppBackendCapabilities GetCapabilities()
+        {
+            return new WhisperCppBackendCapabilities(
+                SupportsCpu: true,
+                SupportsGpu: true,
+                SupportsNpu: false,
+                SystemInfo: "fake native api");
+        }
+
+        public IWhisperCppNativeContext LoadModel(string modelPath, ComputeBackend backend, int gpuDevice)
         {
             LoadCount++;
             LoadedModelPath = modelPath;
+            LoadedBackend = backend;
+            LoadedGpuDevice = gpuDevice;
             return _context;
         }
     }

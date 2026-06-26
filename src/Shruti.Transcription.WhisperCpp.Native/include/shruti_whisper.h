@@ -19,7 +19,22 @@ extern "C" {
 typedef struct shruti_whisper_context shruti_whisper_context;
 typedef int (*shruti_whisper_abort_callback)(void * user_data);
 
+enum shruti_whisper_backend {
+    SHRUTI_WHISPER_BACKEND_CPU = 0,
+    SHRUTI_WHISPER_BACKEND_GPU = 1
+};
+
+enum shruti_whisper_backend_flags {
+    SHRUTI_WHISPER_BACKEND_FLAG_CPU = 1 << 0,
+    SHRUTI_WHISPER_BACKEND_FLAG_GPU = 1 << 1
+};
+
+SHRUTI_WHISPER_API int shruti_whisper_available_backends(void);
 SHRUTI_WHISPER_API shruti_whisper_context * shruti_whisper_create(const char * model_path);
+SHRUTI_WHISPER_API shruti_whisper_context * shruti_whisper_create_with_backend(
+    const char * model_path,
+    int backend,
+    int gpu_device);
 SHRUTI_WHISPER_API void shruti_whisper_free(shruti_whisper_context * context);
 
 SHRUTI_WHISPER_API int shruti_whisper_transcribe(

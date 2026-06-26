@@ -21,21 +21,25 @@ public sealed class WhisperCppTranscriptionProvider : ITranscriptionProvider
     {
         cancellationToken.ThrowIfCancellationRequested();
 
-        IReadOnlyList<EngineCapability> capabilities =
-        [
-            new EngineCapability(
-                Id,
-                DisplayName,
+        WhisperCppBackendCapabilities nativeCapabilities = _engine.Capabilities;
+        var capabilities = new List<EngineCapability>();
+        if (nativeCapabilities.SupportsGpu)
+        {
+            capabilities.Add(CreateCapability(
+                ComputeBackend.Gpu,
+                "whisper.cpp GPU",
+                nativeCapabilities.SystemInfo));
+        }
+
+        if (nativeCapabilities.SupportsCpu)
+        {
+            capabilities.Add(CreateCapability(
                 ComputeBackend.Cpu,
                 "whisper.cpp CPU",
-                SupportsStreaming: true,
-                SupportsTimestamps: true,
-                SupportsLanguageDetection: false,
-                MeasuredRealtimeFactor: null,
-                Warnings: [])
-        ];
+                nativeCapabilities.SystemInfo));
+        }
 
-        return Task.FromResult(capabilities);
+        return Task.FromResult<IReadOnlyList<EngineCapability>>(capabilities);
     }
 
     public Task<bool> CanRunModelAsync(
@@ -46,10 +50,10 @@ public sealed class WhisperCppTranscriptionProvider : ITranscriptionProvider
         ArgumentNullException.ThrowIfNull(model);
         cancellationToken.ThrowIfCancellationRequested();
 
-        bool supportedBackend = requestedBackend is ComputeBackend.Auto or ComputeBackend.Cpu;
+        WhisperCppBackendCapabilities nativeCapabilities = _engine.Capabilities;
+        bool supportedBackend = SupportsRequestedBackend(model, nativeCapabilities, requestedBackend);
         bool isCompatible = string.Equals(model.ProviderId, Id, StringComparison.Ordinal) &&
             supportedBackend &&
-            model.SupportedBackends.Contains(ComputeBackend.Cpu) &&
             File.Exists(model.LocalPath);
 
         return Task.FromResult(isCompatible);
@@ -60,15 +64,19 @@ public sealed class WhisperCppTranscriptionProvider : ITranscriptionProvider
         CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(options);
+        ComputeBackend backend = ResolveBackend(options.Model, options.Backend);
 
-        if (!await CanRunModelAsync(options.Model, options.Backend, cancellationToken).ConfigureAwait(false))
+        if (!await CanRunModelAsync(options.Model, backend, cancellationToken).ConfigureAwait(false))
         {
             throw new InvalidOperationException(
                 "The selected whisper.cpp model is unavailable or the requested backend is unsupported.");
         }
 
         IWhisperCppInferenceSession inferenceSession = await _engine.CreateSessionAsync(
-                new WhisperCppTranscriptionSessionOptions(options.Model.LocalPath, options.Language),
+                new WhisperCppTranscriptionSessionOptions(
+                    options.Model.LocalPath,
+                    options.Language,
+                    Backend: backend),
                 cancellationToken)
             .ConfigureAwait(false);
 
@@ -81,6 +89,76 @@ public sealed class WhisperCppTranscriptionProvider : ITranscriptionProvider
             await inferenceSession.DisposeAsync().ConfigureAwait(false);
             throw;
         }
+    }
+
+    private ComputeBackend ResolveBackend(
+        TranscriptionModelDescriptor model,
+        ComputeBackend requestedBackend)
+    {
+        if (requestedBackend != ComputeBackend.Auto)
+        {
+            return requestedBackend;
+        }
+
+        WhisperCppBackendCapabilities nativeCapabilities = _engine.Capabilities;
+        if (nativeCapabilities.SupportsGpu && model.SupportedBackends.Contains(ComputeBackend.Gpu))
+        {
+            return ComputeBackend.Gpu;
+        }
+
+        return nativeCapabilities.SupportsCpu && model.SupportedBackends.Contains(ComputeBackend.Cpu)
+            ? ComputeBackend.Cpu
+            : ComputeBackend.Auto;
+    }
+
+    private static EngineCapability CreateCapability(
+        ComputeBackend backend,
+        string deviceName,
+        string systemInfo)
+    {
+        string[] warnings = string.IsNullOrWhiteSpace(systemInfo)
+            ? []
+            : [$"Native runtime: {systemInfo}"];
+        return new EngineCapability(
+            ProviderId: "whisper.cpp",
+            ProviderDisplayName: "whisper.cpp",
+            Backend: backend,
+            DeviceName: deviceName,
+            SupportsStreaming: true,
+            SupportsTimestamps: true,
+            SupportsLanguageDetection: false,
+            MeasuredRealtimeFactor: null,
+            Warnings: warnings);
+    }
+
+    private static bool SupportsRequestedBackend(
+        TranscriptionModelDescriptor model,
+        WhisperCppBackendCapabilities nativeCapabilities,
+        ComputeBackend requestedBackend)
+    {
+        return requestedBackend switch
+        {
+            ComputeBackend.Auto => SupportsConcreteBackend(model, nativeCapabilities, ComputeBackend.Gpu) ||
+                SupportsConcreteBackend(model, nativeCapabilities, ComputeBackend.Cpu),
+            ComputeBackend.Cpu or ComputeBackend.Gpu => SupportsConcreteBackend(
+                model,
+                nativeCapabilities,
+                requestedBackend),
+            _ => false
+        };
+    }
+
+    private static bool SupportsConcreteBackend(
+        TranscriptionModelDescriptor model,
+        WhisperCppBackendCapabilities nativeCapabilities,
+        ComputeBackend backend)
+    {
+        return backend switch
+        {
+            ComputeBackend.Cpu => nativeCapabilities.SupportsCpu && model.SupportedBackends.Contains(ComputeBackend.Cpu),
+            ComputeBackend.Gpu => nativeCapabilities.SupportsGpu && model.SupportedBackends.Contains(ComputeBackend.Gpu),
+            _ => false
+        };
     }
 
     private sealed class WhisperCppTranscriptionSession : ITranscriptionSession

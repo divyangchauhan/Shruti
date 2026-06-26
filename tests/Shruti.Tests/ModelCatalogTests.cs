@@ -26,6 +26,8 @@ public sealed class ModelCatalogTests : IDisposable
             Assert.Equal(ModelHashAlgorithm.Sha1, model.Integrity?.Algorithm);
             Assert.Equal("huggingface.co", model.DownloadUri?.Host);
             Assert.Contains(ComputeBackend.Cpu, model.SupportedBackends);
+            Assert.Contains(ComputeBackend.Gpu, model.SupportedBackends);
+            Assert.DoesNotContain(ComputeBackend.Npu, model.SupportedBackends);
         });
     }
 

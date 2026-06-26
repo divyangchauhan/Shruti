@@ -1,5 +1,6 @@
 #include "shruti_whisper.h"
 
+#include "ggml-backend.h"
 #include "whisper.h"
 
 #include <new>
@@ -18,14 +19,52 @@ static bool shruti_whisper_should_abort(void * user_data) {
     return state != nullptr && state->callback != nullptr && state->callback(state->user_data) != 0;
 }
 
+static bool shruti_whisper_has_gpu_device(void) {
+#if defined(SHRUTI_WHISPER_GPU_ENABLED)
+    ggml_backend_load_all();
+    for (size_t index = 0; index < ggml_backend_dev_count(); ++index) {
+        ggml_backend_dev_t device = ggml_backend_dev_get(index);
+        const enum ggml_backend_dev_type type = ggml_backend_dev_type(device);
+        if (type == GGML_BACKEND_DEVICE_TYPE_GPU || type == GGML_BACKEND_DEVICE_TYPE_IGPU) {
+            return true;
+        }
+    }
+#endif
+
+    return false;
+}
+
+int shruti_whisper_available_backends(void) {
+    int flags = SHRUTI_WHISPER_BACKEND_FLAG_CPU;
+    if (shruti_whisper_has_gpu_device()) {
+        flags |= SHRUTI_WHISPER_BACKEND_FLAG_GPU;
+    }
+
+    return flags;
+}
+
 shruti_whisper_context * shruti_whisper_create(const char * model_path) {
+    return shruti_whisper_create_with_backend(model_path, SHRUTI_WHISPER_BACKEND_CPU, 0);
+}
+
+shruti_whisper_context * shruti_whisper_create_with_backend(const char * model_path, int backend, int gpu_device) {
     if (model_path == nullptr || model_path[0] == '\0') {
+        return nullptr;
+    }
+
+    const bool use_gpu = backend == SHRUTI_WHISPER_BACKEND_GPU;
+    if (backend != SHRUTI_WHISPER_BACKEND_CPU && backend != SHRUTI_WHISPER_BACKEND_GPU) {
+        return nullptr;
+    }
+
+    if (use_gpu && !shruti_whisper_has_gpu_device()) {
         return nullptr;
     }
 
     try {
         whisper_context_params parameters = whisper_context_default_params();
-        parameters.use_gpu = false;
+        parameters.use_gpu = use_gpu;
+        parameters.gpu_device = gpu_device < 0 ? 0 : gpu_device;
         parameters.flash_attn = false;
         whisper_context * native_context = whisper_init_from_file_with_params(model_path, parameters);
         if (native_context == nullptr) {
