@@ -2,6 +2,8 @@ param(
     [string] $Configuration = "Release",
     [string] $Platform = "x64",
     [string] $Version = "0.1.0.0",
+    [ValidateSet("None", "Vulkan", "CUDA")]
+    [string] $GpuBackend = "None",
     [switch] $SkipNativeBuild
 )
 
@@ -93,13 +95,10 @@ if (-not (Test-Path $manifestTemplate)) {
 }
 
 if (-not $SkipNativeBuild) {
-    Invoke-CheckedCommand "cmake" @(
-        "-S", (Join-Path $root "src\Shruti.Transcription.WhisperCpp.Native"),
-        "-B", $nativeBuildDirectory,
-        "-G", "Visual Studio 17 2022",
-        "-A", $Platform
-    )
-    Invoke-CheckedCommand "cmake" @("--build", $nativeBuildDirectory, "--config", $Configuration)
+    & (Join-Path $root "scripts\build-whispercpp.ps1") -Configuration $Configuration -GpuBackend $GpuBackend
+    if ($LASTEXITCODE -ne 0) {
+        throw "scripts\build-whispercpp.ps1 failed with exit code $LASTEXITCODE."
+    }
 }
 
 if (-not (Test-Path $nativeLibraryPath)) {

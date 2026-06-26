@@ -5,11 +5,27 @@ project(ShrutiWhisperCppNative LANGUAGES C CXX)
 include(FetchContent)
 include(CTest)
 
+set(SHRUTI_WHISPER_GPU_BACKEND "None" CACHE STRING "Optional whisper.cpp GPU backend: None, Vulkan, or CUDA")
+set_property(CACHE SHRUTI_WHISPER_GPU_BACKEND PROPERTY STRINGS None Vulkan CUDA)
+
 set(BUILD_SHARED_LIBS OFF CACHE BOOL "Build whisper.cpp dependencies as static libraries" FORCE)
 set(GGML_NATIVE OFF CACHE BOOL "Avoid compiling host-specific instructions into the distributed CPU build" FORCE)
 set(WHISPER_BUILD_TESTS OFF CACHE BOOL "Disable upstream whisper.cpp tests" FORCE)
 set(WHISPER_BUILD_EXAMPLES OFF CACHE BOOL "Disable upstream whisper.cpp examples" FORCE)
 set(WHISPER_BUILD_SERVER OFF CACHE BOOL "Disable upstream whisper.cpp server" FORCE)
+
+if(SHRUTI_WHISPER_GPU_BACKEND STREQUAL "Vulkan")
+    set(GGML_VULKAN ON CACHE BOOL "Enable the ggml Vulkan backend" FORCE)
+    set(GGML_CUDA OFF CACHE BOOL "Enable the ggml CUDA backend" FORCE)
+elseif(SHRUTI_WHISPER_GPU_BACKEND STREQUAL "CUDA")
+    set(GGML_VULKAN OFF CACHE BOOL "Enable the ggml Vulkan backend" FORCE)
+    set(GGML_CUDA ON CACHE BOOL "Enable the ggml CUDA backend" FORCE)
+elseif(SHRUTI_WHISPER_GPU_BACKEND STREQUAL "None")
+    set(GGML_VULKAN OFF CACHE BOOL "Enable the ggml Vulkan backend" FORCE)
+    set(GGML_CUDA OFF CACHE BOOL "Enable the ggml CUDA backend" FORCE)
+elseif(NOT SHRUTI_WHISPER_GPU_BACKEND STREQUAL "None")
+    message(FATAL_ERROR "Unsupported SHRUTI_WHISPER_GPU_BACKEND '${SHRUTI_WHISPER_GPU_BACKEND}'. Use None, Vulkan, or CUDA.")
+endif()
 
 FetchContent_Declare(
     whispercpp
@@ -27,9 +43,13 @@ add_library(shruti_whisper SHARED
 target_compile_features(shruti_whisper PRIVATE cxx_std_17)
 target_include_directories(shruti_whisper PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/include
-    ${whispercpp_SOURCE_DIR}/include)
+    ${whispercpp_SOURCE_DIR}/include
+    ${whispercpp_SOURCE_DIR}/ggml/include)
 target_link_libraries(shruti_whisper PRIVATE whisper)
 target_compile_definitions(shruti_whisper PRIVATE SHRUTI_WHISPER_BUILD)
+if(NOT SHRUTI_WHISPER_GPU_BACKEND STREQUAL "None")
+    target_compile_definitions(shruti_whisper PRIVATE SHRUTI_WHISPER_GPU_ENABLED)
+endif()
 
 set_target_properties(shruti_whisper PROPERTIES
     OUTPUT_NAME "shruti_whisper"

@@ -72,6 +72,18 @@ Build the debug native shim first, then start the WinUI project:
 dotnet run --project src\Shruti.App.WinUI\Shruti.App.WinUI.csproj --configuration Debug -p:Platform=x64
 ```
 
+The default native shim is CPU-only. To build a GPU-enabled `whisper.cpp` shim, pass a concrete backend:
+
+```powershell
+.\scripts\build-whispercpp.ps1 -Configuration Debug -GpuBackend Vulkan
+# or, on machines with the CUDA toolkit configured:
+.\scripts\build-whispercpp.ps1 -Configuration Debug -GpuBackend CUDA
+```
+
+Vulkan builds require the Vulkan SDK, including `glslc`. The build script uses a short GPU build directory to avoid Windows path-length failures in the upstream Vulkan shader generator, then copies `shruti_whisper.dll` back into `artifacts\whispercpp-native\<Configuration>` for the app and package scripts.
+
+GPU is exposed in the app only when the native shim was built with a GPU backend and `whisper.cpp` reports a GPU device. NPU is not implemented by the current `whisper.cpp` GGML provider; selecting NPU reports unsupported until a separate NPU-capable provider is added.
+
 The app expects the recommended `ggml-tiny.en.bin` model in `%LOCALAPPDATA%\Shruti\Models`. Run the local transcription smoke test once to download it, or install/import a verified model through the model workflow.
 
 ## Repository Layout

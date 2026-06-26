@@ -44,11 +44,68 @@ public sealed class WhisperCppTranscriptionProviderTests : IDisposable
 
         bool cpu = await provider.CanRunModelAsync(descriptor, ComputeBackend.Cpu, CancellationToken.None);
         bool gpu = await provider.CanRunModelAsync(descriptor, ComputeBackend.Gpu, CancellationToken.None);
+        bool npu = await provider.CanRunModelAsync(descriptor, ComputeBackend.Npu, CancellationToken.None);
         bool missing = await provider.CanRunModelAsync(descriptor with { LocalPath = Path.Combine(_rootPath, "missing.bin") }, ComputeBackend.Cpu, CancellationToken.None);
 
         Assert.True(cpu);
         Assert.False(gpu);
+        Assert.False(npu);
         Assert.False(missing);
+    }
+
+    [Fact]
+    public async Task CanRunModelAsync_AllowsGpuWhenNativeRuntimeReportsGpu()
+    {
+        string modelPath = await CreateModelFileAsync();
+        var provider = new WhisperCppTranscriptionProvider(new FakeEngine(
+            TranscriptResult: null,
+            SupportsGpu: true));
+        TranscriptionModelDescriptor descriptor = CreateOptions(
+            modelPath,
+            supportedBackends: new HashSet<ComputeBackend> { ComputeBackend.Cpu, ComputeBackend.Gpu }).Model;
+
+        bool gpu = await provider.CanRunModelAsync(descriptor, ComputeBackend.Gpu, CancellationToken.None);
+        IReadOnlyList<EngineCapability> capabilities = await provider.ProbeAsync(CancellationToken.None);
+
+        Assert.True(gpu);
+        Assert.Contains(capabilities, capability => capability.Backend == ComputeBackend.Gpu);
+    }
+
+    [Fact]
+    public async Task CanRunModelAsync_AutoRequiresMatchingNativeAndModelBackend()
+    {
+        string modelPath = await CreateModelFileAsync();
+        var provider = new WhisperCppTranscriptionProvider(new FakeEngine(
+            TranscriptResult: null,
+            SupportsCpu: false,
+            SupportsGpu: true));
+        TranscriptionModelDescriptor descriptor = CreateOptions(
+            modelPath,
+            supportedBackends: new HashSet<ComputeBackend> { ComputeBackend.Cpu }).Model;
+
+        bool canRun = await provider.CanRunModelAsync(descriptor, ComputeBackend.Auto, CancellationToken.None);
+
+        Assert.False(canRun);
+    }
+
+    [Fact]
+    public async Task CreateSessionAsync_ResolvesAutoToGpuWhenGpuIsAvailable()
+    {
+        string modelPath = await CreateModelFileAsync();
+        var engine = new FakeEngine(
+            TranscriptResult: null,
+            SupportsGpu: true);
+        var provider = new WhisperCppTranscriptionProvider(engine);
+        TranscriptionSessionOptions options = CreateOptions(
+            modelPath,
+            backend: ComputeBackend.Auto,
+            supportedBackends: new HashSet<ComputeBackend> { ComputeBackend.Cpu, ComputeBackend.Gpu });
+
+        ITranscriptionSession session = await provider.CreateSessionAsync(options, CancellationToken.None);
+
+        Assert.Equal(ComputeBackend.Gpu, engine.LastOptions?.Backend);
+
+        await session.DisposeAsync();
     }
 
     [Fact]
@@ -274,8 +331,9 @@ public sealed class WhisperCppTranscriptionProviderTests : IDisposable
 
         IReadOnlyList<EngineCapability> capabilities = await provider.ProbeAsync(CancellationToken.None);
 
-        Assert.Single(capabilities);
-        Assert.True(capabilities[0].SupportsStreaming);
+        EngineCapability capability = Assert.Single(capabilities);
+        Assert.Equal(ComputeBackend.Cpu, capability.Backend);
+        Assert.True(capability.SupportsStreaming);
     }
 
     public void Dispose()
@@ -297,7 +355,9 @@ public sealed class WhisperCppTranscriptionProviderTests : IDisposable
     private static TranscriptionSessionOptions CreateOptions(
         string modelPath,
         StreamingTranscriptionOptions? streaming = null,
-        TimeSpan? maximumAudioDuration = null)
+        TimeSpan? maximumAudioDuration = null,
+        ComputeBackend backend = ComputeBackend.Cpu,
+        IReadOnlySet<ComputeBackend>? supportedBackends = null)
     {
         return new TranscriptionSessionOptions(
             new TranscriptionModelDescriptor(
@@ -307,8 +367,8 @@ public sealed class WhisperCppTranscriptionProviderTests : IDisposable
                 modelPath,
                 "en",
                 1,
-                new HashSet<ComputeBackend> { ComputeBackend.Cpu }),
-            ComputeBackend.Cpu,
+                supportedBackends ?? new HashSet<ComputeBackend> { ComputeBackend.Cpu }),
+            backend,
             "en",
             TranscriptionMode.Balanced,
             streaming,
@@ -349,12 +409,24 @@ public sealed class WhisperCppTranscriptionProviderTests : IDisposable
         private readonly SemaphoreSlim _transcriptionsObserved = new(0);
         private readonly List<int> _transcribedSampleCounts = [];
 
-        public FakeEngine(WhisperCppTranscriptionResult? TranscriptResult)
+        public FakeEngine(
+            WhisperCppTranscriptionResult? TranscriptResult,
+            bool SupportsCpu = true,
+            bool SupportsGpu = false)
         {
             _result = TranscriptResult;
+            Capabilities = new WhisperCppBackendCapabilities(
+                SupportsCpu,
+                SupportsGpu,
+                SupportsNpu: false,
+                SystemInfo: "fake whisper.cpp");
         }
 
+        public WhisperCppBackendCapabilities Capabilities { get; }
+
         public float[]? LastSamples { get; private set; }
+
+        public WhisperCppTranscriptionSessionOptions? LastOptions { get; private set; }
 
         public int SessionCreationCount { get; private set; }
 
@@ -382,6 +454,7 @@ public sealed class WhisperCppTranscriptionProviderTests : IDisposable
         {
             cancellationToken.ThrowIfCancellationRequested();
             SessionCreationCount++;
+            LastOptions = options;
             return Task.FromResult<IWhisperCppInferenceSession>(new FakeInferenceSession(this));
         }
 
@@ -425,6 +498,12 @@ public sealed class WhisperCppTranscriptionProviderTests : IDisposable
         {
             _result = result;
         }
+
+        public WhisperCppBackendCapabilities Capabilities { get; } = new(
+            SupportsCpu: true,
+            SupportsGpu: false,
+            SupportsNpu: false,
+            SystemInfo: "fake whisper.cpp");
 
         public int TranscriptionCount { get; private set; }
 
@@ -476,6 +555,12 @@ public sealed class WhisperCppTranscriptionProviderTests : IDisposable
         {
             _result = result;
         }
+
+        public WhisperCppBackendCapabilities Capabilities { get; } = new(
+            SupportsCpu: true,
+            SupportsGpu: false,
+            SupportsNpu: false,
+            SystemInfo: "fake whisper.cpp");
 
         public TaskCompletionSource Started { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
 

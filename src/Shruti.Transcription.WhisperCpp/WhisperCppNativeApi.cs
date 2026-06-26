@@ -1,12 +1,45 @@
 using System.Runtime.InteropServices;
+using Shruti.Transcription.Abstractions;
 
 namespace Shruti.Transcription.WhisperCpp;
 
 public sealed class WhisperCppNativeApi : IWhisperCppNativeApi
 {
     private static readonly NativeAbortCallback AbortWhenCancellationRequested = IsCancellationRequested;
+    private const int BackendFlagCpu = 1 << 0;
+    private const int BackendFlagGpu = 1 << 1;
 
-    public IWhisperCppNativeContext LoadModel(string modelPath)
+    public WhisperCppBackendCapabilities GetCapabilities()
+    {
+        try
+        {
+            int flags = NativeMethods.GetAvailableBackends();
+            string systemInfo = Marshal.PtrToStringUTF8(NativeMethods.SystemInfo()) ?? string.Empty;
+            return new WhisperCppBackendCapabilities(
+                SupportsCpu: (flags & BackendFlagCpu) != 0,
+                SupportsGpu: (flags & BackendFlagGpu) != 0,
+                SupportsNpu: false,
+                systemInfo);
+        }
+        catch (DllNotFoundException)
+        {
+            return new WhisperCppBackendCapabilities(
+                SupportsCpu: false,
+                SupportsGpu: false,
+                SupportsNpu: false,
+                SystemInfo: "shruti_whisper native library is unavailable.");
+        }
+        catch (EntryPointNotFoundException)
+        {
+            return new WhisperCppBackendCapabilities(
+                SupportsCpu: false,
+                SupportsGpu: false,
+                SupportsNpu: false,
+                SystemInfo: "shruti_whisper native library does not expose backend capability metadata.");
+        }
+    }
+
+    public IWhisperCppNativeContext LoadModel(string modelPath, ComputeBackend backend, int gpuDevice)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(modelPath);
 
@@ -17,10 +50,10 @@ public sealed class WhisperCppNativeApi : IWhisperCppNativeApi
 
         try
         {
-            IntPtr handle = NativeMethods.Create(modelPath);
+            IntPtr handle = NativeMethods.CreateWithBackend(modelPath, ToNativeBackend(backend), gpuDevice);
             if (handle == IntPtr.Zero)
             {
-                throw new InvalidOperationException("whisper.cpp could not load the model file.");
+                throw new InvalidOperationException($"whisper.cpp could not load the model file on {backend}.");
             }
 
             return new WhisperCppNativeContext(handle);
@@ -35,6 +68,16 @@ public sealed class WhisperCppNativeApi : IWhisperCppNativeApi
         {
             throw new InvalidOperationException("The shruti_whisper native library does not match the managed adapter.", exception);
         }
+    }
+
+    private static int ToNativeBackend(ComputeBackend backend)
+    {
+        return backend switch
+        {
+            ComputeBackend.Cpu => 0,
+            ComputeBackend.Gpu => 1,
+            _ => throw new NotSupportedException($"whisper.cpp does not support the {backend} backend.")
+        };
     }
 
     private sealed class WhisperCppNativeContext : IWhisperCppNativeContext
@@ -139,8 +182,14 @@ public sealed class WhisperCppNativeApi : IWhisperCppNativeApi
     {
         private const string LibraryName = "shruti_whisper";
 
-        [DllImport(LibraryName, EntryPoint = "shruti_whisper_create", CallingConvention = CallingConvention.Cdecl)]
-        internal static extern IntPtr Create([MarshalAs(UnmanagedType.LPUTF8Str)] string modelPath);
+        [DllImport(LibraryName, EntryPoint = "shruti_whisper_available_backends", CallingConvention = CallingConvention.Cdecl)]
+        internal static extern int GetAvailableBackends();
+
+        [DllImport(LibraryName, EntryPoint = "shruti_whisper_create_with_backend", CallingConvention = CallingConvention.Cdecl)]
+        internal static extern IntPtr CreateWithBackend(
+            [MarshalAs(UnmanagedType.LPUTF8Str)] string modelPath,
+            int backend,
+            int gpuDevice);
 
         [DllImport(LibraryName, EntryPoint = "shruti_whisper_free", CallingConvention = CallingConvention.Cdecl)]
         internal static extern void Free(IntPtr context);
@@ -165,5 +214,8 @@ public sealed class WhisperCppNativeApi : IWhisperCppNativeApi
             out long startMilliseconds,
             out long endMilliseconds,
             out IntPtr text);
+
+        [DllImport(LibraryName, EntryPoint = "shruti_whisper_system_info", CallingConvention = CallingConvention.Cdecl)]
+        internal static extern IntPtr SystemInfo();
     }
 }

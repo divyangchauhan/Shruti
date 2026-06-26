@@ -1,8 +1,12 @@
+using Shruti.Transcription.Abstractions;
+
 namespace Shruti.Transcription.WhisperCpp;
 
 public interface IWhisperCppNativeApi
 {
-    IWhisperCppNativeContext LoadModel(string modelPath);
+    WhisperCppBackendCapabilities GetCapabilities();
+
+    IWhisperCppNativeContext LoadModel(string modelPath, ComputeBackend backend, int gpuDevice);
 }
 
 public interface IWhisperCppNativeContext : IDisposable

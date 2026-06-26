@@ -49,7 +49,7 @@ public static class RecommendedModelCatalog
             sizeBytes,
             new Uri($"https://huggingface.co/ggerganov/whisper.cpp/resolve/main/{fileName}"),
             new ModelIntegrity(ModelHashAlgorithm.Sha1, sha1),
-            [ComputeBackend.Auto, ComputeBackend.Cpu, ComputeBackend.Gpu],
+            [ComputeBackend.Cpu, ComputeBackend.Gpu],
             IsRecommended: true);
     }
 }
