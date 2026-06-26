@@ -6,9 +6,13 @@ namespace Shruti.Storage;
 
 public sealed record ShrutiSettings
 {
+    public const string DefaultModelId = "whisper-tiny-en";
+
     public static ShrutiSettings Default { get; } = new();
 
     public string? AudioInputDeviceId { get; init; }
+
+    public string SelectedModelId { get; init; } = DefaultModelId;
 
     public DictationInsertionMode InsertionMode { get; init; } = DictationInsertionMode.AutoInsert;
 

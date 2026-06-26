@@ -7,6 +7,7 @@ namespace Shruti.App.WinUI;
 public sealed class TranscriptionOptionsProvider
 {
     private readonly object _settingsSync = new();
+    private readonly ModelCatalog _modelCatalog;
     private readonly ModelCatalogEntry _defaultModel;
     private readonly AppDataPaths _appDataPaths;
     private readonly TranscriptionReadinessService _readinessService;
@@ -14,11 +15,13 @@ public sealed class TranscriptionOptionsProvider
     private ShrutiSettings _settings = ShrutiSettings.Default;
 
     public TranscriptionOptionsProvider(
+        ModelCatalog modelCatalog,
         ModelCatalogEntry defaultModel,
         AppDataPaths appDataPaths,
         TranscriptionReadinessService readinessService,
         string providerVersion)
     {
+        _modelCatalog = modelCatalog ?? throw new ArgumentNullException(nameof(modelCatalog));
         _defaultModel = defaultModel ?? throw new ArgumentNullException(nameof(defaultModel));
         _appDataPaths = appDataPaths ?? throw new ArgumentNullException(nameof(appDataPaths));
         _readinessService = readinessService ?? throw new ArgumentNullException(nameof(readinessService));
@@ -28,6 +31,8 @@ public sealed class TranscriptionOptionsProvider
     }
 
     public ModelCatalogEntry DefaultModel => _defaultModel;
+
+    public IReadOnlyList<ModelCatalogEntry> CatalogModels => _modelCatalog.Models;
 
     public void ApplySettings(ShrutiSettings settings)
     {
@@ -64,25 +69,68 @@ public sealed class TranscriptionOptionsProvider
             settings = _settings;
         }
 
+        ModelCatalogEntry selectedModel = GetSelectedModelEntry(settings);
         return _readinessService.EvaluateAsync(
             new TranscriptionReadinessRequest(
-                CreateModelDescriptor(),
+                CreateModelDescriptor(selectedModel),
                 settings.BackendPreference,
                 settings.AllowSlowTranscription,
                 _providerVersion,
-                _defaultModel.Integrity?.ExpectedHash),
+                selectedModel.Integrity?.ExpectedHash),
             cancellationToken);
     }
 
     public TranscriptionModelDescriptor CreateModelDescriptor()
     {
+        ShrutiSettings settings;
+        lock (_settingsSync)
+        {
+            settings = _settings;
+        }
+
+        return CreateModelDescriptor(GetSelectedModelEntry(settings));
+    }
+
+    public ModelCatalogEntry GetSelectedModelEntry()
+    {
+        ShrutiSettings settings;
+        lock (_settingsSync)
+        {
+            settings = _settings;
+        }
+
+        return GetSelectedModelEntry(settings);
+    }
+
+    public ModelCatalogEntry GetSelectedModelEntry(ShrutiSettings settings)
+    {
+        ArgumentNullException.ThrowIfNull(settings);
+
+        return FindModel(settings.SelectedModelId) ?? _defaultModel;
+    }
+
+    public ModelCatalogEntry? FindModel(string? modelId)
+    {
+        if (string.IsNullOrWhiteSpace(modelId))
+        {
+            return null;
+        }
+
+        return _modelCatalog.Models.FirstOrDefault(model =>
+            string.Equals(model.Id, modelId, StringComparison.Ordinal));
+    }
+
+    public TranscriptionModelDescriptor CreateModelDescriptor(ModelCatalogEntry model)
+    {
+        ArgumentNullException.ThrowIfNull(model);
+
         return new TranscriptionModelDescriptor(
-            _defaultModel.Id,
-            _defaultModel.DisplayName,
-            _defaultModel.ProviderId,
-            Path.Combine(_appDataPaths.ModelsDirectory, _defaultModel.LocalFileName),
-            _defaultModel.LanguageHint,
-            _defaultModel.SizeBytes,
-            _defaultModel.SupportedBackends.ToHashSet());
+            model.Id,
+            model.DisplayName,
+            model.ProviderId,
+            Path.Combine(_appDataPaths.ModelsDirectory, model.LocalFileName),
+            model.LanguageHint,
+            model.SizeBytes,
+            model.SupportedBackends.ToHashSet());
     }
 }

@@ -92,6 +92,9 @@ public sealed class JsonSettingsRepository : ISettingsRepository
         return new ShrutiSettings
         {
             AudioInputDeviceId = settings.AudioInputDeviceId,
+            SelectedModelId = string.IsNullOrWhiteSpace(settings.SelectedModelId)
+                ? ShrutiSettings.Default.SelectedModelId
+                : settings.SelectedModelId,
             InsertionMode = Enum.IsDefined(settings.InsertionMode)
                 ? settings.InsertionMode
                 : ShrutiSettings.Default.InsertionMode,

@@ -8,9 +8,11 @@ using Shruti.Core.Audio;
 using Shruti.Core.Diagnostics;
 using Shruti.Core.Dictation;
 using Shruti.Core.Triggers;
+using Shruti.Models;
 using Shruti.Platform.Windows;
 using Shruti.Storage;
 using Shruti.Transcription.Abstractions;
+using Windows.Storage.Pickers;
 using WinRT.Interop;
 using Windows.Graphics;
 
@@ -22,6 +24,8 @@ public sealed partial class MainWindow : Window
     private readonly IAudioCaptureService _audioCaptureService;
     private readonly ISettingsRepository _settingsRepository;
     private readonly TranscriptionOptionsProvider _transcriptionOptionsProvider;
+    private readonly ModelCatalog _modelCatalog;
+    private readonly IModelManager _modelManager;
     private readonly DictationTriggerRouter _triggerRouter;
     private readonly WindowsGlobalTriggerService _triggerService;
     private readonly WindowsTrayIconService _trayIconService;
@@ -39,8 +43,11 @@ public sealed partial class MainWindow : Window
     private bool _audioDevicesLoaded;
     private bool _settingsLoaded;
     private bool _isApplyingSettings;
+    private bool _isApplyingModelSelection;
+    private bool _isModelOperationRunning;
     private bool _floatingMicDismissedForSession;
     private bool _floatingMicShownForSession;
+    private IReadOnlyList<InstalledModel> _installedModels = [];
     private ShrutiSettings _settings = ShrutiSettings.Default;
 
     public MainWindow(
@@ -48,6 +55,8 @@ public sealed partial class MainWindow : Window
         IAudioCaptureService audioCaptureService,
         ISettingsRepository settingsRepository,
         TranscriptionOptionsProvider transcriptionOptionsProvider,
+        ModelCatalog modelCatalog,
+        IModelManager modelManager,
         DictationTriggerRouter triggerRouter,
         WindowsGlobalTriggerService triggerService,
         WindowsTrayIconService trayIconService,
@@ -59,6 +68,8 @@ public sealed partial class MainWindow : Window
         _audioCaptureService = audioCaptureService ?? throw new ArgumentNullException(nameof(audioCaptureService));
         _settingsRepository = settingsRepository ?? throw new ArgumentNullException(nameof(settingsRepository));
         _transcriptionOptionsProvider = transcriptionOptionsProvider ?? throw new ArgumentNullException(nameof(transcriptionOptionsProvider));
+        _modelCatalog = modelCatalog ?? throw new ArgumentNullException(nameof(modelCatalog));
+        _modelManager = modelManager ?? throw new ArgumentNullException(nameof(modelManager));
         _triggerRouter = triggerRouter ?? throw new ArgumentNullException(nameof(triggerRouter));
         _triggerService = triggerService ?? throw new ArgumentNullException(nameof(triggerService));
         _trayIconService = trayIconService ?? throw new ArgumentNullException(nameof(trayIconService));
@@ -83,6 +94,7 @@ public sealed partial class MainWindow : Window
         ThemeComboBox.SelectedIndex = 0;
         AudioRetentionComboBox.SelectedIndex = 0;
         BackendPreferenceComboBox.SelectedIndex = 0;
+        PopulateModelSelectionComboBox();
         ShowPage("Home");
         ConfigureNativeTriggers();
         StartTriggerDispatch();
@@ -173,6 +185,16 @@ public sealed partial class MainWindow : Window
         await PersistSettingsAsync();
     }
 
+    private async void ModelSelectionComboBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (_isApplyingModelSelection || _isApplyingSettings)
+        {
+            return;
+        }
+
+        await PersistSettingsAsync();
+    }
+
     private async void AllowSlowTranscriptionCheckBox_Click(object sender, RoutedEventArgs e)
     {
         await PersistSettingsAsync();
@@ -197,6 +219,7 @@ public sealed partial class MainWindow : Window
     private async void MainWindow_Activated(object sender, WindowActivatedEventArgs args)
     {
         await EnsureSettingsLoadedAsync();
+        await RefreshInstalledModelsAsync();
         await RefreshTranscriptionReadinessAsync();
         UpdateFloatingMicWindow();
 
@@ -363,6 +386,65 @@ public sealed partial class MainWindow : Window
         }
     }
 
+    private void PopulateModelSelectionComboBox()
+    {
+        _isApplyingModelSelection = true;
+        try
+        {
+            ModelSelectionComboBox.Items.Clear();
+            foreach (ModelCatalogEntry model in _modelCatalog.Models)
+            {
+                ModelSelectionComboBox.Items.Add(new ComboBoxItem
+                {
+                    Content = model.DisplayName,
+                    Tag = model.Id
+                });
+            }
+
+            SelectModelComboBoxItem(ShrutiSettings.DefaultModelId);
+        }
+        finally
+        {
+            _isApplyingModelSelection = false;
+        }
+    }
+
+    private void SelectModelComboBoxItem(string modelId)
+    {
+        _isApplyingModelSelection = true;
+        try
+        {
+            for (int index = 0; index < ModelSelectionComboBox.Items.Count; index++)
+            {
+                if (ModelSelectionComboBox.Items[index] is ComboBoxItem item &&
+                    item.Tag is string candidateId &&
+                    string.Equals(candidateId, modelId, StringComparison.Ordinal))
+                {
+                    ModelSelectionComboBox.SelectedIndex = index;
+                    return;
+                }
+            }
+
+            SelectComboBoxItem(ModelSelectionComboBox, ShrutiSettings.DefaultModelId);
+        }
+        finally
+        {
+            _isApplyingModelSelection = false;
+        }
+    }
+
+    private string GetSelectedModelId()
+    {
+        if (ModelSelectionComboBox.SelectedItem is ComboBoxItem item &&
+            item.Tag is string modelId &&
+            _transcriptionOptionsProvider.FindModel(modelId) is not null)
+        {
+            return modelId;
+        }
+
+        return ShrutiSettings.DefaultModelId;
+    }
+
     private DictationInsertionMode GetSelectedInsertionMode()
     {
         if (InsertionModeComboBox.SelectedItem is ComboBoxItem item &&
@@ -479,6 +561,361 @@ public sealed partial class MainWindow : Window
         }
 
         return ComputeBackend.Auto;
+    }
+
+    private async Task RefreshInstalledModelsAsync()
+    {
+        try
+        {
+            _installedModels = await _modelManager.ListInstalledAsync(CancellationToken.None);
+            ModelsDirectoryText.Text = $"Storage: {_modelManager.ModelsDirectory}";
+            RenderModelCatalog();
+            UpdateSelectedModelStatus();
+        }
+        catch (Exception ex)
+        {
+            ModelsStatusText.Text = $"Models could not be loaded: {DiagnosticTextRedactor.Redact(ex.Message)}";
+            SelectedModelStatusText.Text = "Model status unavailable.";
+        }
+    }
+
+    private void RenderModelCatalog()
+    {
+        ModelListPanel.Children.Clear();
+        int installedCount = _modelCatalog.Models.Count(model => FindInstalledModel(model.Id) is not null);
+        if (!_isModelOperationRunning)
+        {
+            ModelsStatusText.Text = $"{installedCount} of {_modelCatalog.Models.Count} recommended models installed.";
+        }
+
+        foreach (ModelCatalogEntry model in _modelCatalog.Models)
+        {
+            ModelListPanel.Children.Add(CreateModelCard(model));
+        }
+    }
+
+    private Border CreateModelCard(ModelCatalogEntry model)
+    {
+        InstalledModel? installed = FindInstalledModel(model.Id);
+        bool isInstalled = installed is not null;
+        bool isSelected = string.Equals(_settings.SelectedModelId, model.Id, StringComparison.Ordinal);
+
+        var card = new Border
+        {
+            Style = (Style)Root.Resources["CardBorderStyle"],
+            Padding = new Thickness(18)
+        };
+        var grid = new Grid { ColumnSpacing = 16 };
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+
+        var details = new StackPanel { Spacing = 5 };
+        details.Children.Add(new TextBlock
+        {
+            Text = model.DisplayName,
+            FontSize = 17,
+            FontWeight = Microsoft.UI.Text.FontWeights.SemiBold
+        });
+        details.Children.Add(new TextBlock
+        {
+            Text = FormatModelDetails(model),
+            FontSize = 12,
+            Style = (Style)Root.Resources["MutedTextStyle"]
+        });
+        details.Children.Add(new TextBlock
+        {
+            Text = isInstalled
+                ? $"Installed and verified. File: {Path.GetFileName(installed!.LocalPath)}"
+                : "Not installed. Download or import the verified model before selecting it.",
+            FontSize = 12,
+            Style = (Style)Root.Resources["MutedTextStyle"]
+        });
+        grid.Children.Add(details);
+
+        var actions = new StackPanel
+        {
+            Orientation = Orientation.Horizontal,
+            Spacing = 8,
+            VerticalAlignment = VerticalAlignment.Center
+        };
+        Grid.SetColumn(actions, 1);
+
+        if (isSelected)
+        {
+            actions.Children.Add(new TextBlock
+            {
+                Text = "Selected",
+                VerticalAlignment = VerticalAlignment.Center
+            });
+        }
+        else
+        {
+            var selectButton = new Button
+            {
+                Content = "Select",
+                Tag = model.Id,
+                IsEnabled = isInstalled && !_isModelOperationRunning
+            };
+            ToolTipService.SetToolTip(selectButton, isInstalled
+                ? $"Use {model.DisplayName} for dictation."
+                : "Install this model before selecting it.");
+            selectButton.Click += SelectModelButton_Click;
+            actions.Children.Add(selectButton);
+        }
+
+        var downloadButton = new Button
+        {
+            Content = "Download",
+            Tag = model.Id,
+            IsEnabled = !isInstalled && model.DownloadUri is not null && !_isModelOperationRunning
+        };
+        ToolTipService.SetToolTip(downloadButton, model.DownloadUri is null
+            ? "This catalog entry does not have a download URL."
+            : $"Download and verify {model.DisplayName}.");
+        downloadButton.Click += DownloadModelButton_Click;
+        actions.Children.Add(downloadButton);
+
+        var importButton = new Button
+        {
+            Content = "Import",
+            Tag = model.Id,
+            IsEnabled = !isInstalled && !_isModelOperationRunning
+        };
+        ToolTipService.SetToolTip(importButton, $"Import a local file for {model.DisplayName} and verify it.");
+        importButton.Click += ImportModelButton_Click;
+        actions.Children.Add(importButton);
+
+        var removeButton = new Button
+        {
+            Content = "Remove",
+            Tag = model.Id,
+            IsEnabled = isInstalled && !isSelected && !_isModelOperationRunning
+        };
+        ToolTipService.SetToolTip(removeButton, isSelected
+            ? "Select another installed model before removing this one."
+            : $"Remove {model.DisplayName} from local storage.");
+        removeButton.Click += RemoveModelButton_Click;
+        actions.Children.Add(removeButton);
+
+        grid.Children.Add(actions);
+        card.Child = grid;
+        return card;
+    }
+
+    private InstalledModel? FindInstalledModel(string modelId)
+    {
+        return _installedModels.FirstOrDefault(model =>
+            model.IsAvailable &&
+            string.Equals(model.CatalogEntry.Id, modelId, StringComparison.Ordinal));
+    }
+
+    private async void DownloadModelButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (TryGetModelFromSender(sender, out ModelCatalogEntry model))
+        {
+            await RunModelInstallOperationAsync(
+                model,
+                $"Downloading {model.DisplayName}.",
+                progress => _modelManager.DownloadAsync(model, progress, CancellationToken.None));
+        }
+    }
+
+    private async void ImportModelButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (!TryGetModelFromSender(sender, out ModelCatalogEntry model))
+        {
+            return;
+        }
+
+        var picker = new FileOpenPicker
+        {
+            SuggestedStartLocation = PickerLocationId.Downloads,
+            ViewMode = PickerViewMode.List
+        };
+        picker.FileTypeFilter.Add(".bin");
+        picker.FileTypeFilter.Add(".gguf");
+        InitializeWithWindow.Initialize(picker, _windowHandle);
+
+        var file = await picker.PickSingleFileAsync();
+        if (file is null)
+        {
+            return;
+        }
+
+        await RunModelInstallOperationAsync(
+            model,
+            $"Importing {model.DisplayName}.",
+            _ => _modelManager.ImportAsync(new ModelImportRequest(model, file.Path), CancellationToken.None),
+            showDeterminateProgress: false);
+    }
+
+    private async void SelectModelButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (TryGetModelFromSender(sender, out ModelCatalogEntry model) &&
+            FindInstalledModel(model.Id) is not null)
+        {
+            await SetSelectedModelAsync(model.Id);
+            ModelsStatusText.Text = $"{model.DisplayName} selected for dictation.";
+        }
+    }
+
+    private async void RemoveModelButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (!TryGetModelFromSender(sender, out ModelCatalogEntry model) ||
+            string.Equals(_settings.SelectedModelId, model.Id, StringComparison.Ordinal))
+        {
+            return;
+        }
+
+        _isModelOperationRunning = true;
+        ModelsStatusText.Text = $"Removing {model.DisplayName}.";
+        RenderModelCatalog();
+        try
+        {
+            bool removed = await _modelManager.RemoveAsync(model.Id, CancellationToken.None);
+            ModelsStatusText.Text = removed
+                ? $"{model.DisplayName} removed from local storage."
+                : $"{model.DisplayName} was not installed.";
+        }
+        catch (Exception ex)
+        {
+            ModelsStatusText.Text = $"Remove failed: {DiagnosticTextRedactor.Redact(ex.Message)}";
+        }
+        finally
+        {
+            _isModelOperationRunning = false;
+            await RefreshInstalledModelsAsync();
+            await RefreshTranscriptionReadinessAsync();
+        }
+    }
+
+    private bool TryGetModelFromSender(object sender, out ModelCatalogEntry model)
+    {
+        model = null!;
+        if (sender is FrameworkElement { Tag: string modelId })
+        {
+            ModelCatalogEntry? found = _transcriptionOptionsProvider.FindModel(modelId);
+            if (found is not null)
+            {
+                model = found;
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private async Task RunModelInstallOperationAsync(
+        ModelCatalogEntry model,
+        string statusText,
+        Func<IProgress<ModelDownloadProgress>, Task<ModelInstallResult>> operation,
+        bool showDeterminateProgress = true)
+    {
+        if (_isModelOperationRunning)
+        {
+            return;
+        }
+
+        _isModelOperationRunning = true;
+        ModelsStatusText.Text = statusText;
+        ModelDownloadProgressBar.Value = 0;
+        ModelDownloadProgressBar.IsIndeterminate = !showDeterminateProgress;
+        ModelDownloadProgressBar.Visibility = Visibility.Visible;
+        RenderModelCatalog();
+
+        var progress = new Progress<ModelDownloadProgress>(ReportModelDownloadProgress);
+        string? finalStatusText = null;
+        try
+        {
+            ModelInstallResult result = await operation(progress);
+            if (result.Succeeded)
+            {
+                await RefreshInstalledModelsAsync();
+                await SetSelectedModelAsync(model.Id, refreshModels: false);
+                finalStatusText = $"{model.DisplayName} installed and selected for dictation.";
+            }
+            else
+            {
+                finalStatusText = string.IsNullOrWhiteSpace(result.Message)
+                    ? $"{model.DisplayName} could not be installed."
+                    : DiagnosticTextRedactor.Redact(result.Message);
+            }
+        }
+        catch (Exception ex)
+        {
+            finalStatusText = $"Install failed: {DiagnosticTextRedactor.Redact(ex.Message)}";
+        }
+        finally
+        {
+            _isModelOperationRunning = false;
+            ModelDownloadProgressBar.Visibility = Visibility.Collapsed;
+            await RefreshInstalledModelsAsync();
+            await RefreshTranscriptionReadinessAsync();
+            if (!string.IsNullOrWhiteSpace(finalStatusText))
+            {
+                ModelsStatusText.Text = finalStatusText;
+            }
+        }
+    }
+
+    private void ReportModelDownloadProgress(ModelDownloadProgress progress)
+    {
+        _ = DispatcherQueue.TryEnqueue(() =>
+        {
+            if (progress.Fraction is double fraction)
+            {
+                ModelDownloadProgressBar.IsIndeterminate = false;
+                ModelDownloadProgressBar.Value = Math.Clamp(fraction * 100, 0, 100);
+            }
+            else
+            {
+                ModelDownloadProgressBar.IsIndeterminate = true;
+            }
+        });
+    }
+
+    private async Task SetSelectedModelAsync(string modelId, bool refreshModels = true)
+    {
+        if (_transcriptionOptionsProvider.FindModel(modelId) is null)
+        {
+            return;
+        }
+
+        _settings = _settings with { SelectedModelId = modelId };
+        _transcriptionOptionsProvider.ApplySettings(_settings);
+        SelectModelComboBoxItem(modelId);
+        await _settingsRepository.SaveAsync(_settings, CancellationToken.None);
+        UpdateSelectedModelStatus();
+        await RefreshTranscriptionReadinessAsync();
+        if (refreshModels)
+        {
+            RenderModelCatalog();
+        }
+    }
+
+    private void UpdateSelectedModelStatus()
+    {
+        ModelCatalogEntry selected = _transcriptionOptionsProvider.GetSelectedModelEntry(_settings);
+        InstalledModel? installed = FindInstalledModel(selected.Id);
+        SelectedModelStatusText.Text = installed is null
+            ? $"{selected.DisplayName} is not installed. Download or import it from Models before dictation can use it."
+            : $"{selected.DisplayName} is installed and ready for readiness checks.";
+    }
+
+    private static string FormatModelDetails(ModelCatalogEntry model)
+    {
+        string backends = string.Join(
+            ", ",
+            model.SupportedBackends
+                .Where(backend => backend != ComputeBackend.Auto)
+                .DefaultIfEmpty(ComputeBackend.Cpu));
+        return $"{model.LanguageHint.ToUpperInvariant()} - {FormatBytes(model.SizeBytes)} - {model.FileFormat} - {backends}";
+    }
+
+    private static string FormatBytes(long bytes)
+    {
+        double mebibytes = bytes / 1024d / 1024d;
+        return $"{mebibytes:0.#} MB";
     }
 
     private async Task RaiseTriggerAsync(DictationTriggerKind kind, string sourceId)
@@ -607,12 +1044,18 @@ public sealed partial class MainWindow : Window
             try
             {
                 _settings = await _settingsRepository.LoadAsync(CancellationToken.None);
+                if (_transcriptionOptionsProvider.FindModel(_settings.SelectedModelId) is null)
+                {
+                    _settings = _settings with { SelectedModelId = ShrutiSettings.DefaultModelId };
+                }
+
                 _isApplyingSettings = true;
                 _transcriptionOptionsProvider.ApplySettings(_settings);
                 ApplySettingsToControls(_settings);
                 _controller.SetInsertionMode(_settings.InsertionMode);
                 _controller.SetAudioInputDevice(_settings.AudioInputDeviceId);
                 Root.RequestedTheme = ToElementTheme(_settings.ThemePreference);
+                await RefreshInstalledModelsAsync();
                 await ApplyTriggerConfigurationAsync(persist: false);
                 await RefreshTranscriptionReadinessAsync();
             }
@@ -638,6 +1081,7 @@ public sealed partial class MainWindow : Window
         SelectComboBoxItem(ThemeComboBox, ToElementTheme(settings.ThemePreference).ToString());
         SelectComboBoxItem(AudioRetentionComboBox, settings.AudioRetentionPolicy.ToString());
         SelectComboBoxItem(BackendPreferenceComboBox, settings.BackendPreference.ToString());
+        SelectModelComboBoxItem(settings.SelectedModelId);
         AllowSlowTranscriptionCheckBox.IsChecked = settings.AllowSlowTranscription;
         ApplyTriggerConfigurationToControls(settings.TriggerConfiguration);
     }
@@ -655,6 +1099,7 @@ public sealed partial class MainWindow : Window
             _settings = new ShrutiSettings
             {
                 AudioInputDeviceId = _controller.AudioOptions.DeviceId,
+                SelectedModelId = GetSelectedModelId(),
                 InsertionMode = GetSelectedInsertionMode(),
                 ThemePreference = GetSelectedThemePreference(),
                 AudioRetentionPolicy = GetSelectedAudioRetentionPolicy(),
@@ -717,12 +1162,14 @@ public sealed partial class MainWindow : Window
                 ? $"{readiness.Provider?.DisplayName ?? model.ProviderId} / {backend} / {device}"
                 : $"{model.ProviderId} / {backend} / unavailable";
             BackendReadinessText.Text = FormatReadiness(readiness);
+            UpdateSelectedModelStatus();
         }
         catch (Exception ex)
         {
             BackendSummaryText.Text = "Unavailable";
             ActiveBackendText.Text = "Unavailable";
             BackendReadinessText.Text = DiagnosticTextRedactor.Redact(ex.Message);
+            SelectedModelStatusText.Text = "Model status unavailable.";
         }
     }
 
@@ -920,6 +1367,11 @@ public sealed partial class MainWindow : Window
         SetNavigationButtonState(HistoryNavButton, isHistory);
         SetNavigationButtonState(ModelsNavButton, isModels);
         SetNavigationButtonState(SettingsNavButton, isSettings);
+
+        if (isModels && _settingsLoaded)
+        {
+            _ = RefreshInstalledModelsAsync();
+        }
     }
 
     private static void SetNavigationButtonState(Button button, bool isSelected)
