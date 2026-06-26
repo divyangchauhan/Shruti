@@ -17,7 +17,10 @@ public sealed class AppComposition
     private readonly WindowsPlatformModule platformModule = new();
     private readonly ISettingsRepository settingsRepository = new StorageModule().CreateSettingsRepository();
     private readonly AppDataPaths appDataPaths = AppDataPaths.CreateDefault();
-    private readonly ModelCatalogEntry defaultModel = RecommendedModelCatalog.Create().GetRequiredModel("whisper-tiny-en");
+    private readonly ModelCatalog modelCatalog = RecommendedModelCatalog.Create();
+    private readonly HttpClient modelHttpClient = new();
+    private readonly IModelManager modelManager;
+    private readonly ModelCatalogEntry defaultModel;
     private readonly WhisperCppTranscriptionProvider transcriptionProvider = new(
         new WhisperCppTranscriptionEngine(new WhisperCppNativeApi()));
     private readonly TranscriptionOptionsProvider transcriptionOptionsProvider;
@@ -26,11 +29,17 @@ public sealed class AppComposition
 
     public AppComposition()
     {
+        defaultModel = modelCatalog.GetRequiredModel(ShrutiSettings.DefaultModelId);
+        modelManager = new ModelManager(
+            appDataPaths.ModelsDirectory,
+            new HttpModelDownloadClient(modelHttpClient),
+            new ModelIntegrityVerifier());
         targetFocusService = platformModule.CreateTargetFocusService();
         textInsertionService = platformModule.CreateTextInsertionService();
         ITranscriptionProviderRegistry transcriptionProviderRegistry = new TranscriptionProviderRegistry([transcriptionProvider]);
         var benchmarkCache = new JsonTranscriptionBenchmarkCache(appDataPaths);
         transcriptionOptionsProvider = new TranscriptionOptionsProvider(
+            modelCatalog,
             defaultModel,
             appDataPaths,
             new TranscriptionReadinessService(transcriptionProviderRegistry, benchmarkCache),
@@ -57,6 +66,8 @@ public sealed class AppComposition
             audioCaptureService,
             settingsRepository,
             transcriptionOptionsProvider,
+            modelCatalog,
+            modelManager,
             triggerRouter,
             platformModule.CreateGlobalTriggerService(),
             platformModule.CreateTrayIconService(),

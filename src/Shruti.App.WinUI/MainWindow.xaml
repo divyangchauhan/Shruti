@@ -451,19 +451,8 @@
 
                         <StackPanel Spacing="10">
                             <TextBlock FontSize="16" FontWeight="SemiBold" Text="Recent dictations" />
-                            <TextBlock Style="{StaticResource MutedTextStyle}" FontSize="12" Text="Mock data. Transcript history will be enabled when local history storage is implemented." />
                             <Border Style="{StaticResource CardBorderStyle}" Padding="14">
-                                <Grid>
-                                    <Grid.ColumnDefinitions>
-                                        <ColumnDefinition Width="*" />
-                                        <ColumnDefinition Width="Auto" />
-                                    </Grid.ColumnDefinitions>
-                                    <StackPanel Spacing="3">
-                                        <TextBlock Text="Project update notes and next steps" />
-                                        <TextBlock FontSize="12" Style="{StaticResource MutedTextStyle}" Text="Mock transcript - 28 words" />
-                                    </StackPanel>
-                                    <TextBlock Grid.Column="1" Style="{StaticResource MutedTextStyle}" FontSize="12" Text="Today" />
-                                </Grid>
+                                <TextBlock Style="{StaticResource MutedTextStyle}" FontSize="12" Text="Transcript history is not available yet. The current dictation transcript stays on the Home screen until the next dictation." />
                             </Border>
                         </StackPanel>
                     </StackPanel>
@@ -474,21 +463,7 @@
                         <Border Style="{StaticResource CardBorderStyle}" Padding="18" Background="{ThemeResource ShrutiSurfaceLowBrush}">
                             <StackPanel Orientation="Horizontal" Spacing="10">
                                 <FontIcon FontFamily="Segoe Fluent Icons" Foreground="{ThemeResource ShrutiAccentBrush}" Glyph="&#xE946;" />
-                                <TextBlock Style="{StaticResource MutedTextStyle}" Text="Mock data. Transcript history will be enabled when local history storage is implemented." />
-                            </StackPanel>
-                        </Border>
-                        <Border Style="{StaticResource CardBorderStyle}" Padding="18">
-                            <StackPanel Spacing="8">
-                                <TextBlock FontWeight="SemiBold" Text="Project update notes and next steps" />
-                                <TextBlock Style="{StaticResource MutedTextStyle}" Text="Mock transcript: Review the current milestone, confirm the release target, and send the follow-up notes." />
-                                <TextBlock FontSize="12" Style="{StaticResource MutedTextStyle}" Text="Today, 10:42 AM - 28 words - Auto-insert" />
-                            </StackPanel>
-                        </Border>
-                        <Border Style="{StaticResource CardBorderStyle}" Padding="18">
-                            <StackPanel Spacing="8">
-                                <TextBlock FontWeight="SemiBold" Text="Draft response for the design review" />
-                                <TextBlock Style="{StaticResource MutedTextStyle}" Text="Mock transcript: Thanks for the handoff. I will verify the workflow and share the implementation plan." />
-                                <TextBlock FontSize="12" Style="{StaticResource MutedTextStyle}" Text="Yesterday, 4:16 PM - 19 words - Preview first" />
+                                <TextBlock Style="{StaticResource MutedTextStyle}" Text="Transcript history is not available yet. Saved history will appear here after local history storage is wired into the app shell." />
                             </StackPanel>
                         </Border>
                     </StackPanel>
@@ -497,39 +472,24 @@
                 <ScrollViewer x:Name="ModelsPage" Padding="0,28,0,0" Visibility="Collapsed" VerticalScrollBarVisibility="Hidden">
                     <StackPanel Spacing="18">
                         <Border Style="{StaticResource CardBorderStyle}" Padding="18" Background="{ThemeResource ShrutiSurfaceLowBrush}">
-                            <StackPanel Orientation="Horizontal" Spacing="10">
-                                <FontIcon FontFamily="Segoe Fluent Icons" Foreground="{ThemeResource ShrutiAccentBrush}" Glyph="&#xE946;" />
-                                <TextBlock Style="{StaticResource MutedTextStyle}" Text="Mock data. Model selection and downloads will be enabled when the model-management UI is wired." />
+                            <StackPanel Spacing="6">
+                                <StackPanel Orientation="Horizontal" Spacing="10">
+                                    <FontIcon FontFamily="Segoe Fluent Icons" Foreground="{ThemeResource ShrutiAccentBrush}" Glyph="&#xE946;" />
+                                    <TextBlock FontWeight="SemiBold" Text="Local speech models" />
+                                </StackPanel>
+                                <TextBlock x:Name="ModelsStatusText" Style="{StaticResource MutedTextStyle}" FontSize="12" Text="Checking installed models." />
+                                <TextBlock x:Name="ModelsDirectoryText" Style="{StaticResource MutedTextStyle}" FontSize="12" />
+                                <ProgressBar
+                                    x:Name="ModelDownloadProgressBar"
+                                    Height="4"
+                                    Margin="0,6,0,0"
+                                    IsIndeterminate="False"
+                                    Maximum="100"
+                                    Minimum="0"
+                                    Visibility="Collapsed" />
                             </StackPanel>
                         </Border>
-                        <Border Style="{StaticResource CardBorderStyle}" Padding="18">
-                            <Grid>
-                                <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="*" />
-                                    <ColumnDefinition Width="Auto" />
-                                </Grid.ColumnDefinitions>
-                                <StackPanel Spacing="5">
-                                    <TextBlock FontSize="17" FontWeight="SemiBold" Text="Whisper tiny.en" />
-                                    <TextBlock Style="{StaticResource MutedTextStyle}" FontSize="12" Text="English - fastest - 75 MB - used by the current local transcription flow" />
-                                </StackPanel>
-                                <Border Grid.Column="1" Padding="8,4" Background="{ThemeResource ShrutiSurfaceLowBrush}" CornerRadius="4">
-                                    <TextBlock Foreground="{ThemeResource ShrutiSuccessBrush}" Text="Selected" />
-                                </Border>
-                            </Grid>
-                        </Border>
-                        <Border Style="{StaticResource CardBorderStyle}" Padding="18">
-                            <Grid>
-                                <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="*" />
-                                    <ColumnDefinition Width="Auto" />
-                                </Grid.ColumnDefinitions>
-                                <StackPanel Spacing="5">
-                                    <TextBlock FontSize="17" FontWeight="SemiBold" Text="Whisper base.en" />
-                                    <TextBlock Style="{StaticResource MutedTextStyle}" FontSize="12" Text="English - higher accuracy - 142 MB - mock catalog entry" />
-                                </StackPanel>
-                                <Button Grid.Column="1" IsEnabled="False" ToolTipService.ToolTip="Model downloads are not implemented yet" Content="Download" />
-                            </Grid>
-                        </Border>
+                        <StackPanel x:Name="ModelListPanel" Spacing="12" />
                     </StackPanel>
                 </ScrollViewer>
 
@@ -601,6 +561,21 @@
                         <Border Style="{StaticResource CardBorderStyle}" Padding="20">
                             <StackPanel Spacing="13">
                                 <TextBlock FontSize="17" FontWeight="SemiBold" Text="Transcription" />
+                                <Grid ColumnSpacing="16">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="280" />
+                                        <ColumnDefinition Width="*" />
+                                    </Grid.ColumnDefinitions>
+                                    <ComboBox
+                                        x:Name="ModelSelectionComboBox"
+                                        AutomationProperties.HelpText="Choose the local speech model Shruti uses for dictation."
+                                        Header="Speech model"
+                                        SelectionChanged="ModelSelectionComboBox_SelectionChanged" />
+                                    <StackPanel Grid.Column="1" Spacing="4" VerticalAlignment="Bottom">
+                                        <TextBlock FontSize="12" FontWeight="SemiBold" Text="Selected model status" />
+                                        <TextBlock x:Name="SelectedModelStatusText" Style="{StaticResource MutedTextStyle}" FontSize="12" Text="Checking model." />
+                                    </StackPanel>
+                                </Grid>
                                 <Grid ColumnSpacing="16">
                                     <Grid.ColumnDefinitions>
                                         <ColumnDefinition Width="280" />
@@ -699,15 +674,6 @@
                             </StackPanel>
                         </Border>
 
-                        <Border Style="{StaticResource CardBorderStyle}" Padding="20">
-                            <StackPanel Spacing="10">
-                                <TextBlock FontSize="17" FontWeight="SemiBold" Text="Future controls" />
-                                <TextBlock Style="{StaticResource MutedTextStyle}" FontSize="12" Text="These controls are mock. They will be enabled once their backing features are implemented." />
-                                <CheckBox Content="Start Shruti minimized" IsEnabled="False" />
-                                <CheckBox Content="Restore focus before inserting text" IsEnabled="False" />
-                                <CheckBox Content="Warn before the audio duration limit" IsEnabled="False" />
-                            </StackPanel>
-                        </Border>
                     </StackPanel>
                 </ScrollViewer>
             </Grid>

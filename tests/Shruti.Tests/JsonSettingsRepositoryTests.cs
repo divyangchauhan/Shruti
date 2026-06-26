@@ -49,6 +49,7 @@ public sealed class JsonSettingsRepositoryTests : IDisposable
         var settings = new ShrutiSettings
         {
             AudioInputDeviceId = "usb-microphone",
+            SelectedModelId = "whisper-base-en",
             InsertionMode = DictationInsertionMode.PreviewFirst,
             ThemePreference = AppThemePreference.Dark,
             AudioRetentionPolicy = AudioRetentionPolicy.Keep,
@@ -68,6 +69,7 @@ public sealed class JsonSettingsRepositoryTests : IDisposable
 
         Assert.Equal(settings, loaded);
         Assert.Contains("usb-microphone", await File.ReadAllTextAsync(paths.SettingsFilePath), StringComparison.Ordinal);
+        Assert.Contains("whisper-base-en", await File.ReadAllTextAsync(paths.SettingsFilePath), StringComparison.Ordinal);
     }
 
     [Fact]
@@ -92,8 +94,21 @@ public sealed class JsonSettingsRepositoryTests : IDisposable
         ShrutiSettings settings = await repository.LoadAsync(CancellationToken.None);
 
         Assert.Equal(ShrutiSettings.Default.ThemePreference, settings.ThemePreference);
+        Assert.Equal(ShrutiSettings.Default.SelectedModelId, settings.SelectedModelId);
         Assert.Equal(ShrutiSettings.Default.BackendPreference, settings.BackendPreference);
         Assert.Equal(ShrutiSettings.Default.TriggerConfiguration, settings.TriggerConfiguration);
+    }
+
+    [Fact]
+    public async Task LoadAsync_NormalizesBlankSelectedModel()
+    {
+        var paths = new AppDataPaths(_rootPath);
+        paths.EnsureCreated();
+        await File.WriteAllTextAsync(paths.SettingsFilePath, "{\"selectedModelId\":\"\"}");
+
+        ShrutiSettings settings = await new JsonSettingsRepository(paths).LoadAsync(CancellationToken.None);
+
+        Assert.Equal(ShrutiSettings.Default.SelectedModelId, settings.SelectedModelId);
     }
 
     [Fact]
