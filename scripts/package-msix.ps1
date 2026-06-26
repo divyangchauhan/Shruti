@@ -95,10 +95,10 @@ if (-not (Test-Path $manifestTemplate)) {
 }
 
 if (-not $SkipNativeBuild) {
-    Invoke-CheckedCommand (Join-Path $root "scripts\build-whispercpp.ps1") @(
-        "-Configuration", $Configuration,
-        "-GpuBackend", $GpuBackend
-    )
+    & (Join-Path $root "scripts\build-whispercpp.ps1") -Configuration $Configuration -GpuBackend $GpuBackend
+    if ($LASTEXITCODE -ne 0) {
+        throw "scripts\build-whispercpp.ps1 failed with exit code $LASTEXITCODE."
+    }
 }
 
 if (-not (Test-Path $nativeLibraryPath)) {
