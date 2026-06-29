@@ -3,12 +3,17 @@ namespace Shruti.Core.Platform;
 public sealed class TextInsertionPolicyEvaluator
 {
     private static readonly TextInsertionPolicy TerminalPreviewPolicy = new(
-        "terminal.preview-required",
-        TextInsertionPolicyMode.PreviewRequired,
-        "Terminal and shell targets require preview before insertion.");
+        "terminal.clipboard-preferred",
+        TextInsertionPolicyMode.ClipboardPastePreferred,
+        "Terminal and shell targets use paste-safe insertion without submitting Enter.");
 
     private static readonly TextInsertionPolicy OfficeClipboardPolicy = new(
         "office.clipboard-preferred",
+        TextInsertionPolicyMode.ClipboardPastePreferred,
+        "This target is more reliable with clipboard paste than direct text input.");
+
+    private static readonly TextInsertionPolicy WebViewClipboardPolicy = new(
+        "webview.clipboard-preferred",
         TextInsertionPolicyMode.ClipboardPastePreferred,
         "This target is more reliable with clipboard paste than direct text input.");
 
@@ -36,6 +41,20 @@ public sealed class TextInsertionPolicyEvaluator
                 "wt"
             ],
             TerminalPreviewPolicy),
+        new TextInsertionPolicyRule(
+            "webview-and-electron-processes",
+            [
+                "chrome",
+                "Code",
+                "Cursor",
+                "Discord",
+                "firefox",
+                "msedge",
+                "Slack",
+                "Teams",
+                "Windsurf"
+            ],
+            WebViewClipboardPolicy),
         new TextInsertionPolicyRule(
             "office-document-processes",
             [

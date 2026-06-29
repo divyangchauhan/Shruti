@@ -1227,8 +1227,8 @@ public sealed partial class MainWindow : Window
             ? "none"
             : snapshot.TargetProcessName;
 
-        return string.Join(
-            Environment.NewLine,
+        var lines = new List<string>
+        {
             $"State: {FormatState(snapshot.SessionState)}",
             $"Outcome: {snapshot.Outcome}",
             $"Target process: {targetProcess}",
@@ -1238,8 +1238,56 @@ public sealed partial class MainWindow : Window
             $"Transcript characters: {snapshot.TranscriptCharacterCount}",
             snapshot.TranscriptTextRedacted
                 ? "Transcript text: omitted"
-                : "Transcript text: not captured",
-            $"Failure summary: {snapshot.FailureSummary}");
+                : "Transcript text: not captured"
+        };
+
+        AddOptionalLine(lines, "Focus target HWND", snapshot.FocusTargetWindowHandle);
+        AddOptionalLine(lines, "Focus foreground before", snapshot.FocusForegroundWindowBefore);
+        AddOptionalLine(lines, "Focus foreground after", snapshot.FocusForegroundWindowAfter);
+        AddOptionalLine(lines, "Focus requested foreground", snapshot.FocusRequestedForeground?.ToString());
+        AddDiagnosticLine(lines, snapshot.InsertionDiagnostics, "targetWindowHandle", "Target HWND");
+        AddDiagnosticLine(lines, snapshot.InsertionDiagnostics, "targetThreadId", "Target thread");
+        AddDiagnosticLine(lines, snapshot.InsertionDiagnostics, "targetProfile", "Insertion profile");
+        AddDiagnosticLine(lines, snapshot.InsertionDiagnostics, "foregroundWindowBefore", "Foreground before");
+        AddDiagnosticLine(lines, snapshot.InsertionDiagnostics, "foregroundWindowAfter", "Foreground after");
+        AddDiagnosticLine(lines, snapshot.InsertionDiagnostics, "focusedElementAutomationId", "Focused element");
+        AddDiagnosticLine(lines, snapshot.InsertionDiagnostics, "focusedElementIsEditable", "Focused editable");
+        AddDiagnosticLine(lines, snapshot.InsertionDiagnostics, "pasteShortcut", "Paste shortcut");
+        AddDiagnosticLine(lines, snapshot.InsertionDiagnostics, "unicodeInputMode", "Unicode mode");
+        AddDiagnosticLine(lines, snapshot.InsertionDiagnostics, "sendInputOutcome", "SendInput outcome");
+        AddDiagnosticLine(lines, snapshot.InsertionDiagnostics, "sendInputSentCount", "SendInput sent");
+        AddDiagnosticLine(lines, snapshot.InsertionDiagnostics, "sendInputRequestedCount", "SendInput requested");
+        AddDiagnosticLine(lines, snapshot.InsertionDiagnostics, "sendInputLastError", "SendInput last error");
+        AddDiagnosticLine(lines, snapshot.InsertionDiagnostics, "clipboardSequenceBefore", "Clipboard sequence before");
+        AddDiagnosticLine(lines, snapshot.InsertionDiagnostics, "clipboardWriteOutcome", "Clipboard write");
+        AddDiagnosticLine(lines, snapshot.InsertionDiagnostics, "clipboardRestoreOutcome", "Clipboard restore");
+        AddDiagnosticLine(lines, snapshot.InsertionDiagnostics, "recoveryClipboardTextAvailable", "Recovery clipboard");
+        lines.Add($"Failure summary: {snapshot.FailureSummary}");
+
+        return string.Join(Environment.NewLine, lines);
+    }
+
+    private static void AddOptionalLine(
+        List<string> lines,
+        string label,
+        string? value)
+    {
+        if (!string.IsNullOrWhiteSpace(value))
+        {
+            lines.Add($"{label}: {DiagnosticTextRedactor.Redact(value)}");
+        }
+    }
+
+    private static void AddDiagnosticLine(
+        List<string> lines,
+        IReadOnlyDictionary<string, string?> diagnostics,
+        string key,
+        string label)
+    {
+        if (diagnostics.TryGetValue(key, out string? value) && !string.IsNullOrWhiteSpace(value))
+        {
+            lines.Add($"{label}: {DiagnosticTextRedactor.Redact(value)}");
+        }
     }
 
     private void UpdateFloatingMicWindow()

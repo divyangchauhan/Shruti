@@ -11,6 +11,7 @@ public sealed class WindowsTextInput : IWindowsTextInput
     private const ushort VirtualKeyShift = 0x10;
     private const ushort VirtualKeyAlt = 0x12;
     private const ushort VirtualKeyV = 0x56;
+    private const ushort VirtualKeyInsert = 0x2D;
     private const ushort VirtualKeyLeftShift = 0xA0;
     private const ushort VirtualKeyRightShift = 0xA1;
     private const ushort VirtualKeyLeftControl = 0xA2;
@@ -20,6 +21,9 @@ public sealed class WindowsTextInput : IWindowsTextInput
     private const ushort VirtualKeyLeftWindows = 0x5B;
     private const ushort VirtualKeyRightWindows = 0x5C;
     private const int KeyPressedMask = 0x8000;
+    private const int DirectUnicodeChunkLength = 256;
+    private const int SlowUnicodeChunkLength = 16;
+    private static readonly TimeSpan SlowUnicodeChunkDelay = TimeSpan.FromMilliseconds(5);
 
     internal static int NativeInputSize => Marshal.SizeOf<Input>();
 
@@ -27,34 +31,79 @@ public sealed class WindowsTextInput : IWindowsTextInput
     {
         ArgumentNullException.ThrowIfNull(text);
 
+        return SendUnicodeTextInChunks(text, DirectUnicodeChunkLength, TimeSpan.Zero);
+    }
+
+    public WindowsInputSendResult SendUnicodeTextSlow(string text)
+    {
+        ArgumentNullException.ThrowIfNull(text);
+
+        return SendUnicodeTextInChunks(text, SlowUnicodeChunkLength, SlowUnicodeChunkDelay);
+    }
+
+    public WindowsInputSendResult SendPasteShortcut(WindowsPasteShortcut shortcut = WindowsPasteShortcut.ControlV)
+    {
+        Input[] pasteInputs = shortcut switch
+        {
+            WindowsPasteShortcut.ControlV =>
+            [
+                CreateVirtualKeyInput(VirtualKeyControl, isKeyUp: false),
+                CreateVirtualKeyInput(VirtualKeyV, isKeyUp: false),
+                CreateVirtualKeyInput(VirtualKeyV, isKeyUp: true),
+                CreateVirtualKeyInput(VirtualKeyControl, isKeyUp: true)
+            ],
+            WindowsPasteShortcut.ShiftInsert =>
+            [
+                CreateVirtualKeyInput(VirtualKeyShift, isKeyUp: false),
+                CreateVirtualKeyInput(VirtualKeyInsert, isKeyUp: false),
+                CreateVirtualKeyInput(VirtualKeyInsert, isKeyUp: true),
+                CreateVirtualKeyInput(VirtualKeyShift, isKeyUp: true)
+            ],
+            WindowsPasteShortcut.ControlShiftV =>
+            [
+                CreateVirtualKeyInput(VirtualKeyControl, isKeyUp: false),
+                CreateVirtualKeyInput(VirtualKeyShift, isKeyUp: false),
+                CreateVirtualKeyInput(VirtualKeyV, isKeyUp: false),
+                CreateVirtualKeyInput(VirtualKeyV, isKeyUp: true),
+                CreateVirtualKeyInput(VirtualKeyShift, isKeyUp: true),
+                CreateVirtualKeyInput(VirtualKeyControl, isKeyUp: true)
+            ],
+            _ => throw new ArgumentOutOfRangeException(nameof(shortcut), shortcut, null)
+        };
+
+        return SendInputs(PrependPressedModifierKeyUps(pasteInputs));
+    }
+
+    private static WindowsInputSendResult SendUnicodeTextInChunks(
+        string text,
+        int chunkLength,
+        TimeSpan chunkDelay)
+    {
         if (text.Length == 0)
         {
             return WindowsInputSendResult.FromCounts(0, 0);
         }
 
-        Input[] textInputs = new Input[text.Length * 2];
-
-        for (int index = 0; index < text.Length; index++)
+        var results = new List<WindowsInputSendResult>();
+        for (int start = 0; start < text.Length; start += chunkLength)
         {
-            ushort codeUnit = text[index];
-            textInputs[index * 2] = CreateUnicodeInput(codeUnit, isKeyUp: false);
-            textInputs[(index * 2) + 1] = CreateUnicodeInput(codeUnit, isKeyUp: true);
+            int count = Math.Min(chunkLength, text.Length - start);
+            WindowsInputSendResult result = SendInputs(PrependPressedModifierKeyUps(
+                CreateUnicodeInputs(text, start, count)));
+            results.Add(result);
+
+            if (result.Outcome != WindowsInputSendOutcome.Complete)
+            {
+                break;
+            }
+
+            if (start + count < text.Length && chunkDelay > TimeSpan.Zero)
+            {
+                Thread.Sleep(chunkDelay);
+            }
         }
 
-        return SendInputs(PrependPressedModifierKeyUps(textInputs));
-    }
-
-    public WindowsInputSendResult SendPasteShortcut()
-    {
-        Input[] pasteInputs =
-        [
-            CreateVirtualKeyInput(VirtualKeyControl, isKeyUp: false),
-            CreateVirtualKeyInput(VirtualKeyV, isKeyUp: false),
-            CreateVirtualKeyInput(VirtualKeyV, isKeyUp: true),
-            CreateVirtualKeyInput(VirtualKeyControl, isKeyUp: true)
-        ];
-
-        return SendInputs(PrependPressedModifierKeyUps(pasteInputs));
+        return WindowsInputSendResult.Combine(results);
     }
 
     public WindowsInputSendResult ReleasePasteShortcutKeys()
@@ -62,6 +111,7 @@ public sealed class WindowsTextInput : IWindowsTextInput
         Input[] inputs =
         [
             CreateVirtualKeyInput(VirtualKeyV, isKeyUp: true),
+            CreateVirtualKeyInput(VirtualKeyInsert, isKeyUp: true),
             CreateVirtualKeyInput(VirtualKeyControl, isKeyUp: true),
             CreateVirtualKeyInput(VirtualKeyLeftControl, isKeyUp: true),
             CreateVirtualKeyInput(VirtualKeyRightControl, isKeyUp: true),
@@ -85,9 +135,14 @@ public sealed class WindowsTextInput : IWindowsTextInput
             inputs,
             Marshal.SizeOf<Input>());
 
+        int? lastError = sent < inputs.Length
+            ? Marshal.GetLastWin32Error()
+            : null;
+
         return WindowsInputSendResult.FromCounts(
             sent,
-            checked((uint)inputs.Length));
+            checked((uint)inputs.Length),
+            lastError);
     }
 
     private static Input[] PrependPressedModifierKeyUps(Input[] inputs)
@@ -156,6 +211,23 @@ public sealed class WindowsTextInput : IWindowsTextInput
     private static bool IsKeyPressed(ushort virtualKey)
     {
         return (NativeMethods.GetAsyncKeyState(virtualKey) & KeyPressedMask) != 0;
+    }
+
+    private static Input[] CreateUnicodeInputs(
+        string text,
+        int start,
+        int count)
+    {
+        Input[] textInputs = new Input[count * 2];
+
+        for (int index = 0; index < count; index++)
+        {
+            ushort codeUnit = text[start + index];
+            textInputs[index * 2] = CreateUnicodeInput(codeUnit, isKeyUp: false);
+            textInputs[(index * 2) + 1] = CreateUnicodeInput(codeUnit, isKeyUp: true);
+        }
+
+        return textInputs;
     }
 
     private static Input CreateUnicodeInput(ushort codeUnit, bool isKeyUp)
