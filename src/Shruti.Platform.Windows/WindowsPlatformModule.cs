@@ -6,7 +6,7 @@ public sealed class WindowsPlatformModule
 {
     public string Name => "Windows desktop integration";
 
-    public ITargetFocusService CreateTargetFocusService()
+    public WindowsTargetFocusService CreateTargetFocusService()
     {
         return new WindowsTargetFocusService();
     }

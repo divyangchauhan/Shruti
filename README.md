@@ -14,7 +14,7 @@ Shruti is under active development and is not packaged for end users yet. The Wi
 - Local `whisper.cpp` transcription with live partial text and a final transcript.
 - Auto-insert, preview-before-insert, and copy-only dictation modes.
 - Direct text insertion with clipboard fallback when direct insertion is unavailable.
-- A default `Ctrl+Win+Space` hold-to-dictate shortcut, tray control, and optional floating microphone control. Press `Ctrl+Alt+M` to show or hide the floating control for the current session. Closing the main window keeps Shruti running in the Windows notification area; launching Shruti again restores the running instance instead of opening a duplicate. Right-click the tray icon and choose **Exit Shruti** to stop the process.
+- A default `Ctrl+Win+Space` hold-to-dictate shortcut, tray control, and optional floating microphone control. Press `Ctrl+Alt+M` to show or hide the floating control for the current session. Closing the main window keeps Shruti running in the Windows notification area; launching Shruti again restores the running instance instead of opening a duplicate. Right-click the tray icon and choose **Exit Shruti** to stop the process. `Ctrl+Win+Space` overlaps Windows' input-language shortcut, so the text injector clears active shortcut modifiers before sending the final transcript.
 - Local model download, verification, import, and removal primitives.
 - System, light, and dark theme preferences.
 
@@ -102,6 +102,8 @@ The app expects the recommended `ggml-tiny.en.bin` model in `%LOCALAPPDATA%\Shru
 - [Architecture](architecture.md)
 - [Implementation roadmap](tasks.md)
 - [Model catalog schema](docs/model-catalog.schema.json)
+- [App compatibility matrix](docs/app-compatibility-matrix.md)
+- [Manual QA checklist](docs/manual-qa-checklist.md)
 
 ## Contributing
 

@@ -70,6 +70,142 @@ public sealed class WindowsTargetFocusServiceTests
     }
 
     [Fact]
+    public async Task CaptureCurrentTargetAsync_UsesLastExternalTargetWhenForegroundIsShrutiWindow()
+    {
+        var externalHandle = new IntPtr(700);
+        var shrutiHandle = new IntPtr(701);
+        const int shrutiProcessId = 999;
+        var windowing = new FakeWindowing
+        {
+            ForegroundWindow = externalHandle,
+            ExistingWindow = externalHandle,
+            CapturedWindow = new WindowsWindowSnapshot(
+                externalHandle,
+                ProcessId: 1234,
+                ThreadId: 5678,
+                WindowTitle: "Untitled - Notepad")
+        };
+        var processInspector = new FakeProcessInspector(
+            new WindowsProcessSnapshot(
+                ProcessId: 1234,
+                ProcessName: "notepad",
+                IsElevated: false),
+            new WindowsProcessSnapshot(
+                ProcessId: shrutiProcessId,
+                ProcessName: "Shruti.App.WinUI",
+                IsElevated: false));
+        var service = CreateService(
+            windowing,
+            processInspector,
+            new FakeFocusedElementInspector(
+                new FocusedElementSnapshot(
+                    AutomationElementId: "Edit",
+                    IsEditable: true,
+                    HasSelectedText: false)),
+            currentProcessId: shrutiProcessId);
+
+        await service.RememberCurrentForegroundTargetAsync(CancellationToken.None);
+
+        windowing.ForegroundWindow = shrutiHandle;
+        windowing.CapturedWindow = new WindowsWindowSnapshot(
+            shrutiHandle,
+            ProcessId: shrutiProcessId,
+            ThreadId: 9876,
+            WindowTitle: "Shruti");
+
+        FocusTarget? target = await service.CaptureCurrentTargetAsync(CancellationToken.None);
+
+        Assert.NotNull(target);
+        Assert.Equal(externalHandle, target.WindowHandle);
+        Assert.Equal("notepad", target.ProcessName);
+        Assert.Equal("Untitled - Notepad", target.WindowTitle);
+        Assert.True(target.IsEditable);
+        Assert.False(target.HasSelectedText);
+    }
+
+    [Fact]
+    public async Task ForegroundWindowChange_RemembersExternalTargetBeforeShrutiBecomesForeground()
+    {
+        var externalHandle = new IntPtr(750);
+        var shrutiHandle = new IntPtr(751);
+        const int shrutiProcessId = 999;
+        var windowing = new FakeWindowing
+        {
+            ExistingWindow = externalHandle,
+            CapturedWindow = new WindowsWindowSnapshot(
+                externalHandle,
+                ProcessId: 1234,
+                ThreadId: 5678,
+                WindowTitle: "Untitled - Notepad")
+        };
+        var foregroundTracker = new FakeForegroundWindowTracker();
+        var service = CreateService(
+            windowing,
+            new FakeProcessInspector(
+                new WindowsProcessSnapshot(
+                    ProcessId: 1234,
+                    ProcessName: "notepad",
+                    IsElevated: false),
+                new WindowsProcessSnapshot(
+                    ProcessId: shrutiProcessId,
+                    ProcessName: "Shruti.App.WinUI",
+                    IsElevated: false)),
+            new FakeFocusedElementInspector(
+                new FocusedElementSnapshot(
+                    AutomationElementId: "Edit",
+                    IsEditable: true,
+                    HasSelectedText: false)),
+            currentProcessId: shrutiProcessId,
+            foregroundWindowTracker: foregroundTracker);
+
+        foregroundTracker.Publish(externalHandle);
+
+        windowing.ForegroundWindow = shrutiHandle;
+        windowing.CapturedWindow = new WindowsWindowSnapshot(
+            shrutiHandle,
+            ProcessId: shrutiProcessId,
+            ThreadId: 9876,
+            WindowTitle: "Shruti");
+
+        FocusTarget? target = await service.CaptureCurrentTargetAsync(CancellationToken.None);
+
+        Assert.True(foregroundTracker.Started);
+        Assert.NotNull(target);
+        Assert.Equal(externalHandle, target.WindowHandle);
+        Assert.Equal("notepad", target.ProcessName);
+        Assert.True(target.IsEditable);
+        Assert.False(target.HasSelectedText);
+    }
+
+    [Fact]
+    public async Task CaptureCurrentTargetAsync_ReturnsNullWhenForegroundIsShrutiWindowWithoutCachedExternalTarget()
+    {
+        var shrutiHandle = new IntPtr(800);
+        const int shrutiProcessId = 999;
+        var service = CreateService(
+            new FakeWindowing
+            {
+                ForegroundWindow = shrutiHandle,
+                CapturedWindow = new WindowsWindowSnapshot(
+                    shrutiHandle,
+                    ProcessId: shrutiProcessId,
+                    ThreadId: 9876,
+                    WindowTitle: "Shruti")
+            },
+            new FakeProcessInspector(
+                new WindowsProcessSnapshot(
+                    ProcessId: shrutiProcessId,
+                    ProcessName: "Shruti.App.WinUI",
+                    IsElevated: false)),
+            new FakeFocusedElementInspector(),
+            currentProcessId: shrutiProcessId);
+
+        FocusTarget? target = await service.CaptureCurrentTargetAsync(CancellationToken.None);
+
+        Assert.Null(target);
+    }
+
+    [Fact]
     public async Task CaptureCurrentTargetAsync_ReturnsNullWhenNoForegroundWindowExists()
     {
         var service = CreateService(
@@ -177,13 +313,17 @@ public sealed class WindowsTargetFocusServiceTests
     private static WindowsTargetFocusService CreateService(
         IWindowsWindowing windowing,
         IWindowsProcessInspector processInspector,
-        IWindowsFocusedElementInspector focusedElementInspector)
+        IWindowsFocusedElementInspector focusedElementInspector,
+        int? currentProcessId = null,
+        IWindowsForegroundWindowTracker? foregroundWindowTracker = null)
     {
         return new WindowsTargetFocusService(
             windowing,
             processInspector,
             focusedElementInspector,
-            focusSettleDelay: TimeSpan.Zero);
+            focusSettleDelay: TimeSpan.Zero,
+            currentProcessId: currentProcessId,
+            foregroundWindowTracker: foregroundWindowTracker ?? new FakeForegroundWindowTracker());
     }
 
     private static FocusTarget CreateTarget(IntPtr handle)
@@ -254,16 +394,18 @@ public sealed class WindowsTargetFocusServiceTests
 
     private sealed class FakeProcessInspector : IWindowsProcessInspector
     {
-        private readonly WindowsProcessSnapshot? _process;
+        private readonly IReadOnlyDictionary<int, WindowsProcessSnapshot> _processes;
 
-        public FakeProcessInspector(WindowsProcessSnapshot? process = null)
+        public FakeProcessInspector(params WindowsProcessSnapshot[] processes)
         {
-            _process = process;
+            _processes = processes.ToDictionary(process => process.ProcessId);
         }
 
         public WindowsProcessSnapshot? Inspect(int processId)
         {
-            return _process?.ProcessId == processId ? _process : null;
+            return _processes.TryGetValue(processId, out WindowsProcessSnapshot? process)
+                ? process
+                : null;
         }
     }
 
@@ -279,6 +421,30 @@ public sealed class WindowsTargetFocusServiceTests
         public FocusedElementSnapshot? CaptureFocusedElement(IntPtr ownerWindowHandle)
         {
             return _focusedElement;
+        }
+    }
+
+    private sealed class FakeForegroundWindowTracker : IWindowsForegroundWindowTracker
+    {
+        public event EventHandler<IntPtr>? ForegroundWindowChanged;
+
+        public bool Started { get; private set; }
+
+        public bool Disposed { get; private set; }
+
+        public void Start()
+        {
+            Started = true;
+        }
+
+        public void Publish(IntPtr windowHandle)
+        {
+            ForegroundWindowChanged?.Invoke(this, windowHandle);
+        }
+
+        public void Dispose()
+        {
+            Disposed = true;
         }
     }
 }

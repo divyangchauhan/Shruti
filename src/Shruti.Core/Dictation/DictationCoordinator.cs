@@ -303,9 +303,9 @@ public sealed class DictationCoordinator
             .InsertAsync(target, transcript.Text, insertionOptions, cancellationToken)
             .ConfigureAwait(false);
 
-        transition(DictationSessionState.Complete, insertionResult.Inserted ? "Complete" : "Preview required");
+        transition(DictationSessionState.Complete, insertionResult.Succeeded ? "Complete" : "Preview required");
 
-        if (insertionResult.Inserted)
+        if (insertionResult.Succeeded)
         {
             return new DictationRunResult(
                 DictationRunOutcome.Inserted,

@@ -4,12 +4,17 @@ namespace Shruti.Platform.Windows;
 
 public sealed class WindowsTextInsertionService : ITextInsertionService
 {
+    private static readonly TimeSpan DefaultFocusedElementSettleDelay = TimeSpan.FromMilliseconds(50);
+    private const int DefaultFocusedElementInspectionAttempts = 3;
+
     private readonly IWindowsWindowing _windowing;
     private readonly IWindowsTextInput _textInput;
     private readonly IWindowsClipboard _clipboard;
     private readonly IWindowsFocusedElementInspector _focusedElementInspector;
     private readonly TextInsertionPolicyEvaluator _policyEvaluator;
     private readonly TimeSpan _clipboardPasteSettleDelay;
+    private readonly TimeSpan _focusedElementSettleDelay;
+    private readonly int _focusedElementInspectionAttempts;
 
     public WindowsTextInsertionService()
         : this(
@@ -27,7 +32,9 @@ public sealed class WindowsTextInsertionService : ITextInsertionService
         IWindowsClipboard clipboard,
         IWindowsFocusedElementInspector focusedElementInspector,
         TimeSpan? clipboardPasteSettleDelay = null,
-        TextInsertionPolicyEvaluator? policyEvaluator = null)
+        TextInsertionPolicyEvaluator? policyEvaluator = null,
+        TimeSpan? focusedElementSettleDelay = null,
+        int focusedElementInspectionAttempts = DefaultFocusedElementInspectionAttempts)
     {
         _windowing = windowing ?? throw new ArgumentNullException(nameof(windowing));
         _textInput = textInput ?? throw new ArgumentNullException(nameof(textInput));
@@ -36,6 +43,8 @@ public sealed class WindowsTextInsertionService : ITextInsertionService
             throw new ArgumentNullException(nameof(focusedElementInspector));
         _policyEvaluator = policyEvaluator ?? new TextInsertionPolicyEvaluator();
         _clipboardPasteSettleDelay = clipboardPasteSettleDelay ?? TimeSpan.FromMilliseconds(100);
+        _focusedElementSettleDelay = focusedElementSettleDelay ?? DefaultFocusedElementSettleDelay;
+        _focusedElementInspectionAttempts = Math.Max(1, focusedElementInspectionAttempts);
     }
 
     public Task<TextInsertionCapability> InspectAsync(
@@ -84,7 +93,11 @@ public sealed class WindowsTextInsertionService : ITextInsertionService
         ArgumentNullException.ThrowIfNull(options);
         cancellationToken.ThrowIfCancellationRequested();
 
-        TextInsertionResult? safetyFailure = ValidateTargetForInsertion(target, options);
+        TextInsertionResult? safetyFailure = await ValidateTargetForInsertionAsync(
+                target,
+                options,
+                cancellationToken)
+            .ConfigureAwait(false);
         if (safetyFailure is not null)
         {
             return safetyFailure;
@@ -186,12 +199,14 @@ public sealed class WindowsTextInsertionService : ITextInsertionService
             TextInsertionMethod.ClipboardPaste,
             restoreResult.Outcome == WindowsClipboardRestoreOutcome.Failed
                 ? "Clipboard paste was submitted but cannot be confirmed, and Shruti could not restore the previous clipboard text."
-                : "Clipboard paste was submitted but cannot be confirmed.");
+                : "Clipboard paste was submitted but cannot be confirmed.",
+            Submitted: true);
     }
 
-    private TextInsertionResult? ValidateTargetForInsertion(
+    private async Task<TextInsertionResult?> ValidateTargetForInsertionAsync(
         FocusTarget target,
-        TextInsertionOptions options)
+        TextInsertionOptions options,
+        CancellationToken cancellationToken)
     {
         CapturedTargetSafetyFailure? safetyFailure = GetCapturedTargetSafetyFailure(target);
         if (safetyFailure is not null)
@@ -205,31 +220,53 @@ public sealed class WindowsTextInsertionService : ITextInsertionService
                 "The target has selected text. Enable explicit replacement permission before inserting.");
         }
 
-        FocusedElementSnapshot? currentFocusedElement =
-            _focusedElementInspector.CaptureFocusedElement(target.WindowHandle);
+        FocusedElementSnapshot? currentFocusedElement = await CaptureFocusedElementAsync(
+                target.WindowHandle,
+                cancellationToken)
+            .ConfigureAwait(false);
 
         if (currentFocusedElement is null)
         {
-            return Failure("Shruti could not re-confirm the focused editable field before insertion.");
+            return null;
         }
 
-        if (currentFocusedElement.IsEditable is not true)
+        if (currentFocusedElement.IsEditable == false)
         {
-            return Failure(
-                currentFocusedElement.IsEditable is null
-                    ? "Shruti could not re-confirm that the focused field is editable."
-                    : "The currently focused field is not editable.");
-        }
-
-        if (currentFocusedElement.HasSelectedText is null)
-        {
-            return Failure("Shruti could not re-confirm whether the focused field has selected text.");
+            return Failure("The currently focused field is not editable.");
         }
 
         if (currentFocusedElement.HasSelectedText == true && !options.AllowReplacingSelection)
         {
             return Failure(
                 "The currently focused field has selected text. Enable explicit replacement permission before inserting.");
+        }
+
+        return null;
+    }
+
+    private async Task<FocusedElementSnapshot?> CaptureFocusedElementAsync(
+        IntPtr ownerWindowHandle,
+        CancellationToken cancellationToken)
+    {
+        for (int attempt = 1; attempt <= _focusedElementInspectionAttempts; attempt++)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            FocusedElementSnapshot? snapshot = _focusedElementInspector.CaptureFocusedElement(ownerWindowHandle);
+            if (snapshot is not null &&
+                snapshot.IsEditable is not null)
+            {
+                return snapshot;
+            }
+
+            if (attempt == _focusedElementInspectionAttempts)
+            {
+                return snapshot;
+            }
+
+            if (_focusedElementSettleDelay > TimeSpan.Zero)
+            {
+                await Task.Delay(_focusedElementSettleDelay, cancellationToken).ConfigureAwait(false);
+            }
         }
 
         return null;
@@ -247,20 +284,14 @@ public sealed class WindowsTextInsertionService : ITextInsertionService
             return new CapturedTargetSafetyFailure(false, "Shruti cannot safely insert into an elevated target app.");
         }
 
-        if (target.IsEditable is not true)
+        if (target.IsEditable == false)
         {
             return new CapturedTargetSafetyFailure(
                 false,
-                target.IsEditable is null
-                    ? "Shruti could not confirm that the captured target is editable."
-                    : "The captured target does not expose an editable field.");
+                "The captured target does not expose an editable field.");
         }
 
-        return target.HasSelectedText is null
-            ? new CapturedTargetSafetyFailure(
-                false,
-                "Shruti could not determine whether the captured target has selected text.")
-            : null;
+        return null;
     }
 
     private static TextInsertionCapability Unsupported(string message)

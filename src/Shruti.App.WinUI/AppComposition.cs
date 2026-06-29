@@ -24,7 +24,7 @@ public sealed class AppComposition
     private readonly WhisperCppTranscriptionProvider transcriptionProvider = new(
         new WhisperCppTranscriptionEngine(new WhisperCppNativeApi()));
     private readonly TranscriptionOptionsProvider transcriptionOptionsProvider;
-    private readonly ITargetFocusService targetFocusService;
+    private readonly WindowsTargetFocusService targetFocusService;
     private readonly ITextInsertionService textInsertionService;
 
     public AppComposition()
@@ -69,6 +69,7 @@ public sealed class AppComposition
             modelCatalog,
             modelManager,
             triggerRouter,
+            targetFocusService,
             platformModule.CreateGlobalTriggerService(),
             platformModule.CreateTrayIconService(),
             platformModule.CreateWindowVisibility());

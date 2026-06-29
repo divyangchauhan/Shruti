@@ -2,7 +2,7 @@
 
 Date: 2026-06-19
 
-Status: PR-24 installer complete; PR-25 manual QA planned.
+Status: PR-24 installer complete; PR-25 manual QA in progress.
 
 This plan turns `features.md` and `architecture.md` into an implementation roadmap. It assumes Windows-first development with WinUI 3, Windows App SDK, local transcription, and immediate system-wide text insertion as the central workflow.
 
@@ -365,7 +365,7 @@ Acceptance criteria:
 | PR-22 | Done | 2026-08-05 | Per-app insertion policies and compatibility matrix | App-specific insertion reliability |
 | PR-23 | Done | 2026-08-07 | Error handling, privacy copy, diagnostics, accessibility pass | User trust and recoverability |
 | PR-24 | Done | 2026-08-09 | MSIX installer foundation, native DLL inclusion, package script, and CI package artifact | Installable Windows app |
-| PR-25 | Planned | 2026-08-12 | Manual QA fixes across Notepad, browser, Codex-style field, Word, Terminal, Electron, elevated app | Windows compatibility |
+| PR-25 | In Progress | 2026-08-12 | Manual QA fixes across Notepad, browser, Codex-style field, Word, Terminal, Electron, elevated app, UIA-limited editors, and shortcut modifier cleanup | Windows compatibility |
 
 ### Phase 5: Packaging
 

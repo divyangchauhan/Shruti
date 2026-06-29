@@ -18,8 +18,10 @@ public sealed class WindowsPushToTalkHook : IWindowsPushToTalkHook
     private const int KeyPressedMask = 0x8000;
 
     private readonly NativeMethods.LowLevelKeyboardProc _callback;
+    private readonly object _releaseSync = new();
     private IntPtr _hookHandle;
     private WindowsHotkey? _hotkey;
+    private CancellationTokenSource? _releasePollingCancellation;
     private bool _isPressed;
     private bool _isMainKeySuppressed;
     private bool _isDisposed;
@@ -96,7 +98,7 @@ public sealed class WindowsPushToTalkHook : IWindowsPushToTalkHook
                 }
                 else if (message is KeyUp or SystemKeyUp)
                 {
-                    RaiseKeyStateChanged(isPressed: false);
+                    QueueReleaseWhenHotkeyKeysAreUp(hotkey);
                     suppressKey = _isMainKeySuppressed;
                     _isMainKeySuppressed = false;
                 }
@@ -109,7 +111,7 @@ public sealed class WindowsPushToTalkHook : IWindowsPushToTalkHook
                 (message is KeyUp or SystemKeyUp) &&
                 IsRequiredModifier(keyboardData.VirtualKey, hotkey.Modifiers))
             {
-                RaiseKeyStateChanged(isPressed: false);
+                QueueReleaseWhenHotkeyKeysAreUp(hotkey);
             }
         }
 
@@ -125,6 +127,16 @@ public sealed class WindowsPushToTalkHook : IWindowsPushToTalkHook
             (!HasModifier(modifiers, WindowsHotkeyParser.AltModifier) || IsKeyPressed(AltVirtualKey)) &&
             (!HasModifier(modifiers, WindowsHotkeyParser.WindowsModifier) ||
                 IsKeyPressed(LeftWindowsVirtualKey) || IsKeyPressed(RightWindowsVirtualKey));
+    }
+
+    private static bool IsHotkeyKeyStillPressed(WindowsHotkey hotkey)
+    {
+        return IsKeyPressed(hotkey.VirtualKey) ||
+            (HasModifier(hotkey.Modifiers, WindowsHotkeyParser.ControlModifier) && IsKeyPressed(ControlVirtualKey)) ||
+            (HasModifier(hotkey.Modifiers, WindowsHotkeyParser.ShiftModifier) && IsKeyPressed(ShiftVirtualKey)) ||
+            (HasModifier(hotkey.Modifiers, WindowsHotkeyParser.AltModifier) && IsKeyPressed(AltVirtualKey)) ||
+            (HasModifier(hotkey.Modifiers, WindowsHotkeyParser.WindowsModifier) &&
+                (IsKeyPressed(LeftWindowsVirtualKey) || IsKeyPressed(RightWindowsVirtualKey)));
     }
 
     private static bool IsRequiredModifier(uint virtualKey, uint modifiers)
@@ -168,8 +180,43 @@ public sealed class WindowsPushToTalkHook : IWindowsPushToTalkHook
         }
     }
 
+    private void QueueReleaseWhenHotkeyKeysAreUp(WindowsHotkey hotkey)
+    {
+        lock (_releaseSync)
+        {
+            if (!_isPressed)
+            {
+                return;
+            }
+
+            _releasePollingCancellation?.Cancel();
+            _releasePollingCancellation?.Dispose();
+            _releasePollingCancellation = new CancellationTokenSource();
+            _ = ReleaseWhenHotkeyKeysAreUpAsync(hotkey, _releasePollingCancellation.Token);
+        }
+    }
+
+    private async Task ReleaseWhenHotkeyKeysAreUpAsync(
+        WindowsHotkey hotkey,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            while (IsHotkeyKeyStillPressed(hotkey))
+            {
+                await Task.Delay(TimeSpan.FromMilliseconds(15), cancellationToken).ConfigureAwait(false);
+            }
+
+            RaiseKeyStateChanged(isPressed: false);
+        }
+        catch (OperationCanceledException)
+        {
+        }
+    }
+
     private void UninstallHook()
     {
+        CancelReleasePolling();
         if (_hookHandle == IntPtr.Zero)
         {
             _isPressed = false;
@@ -181,6 +228,16 @@ public sealed class WindowsPushToTalkHook : IWindowsPushToTalkHook
         _hookHandle = IntPtr.Zero;
         _isPressed = false;
         _isMainKeySuppressed = false;
+    }
+
+    private void CancelReleasePolling()
+    {
+        lock (_releaseSync)
+        {
+            _releasePollingCancellation?.Cancel();
+            _releasePollingCancellation?.Dispose();
+            _releasePollingCancellation = null;
+        }
     }
 
     private static class NativeMethods

@@ -163,6 +163,32 @@ public sealed class DictationCoordinatorTests
     }
 
     [Fact]
+    public async Task ClipboardPasteSubmission_CompletesAsInsertedWorkflow()
+    {
+        var services = TestServices.Create(
+            capability: new TextInsertionCapability(
+                TextInsertionCapabilityOutcome.ClipboardFallbackOnly,
+                TextInsertionMethod.ClipboardPaste,
+                "This target is more reliable with clipboard paste than direct text input."),
+            insertionResult: new TextInsertionResult(
+                Inserted: false,
+                TextInsertionMethod.ClipboardPaste,
+                "Clipboard paste was submitted but cannot be confirmed.",
+                Submitted: true));
+        var request = DictationRequest.AutoInsert(CreateTranscriptionOptions());
+
+        var result = await services.Coordinator.RunOnceAsync(request, CancellationToken.None);
+
+        Assert.Equal(DictationRunOutcome.Inserted, result.Outcome);
+        Assert.True(result.Inserted);
+        Assert.False(result.InsertionResult?.Inserted);
+        Assert.True(result.InsertionResult?.Submitted);
+        Assert.Equal("Clipboard paste was submitted but cannot be confirmed.", result.Message);
+        Assert.Equal(1, services.TargetFocus.RestoreCount);
+        Assert.Equal(1, services.TextInsertion.InsertCount);
+    }
+
+    [Fact]
     public async Task StatusHistory_FollowsExpectedCoreStates()
     {
         var services = TestServices.Create();
@@ -234,6 +260,7 @@ public sealed class DictationCoordinatorTests
 
         public static TestServices Create(
             TextInsertionCapability? capability = null,
+            TextInsertionResult? insertionResult = null,
             Action? onComplete = null,
             bool reachMaximumAudioDurationAfterFirstPush = false)
         {
@@ -247,7 +274,7 @@ public sealed class DictationCoordinatorTests
                 capability ?? new TextInsertionCapability(
                     TextInsertionCapabilityOutcome.DirectInputAvailable,
                     TextInsertionMethod.DirectInput),
-                new TextInsertionResult(
+                insertionResult ?? new TextInsertionResult(
                     Inserted: true,
                     TextInsertionMethod.DirectInput));
             var transcription = new FakeTranscriptionProvider(onComplete, reachMaximumAudioDurationAfterFirstPush);

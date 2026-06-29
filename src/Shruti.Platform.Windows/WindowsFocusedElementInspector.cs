@@ -1,25 +1,13 @@
 using System.Runtime.InteropServices;
+using System.Windows.Automation;
+using System.Windows.Automation.Text;
 
 namespace Shruti.Platform.Windows;
 
 public sealed class WindowsFocusedElementInspector : IWindowsFocusedElementInspector
 {
-    private const int ValuePatternId = 10002;
-    private const int TextPatternId = 10014;
     private const int EditControlTypeId = 50004;
     private const int DocumentControlTypeId = 50030;
-
-    private readonly IWindowsAutomationClientFactory _automationClientFactory;
-
-    public WindowsFocusedElementInspector()
-        : this(new WindowsAutomationClientFactory())
-    {
-    }
-
-    public WindowsFocusedElementInspector(IWindowsAutomationClientFactory automationClientFactory)
-    {
-        _automationClientFactory = automationClientFactory ?? throw new ArgumentNullException(nameof(automationClientFactory));
-    }
 
     public FocusedElementSnapshot? CaptureFocusedElement(IntPtr ownerWindowHandle)
     {
@@ -30,20 +18,14 @@ public sealed class WindowsFocusedElementInspector : IWindowsFocusedElementInspe
 
         try
         {
-            dynamic? automation = _automationClientFactory.CreateAutomationClient();
-            if (automation is null)
-            {
-                return null;
-            }
-
-            dynamic focusedElement = automation.GetFocusedElement();
-            if (!BelongsToOwnerWindow(automation, focusedElement, ownerWindowHandle))
+            AutomationElement focusedElement = AutomationElement.FocusedElement;
+            if (!BelongsToOwnerWindow(focusedElement, ownerWindowHandle))
             {
                 return null;
             }
 
             return new FocusedElementSnapshot(
-                Normalize(ReadString(focusedElement, "CurrentAutomationId")),
+                Normalize(ReadAutomationId(focusedElement)),
                 InspectEditability(focusedElement),
                 InspectSelectedText(focusedElement));
         }
@@ -51,54 +33,72 @@ public sealed class WindowsFocusedElementInspector : IWindowsFocusedElementInspe
         {
             return null;
         }
-        catch (InvalidOperationException)
+        catch (ElementNotAvailableException)
         {
             return null;
         }
-        catch (Exception ex) when (IsAutomationFailure(ex))
+        catch (InvalidOperationException)
         {
             return null;
         }
     }
 
     private static bool BelongsToOwnerWindow(
-        dynamic automation,
-        dynamic element,
+        AutomationElement element,
         IntPtr ownerWindowHandle)
     {
         int ownerNativeHandle = unchecked((int)ownerWindowHandle.ToInt64());
-        dynamic? current = element;
+        int ownerProcessId = GetWindowProcessId(ownerWindowHandle);
+        int? elementProcessId = ReadProcessId(element);
+        if (ownerProcessId > 0 && elementProcessId == ownerProcessId)
+        {
+            return true;
+        }
 
+        AutomationElement? current = element;
         for (int depth = 0; current is not null && depth < 32; depth++)
         {
-            int? nativeWindowHandle = ReadInt(current, "CurrentNativeWindowHandle");
+            int? nativeWindowHandle = ReadNativeWindowHandle(current);
             if (nativeWindowHandle == ownerNativeHandle)
             {
                 return true;
             }
 
-            current = automation.ControlViewWalker.GetParentElement(current);
+            try
+            {
+                current = TreeWalker.ControlViewWalker.GetParent(current);
+            }
+            catch (ElementNotAvailableException)
+            {
+                return false;
+            }
+            catch (InvalidOperationException)
+            {
+                return false;
+            }
         }
 
         return false;
     }
 
-    private static bool? InspectEditability(dynamic element)
+    private static bool? InspectEditability(AutomationElement element)
     {
         try
         {
-            dynamic valuePattern = element.GetCurrentPattern(ValuePatternId);
-            bool? isReadOnly = ReadBool(valuePattern, "CurrentIsReadOnly");
-            if (isReadOnly.HasValue)
+            if (element.TryGetCurrentPattern(ValuePattern.Pattern, out object valuePattern) &&
+                valuePattern is ValuePattern pattern)
             {
-                return !isReadOnly.Value;
+                return !pattern.Current.IsReadOnly;
             }
         }
-        catch (Exception ex) when (IsAutomationFailure(ex))
+        catch (InvalidOperationException)
+        {
+        }
+        catch (ElementNotAvailableException)
         {
         }
 
-        int? controlType = ReadInt(element, "CurrentControlType");
+        int? controlType = ReadControlTypeId(element);
         if (controlType is EditControlTypeId or DocumentControlTypeId)
         {
             return true;
@@ -107,14 +107,17 @@ public sealed class WindowsFocusedElementInspector : IWindowsFocusedElementInspe
         return null;
     }
 
-    private static bool? InspectSelectedText(dynamic element)
+    private static bool? InspectSelectedText(AutomationElement element)
     {
         try
         {
-            dynamic textPattern = element.GetCurrentPattern(TextPatternId);
-            Array selection = textPattern.GetSelection();
+            if (!element.TryGetCurrentPattern(TextPattern.Pattern, out object textPattern) ||
+                textPattern is not TextPattern pattern)
+            {
+                return null;
+            }
 
-            foreach (dynamic range in selection)
+            foreach (TextPatternRange range in pattern.GetSelection())
             {
                 string? selectedText = range.GetText(-1);
                 if (!string.IsNullOrEmpty(selectedText))
@@ -125,76 +128,99 @@ public sealed class WindowsFocusedElementInspector : IWindowsFocusedElementInspe
 
             return false;
         }
-        catch (Exception ex) when (IsAutomationFailure(ex))
+        catch (InvalidOperationException)
+        {
+            return null;
+        }
+        catch (ElementNotAvailableException)
         {
             return null;
         }
     }
 
-    private static string? ReadString(dynamic source, string propertyName)
+    private static string? ReadAutomationId(AutomationElement element)
     {
         try
         {
-            return propertyName switch
-            {
-                "CurrentAutomationId" => source.CurrentAutomationId,
-                _ => null
-            };
+            return element.Current.AutomationId;
         }
-        catch (Exception ex) when (IsAutomationFailure(ex))
+        catch (InvalidOperationException)
+        {
+            return null;
+        }
+        catch (ElementNotAvailableException)
         {
             return null;
         }
     }
 
-    private static int? ReadInt(dynamic source, string propertyName)
+    private static int? ReadProcessId(AutomationElement element)
     {
         try
         {
-            object? value = propertyName switch
-            {
-                "CurrentNativeWindowHandle" => source.CurrentNativeWindowHandle,
-                "CurrentControlType" => source.CurrentControlType,
-                _ => null
-            };
-
-            return value is null ? null : Convert.ToInt32(value);
+            return element.Current.ProcessId;
         }
-        catch (Exception ex) when (IsAutomationFailure(ex))
+        catch (InvalidOperationException)
+        {
+            return null;
+        }
+        catch (ElementNotAvailableException)
         {
             return null;
         }
     }
 
-    private static bool? ReadBool(dynamic source, string propertyName)
+    private static int? ReadNativeWindowHandle(AutomationElement element)
     {
         try
         {
-            object? value = propertyName switch
-            {
-                "CurrentIsReadOnly" => source.CurrentIsReadOnly,
-                _ => null
-            };
-
-            return value is null ? null : Convert.ToBoolean(value);
+            return element.Current.NativeWindowHandle;
         }
-        catch (Exception ex) when (IsAutomationFailure(ex))
+        catch (InvalidOperationException)
+        {
+            return null;
+        }
+        catch (ElementNotAvailableException)
         {
             return null;
         }
     }
 
-    private static bool IsAutomationFailure(Exception ex)
+    private static int? ReadControlTypeId(AutomationElement element)
     {
-        return ex is COMException
-            or InvalidOperationException
-            or NotSupportedException
-            or MissingMethodException
-            || ex.GetType().FullName == "Microsoft.CSharp.RuntimeBinder.RuntimeBinderException";
+        try
+        {
+            return element.Current.ControlType.Id;
+        }
+        catch (InvalidOperationException)
+        {
+            return null;
+        }
+        catch (ElementNotAvailableException)
+        {
+            return null;
+        }
     }
 
     private static string? Normalize(string? value)
     {
         return string.IsNullOrWhiteSpace(value) ? null : value;
+    }
+
+    private static int GetWindowProcessId(IntPtr windowHandle)
+    {
+        if (windowHandle == IntPtr.Zero)
+        {
+            return 0;
+        }
+
+        uint threadId = NativeMethods.GetWindowThreadProcessId(windowHandle, out uint processId);
+        return threadId == 0 || processId == 0 ? 0 : checked((int)processId);
+    }
+
+    private static class NativeMethods
+    {
+        [DllImport("user32.dll", SetLastError = true)]
+        public static extern uint GetWindowThreadProcessId(IntPtr windowHandle, out uint processId);
     }
 }
