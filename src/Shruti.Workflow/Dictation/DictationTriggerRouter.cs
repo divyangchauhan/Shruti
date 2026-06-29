@@ -4,6 +4,8 @@ namespace Shruti.Workflow.Dictation;
 
 public sealed class DictationTriggerRouter
 {
+    private static readonly TimeSpan ShortcutSettleDelay = TimeSpan.FromMilliseconds(350);
+
     private readonly DictationShellController _controller;
 
     public DictationTriggerRouter(DictationShellController controller)
@@ -23,25 +25,14 @@ public sealed class DictationTriggerRouter
         switch (trigger.Kind)
         {
             case DictationTriggerKind.PushToTalkPressed:
-                if (!_controller.State.IsRunning)
-                {
-                    await _controller
-                        .RunInsertionCompatibilityTestAsync()
-                        .ConfigureAwait(false);
-                }
-
                 break;
 
             case DictationTriggerKind.PushToTalkReleased:
+                await RunShortcutInsertionCompatibilityTestAsync(cancellationToken).ConfigureAwait(false);
                 break;
 
             case DictationTriggerKind.GlobalHotkey:
-                if (!_controller.State.IsRunning)
-                {
-                    await _controller
-                        .RunInsertionCompatibilityTestAsync()
-                        .ConfigureAwait(false);
-                }
+                await RunShortcutInsertionCompatibilityTestAsync(cancellationToken).ConfigureAwait(false);
 
                 break;
 
@@ -67,6 +58,20 @@ public sealed class DictationTriggerRouter
 
             default:
                 throw new ArgumentOutOfRangeException(nameof(trigger));
+        }
+    }
+
+    private async Task RunShortcutInsertionCompatibilityTestAsync(CancellationToken cancellationToken)
+    {
+        if (_controller.State.IsRunning)
+        {
+            return;
+        }
+
+        await Task.Delay(ShortcutSettleDelay, cancellationToken).ConfigureAwait(false);
+        if (!_controller.State.IsRunning)
+        {
+            await _controller.RunInsertionCompatibilityTestAsync().ConfigureAwait(false);
         }
     }
 }

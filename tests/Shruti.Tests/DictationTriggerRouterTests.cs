@@ -50,7 +50,7 @@ public sealed class DictationTriggerRouterTests
     }
 
     [Fact]
-    public async Task PushToTalkPress_InsertsCompatibilityTextAndReleaseDoesNothing()
+    public async Task PushToTalkRelease_InsertsCompatibilityTextAfterShortcutKeysAreUp()
     {
         var services = MockDictationAppServices.Create();
         var controller = services.CreateShellController();
@@ -59,20 +59,20 @@ public sealed class DictationTriggerRouterTests
         await router.HandleAsync(CreateTrigger(DictationTriggerKind.PushToTalkPressed));
 
         Assert.False(controller.State.IsRunning);
-        Assert.Equal(DictationRunOutcome.Inserted, controller.LastResult?.Outcome);
-        Assert.Contains(controller.State.TranscriptPreview, InsertionCompatibilityTestTexts.All);
-        Assert.Equal(controller.State.TranscriptPreview, services.TextInsertion.LastInsertedText);
         Assert.Equal(0, services.AudioCapture.StartCount);
         Assert.Null(services.Transcription.LastSession);
-        Assert.Equal(1, services.TextInsertion.InsertCount);
-        Assert.True(services.TextInsertion.LastOptions?.BypassTargetPolicy);
-        Assert.Equal(TextInsertionMethod.ClipboardPaste, services.TextInsertion.LastOptions?.PreferredMethodOverride);
+        Assert.Equal(0, services.TextInsertion.InsertCount);
 
         await router.HandleAsync(CreateTrigger(DictationTriggerKind.PushToTalkReleased));
 
         Assert.Equal(DictationSessionState.Complete, controller.State.SessionState);
         Assert.Equal(DictationRunOutcome.Inserted, controller.LastResult?.Outcome);
+        Assert.Contains(controller.State.TranscriptPreview, InsertionCompatibilityTestTexts.All);
+        Assert.Equal(controller.State.TranscriptPreview, services.TextInsertion.LastInsertedText);
+        Assert.Null(services.Transcription.LastSession);
         Assert.Equal(1, services.TextInsertion.InsertCount);
+        Assert.True(services.TextInsertion.LastOptions?.BypassTargetPolicy);
+        Assert.Equal(TextInsertionMethod.ClipboardPaste, services.TextInsertion.LastOptions?.PreferredMethodOverride);
     }
 
     [Fact]

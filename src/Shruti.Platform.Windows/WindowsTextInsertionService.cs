@@ -22,7 +22,7 @@ public sealed class WindowsTextInsertionService : ITextInsertionService
             new WindowsTextInput(),
             new WindowsClipboard(),
             new WindowsFocusedElementInspector(),
-            TimeSpan.FromMilliseconds(100))
+            TimeSpan.FromMilliseconds(750))
     {
     }
 
@@ -42,7 +42,7 @@ public sealed class WindowsTextInsertionService : ITextInsertionService
         _focusedElementInspector = focusedElementInspector ??
             throw new ArgumentNullException(nameof(focusedElementInspector));
         _policyEvaluator = policyEvaluator ?? new TextInsertionPolicyEvaluator();
-        _clipboardPasteSettleDelay = clipboardPasteSettleDelay ?? TimeSpan.FromMilliseconds(100);
+        _clipboardPasteSettleDelay = clipboardPasteSettleDelay ?? TimeSpan.FromMilliseconds(750);
         _focusedElementSettleDelay = focusedElementSettleDelay ?? DefaultFocusedElementSettleDelay;
         _focusedElementInspectionAttempts = Math.Max(1, focusedElementInspectionAttempts);
     }
