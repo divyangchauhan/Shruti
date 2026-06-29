@@ -1,6 +1,7 @@
 using Shruti.Workflow.Dictation;
 using Shruti.Core;
 using Shruti.Core.Dictation;
+using Shruti.Core.Platform;
 using Shruti.Core.Triggers;
 using Xunit;
 
@@ -44,6 +45,8 @@ public sealed class DictationTriggerRouterTests
         Assert.Equal(1, services.TargetFocus.CaptureCount);
         Assert.Equal(1, services.TargetFocus.RestoreCount);
         Assert.Equal(1, services.TextInsertion.InsertCount);
+        Assert.True(services.TextInsertion.LastOptions?.BypassTargetPolicy);
+        Assert.Equal(TextInsertionMethod.ClipboardPaste, services.TextInsertion.LastOptions?.PreferredMethodOverride);
     }
 
     [Fact]
@@ -62,6 +65,8 @@ public sealed class DictationTriggerRouterTests
         Assert.Equal(0, services.AudioCapture.StartCount);
         Assert.Null(services.Transcription.LastSession);
         Assert.Equal(1, services.TextInsertion.InsertCount);
+        Assert.True(services.TextInsertion.LastOptions?.BypassTargetPolicy);
+        Assert.Equal(TextInsertionMethod.ClipboardPaste, services.TextInsertion.LastOptions?.PreferredMethodOverride);
 
         await router.HandleAsync(CreateTrigger(DictationTriggerKind.PushToTalkReleased));
 

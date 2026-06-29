@@ -204,6 +204,40 @@ public sealed class WindowsTextInsertionServiceTests
     }
 
     [Fact]
+    public async Task InsertAsync_BypassPolicyCanForceClipboardPasteIntoTerminalTargets()
+    {
+        var input = new FakeTextInput
+        {
+            UnicodeResult = CompleteResult(requestedInputCount: 28),
+            PasteResult = CompleteResult(requestedInputCount: 4)
+        };
+        var clipboard = new FakeClipboard(
+            new WindowsClipboardSnapshot(CanRestore: true, Text: "previous clipboard text", SequenceNumber: 11));
+        var service = CreateService(
+            new FakeWindowing { IsWindowResult = true },
+            input,
+            clipboard);
+
+        TextInsertionResult result = await service.InsertAsync(
+            CreateTarget(ProcessName: "pwsh", IsEditable: false),
+            "Hello, Shruti.",
+            new TextInsertionOptions(
+                AllowReplacingSelection: true,
+                BypassTargetPolicy: true,
+                PreferredMethodOverride: TextInsertionMethod.ClipboardPaste),
+            CancellationToken.None);
+
+        Assert.False(result.Inserted);
+        Assert.True(result.Succeeded);
+        Assert.True(result.Submitted);
+        Assert.Equal(TextInsertionMethod.ClipboardPaste, result.Method);
+        Assert.Equal(0, input.SendUnicodeTextCount);
+        Assert.Equal(1, input.SendPasteShortcutCount);
+        Assert.Equal(1, clipboard.CaptureCount);
+        Assert.Equal("Hello, Shruti.", clipboard.LastSetText);
+    }
+
+    [Fact]
     public async Task InsertAsync_RefusesElevatedTargetsWithoutSendingInput()
     {
         var input = new FakeTextInput
@@ -221,6 +255,37 @@ public sealed class WindowsTextInsertionServiceTests
             CreateTarget(IsElevated: true),
             "Hello, Shruti.",
             new TextInsertionOptions(),
+            CancellationToken.None);
+
+        Assert.False(result.Succeeded);
+        Assert.Equal(TextInsertionMethod.None, result.Method);
+        Assert.Equal("Shruti cannot safely insert into an elevated target app.", result.Message);
+        Assert.Equal(0, input.SendUnicodeTextCount);
+        Assert.Equal(0, input.SendPasteShortcutCount);
+        Assert.Equal(0, clipboard.CaptureCount);
+    }
+
+    [Fact]
+    public async Task InsertAsync_BypassPolicyStillRefusesElevatedTargets()
+    {
+        var input = new FakeTextInput
+        {
+            UnicodeResult = CompleteResult(requestedInputCount: 28),
+            PasteResult = CompleteResult(requestedInputCount: 4)
+        };
+        var clipboard = new FakeClipboard();
+        var service = CreateService(
+            new FakeWindowing { IsWindowResult = true },
+            input,
+            clipboard);
+
+        TextInsertionResult result = await service.InsertAsync(
+            CreateTarget(IsElevated: true),
+            "Hello, Shruti.",
+            new TextInsertionOptions(
+                AllowReplacingSelection: true,
+                BypassTargetPolicy: true,
+                PreferredMethodOverride: TextInsertionMethod.ClipboardPaste),
             CancellationToken.None);
 
         Assert.False(result.Succeeded);

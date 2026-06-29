@@ -1,6 +1,7 @@
 using Shruti.Workflow.Dictation;
 using Shruti.Core;
 using Shruti.Core.Dictation;
+using Shruti.Core.Platform;
 using Xunit;
 
 namespace Shruti.Tests;
@@ -275,6 +276,9 @@ public sealed class DictationShellControllerTests
         Assert.Equal(1, services.TargetFocus.CaptureCount);
         Assert.Equal(1, services.TargetFocus.RestoreCount);
         Assert.Equal(1, services.TextInsertion.InsertCount);
+        Assert.True(services.TextInsertion.LastOptions?.AllowReplacingSelection);
+        Assert.True(services.TextInsertion.LastOptions?.BypassTargetPolicy);
+        Assert.Equal(TextInsertionMethod.ClipboardPaste, services.TextInsertion.LastOptions?.PreferredMethodOverride);
         Assert.True(controller.State.CanCopy);
     }
 
@@ -283,7 +287,8 @@ public sealed class DictationShellControllerTests
     {
         Assert.True(InsertionCompatibilityTestTexts.All.Count >= 30);
         Assert.All(InsertionCompatibilityTestTexts.All, text => Assert.False(string.IsNullOrWhiteSpace(text)));
-        Assert.Contains(InsertionCompatibilityTestTexts.All, text => text.Contains("\r\n", StringComparison.Ordinal));
+        Assert.DoesNotContain(InsertionCompatibilityTestTexts.All, text => text.Contains('\r') || text.Contains('\n'));
+        Assert.DoesNotContain(InsertionCompatibilityTestTexts.All, text => text.Contains('\t'));
         Assert.Contains(InsertionCompatibilityTestTexts.All, text => text.Contains('\u0928'));
         Assert.Contains(InsertionCompatibilityTestTexts.All, text => text.Any(char.IsSurrogate));
     }

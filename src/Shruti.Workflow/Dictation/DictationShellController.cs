@@ -415,7 +415,10 @@ public sealed class DictationShellController
             DictationRunResult result = await _coordinator
                 .InsertTranscriptIntoCurrentTargetAsync(
                     transcript,
-                    new TextInsertionOptions(),
+                    new TextInsertionOptions(
+                        AllowReplacingSelection: true,
+                        BypassTargetPolicy: true,
+                        PreferredMethodOverride: TextInsertionMethod.ClipboardPaste),
                     progress,
                     activeRun.Token)
                 .ConfigureAwait(false);

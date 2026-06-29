@@ -391,6 +391,11 @@ public sealed class DictationCoordinator
         TextInsertionCapability capability,
         TextInsertionOptions options)
     {
+        if (options.BypassTargetPolicy)
+        {
+            return capability.Outcome != TextInsertionCapabilityOutcome.Unsupported;
+        }
+
         return capability.Outcome switch
         {
             TextInsertionCapabilityOutcome.DirectInputAvailable => capability.PreferredMethod != TextInsertionMethod.None,

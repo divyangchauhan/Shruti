@@ -108,21 +108,34 @@ public sealed class WindowsTextInsertionService : ITextInsertionService
             return Failure("Shruti will not insert an empty transcript.");
         }
 
-        TextInsertionPolicy policy = _policyEvaluator.Evaluate(target);
-        if (policy.Mode == TextInsertionPolicyMode.PreviewRequired)
-        {
-            return Failure(policy.Message);
-        }
-
-        if (policy.Mode == TextInsertionPolicyMode.ClipboardPastePreferred)
+        if (options.PreferredMethodOverride == TextInsertionMethod.ClipboardPaste)
         {
             if (!options.AllowClipboardFallback)
             {
-                return Failure(
-                    $"{policy.Message} Clipboard fallback is disabled.");
+                return Failure("Clipboard paste was requested, but clipboard fallback is disabled.");
             }
 
             return await PasteViaClipboardAsync(text, cancellationToken).ConfigureAwait(false);
+        }
+
+        if (!options.BypassTargetPolicy)
+        {
+            TextInsertionPolicy policy = _policyEvaluator.Evaluate(target);
+            if (policy.Mode == TextInsertionPolicyMode.PreviewRequired)
+            {
+                return Failure(policy.Message);
+            }
+
+            if (policy.Mode == TextInsertionPolicyMode.ClipboardPastePreferred)
+            {
+                if (!options.AllowClipboardFallback)
+                {
+                    return Failure(
+                        $"{policy.Message} Clipboard fallback is disabled.");
+                }
+
+                return await PasteViaClipboardAsync(text, cancellationToken).ConfigureAwait(false);
+            }
         }
 
         WindowsInputSendResult directInput = _textInput.SendUnicodeText(text);
@@ -208,16 +221,25 @@ public sealed class WindowsTextInsertionService : ITextInsertionService
         TextInsertionOptions options,
         CancellationToken cancellationToken)
     {
-        CapturedTargetSafetyFailure? safetyFailure = GetCapturedTargetSafetyFailure(target);
+        CapturedTargetSafetyFailure? safetyFailure = GetCapturedTargetSafetyFailure(
+            target,
+            options.BypassTargetPolicy);
         if (safetyFailure is not null)
         {
             return Failure(safetyFailure.Message);
         }
 
-        if (target.HasSelectedText == true && !options.AllowReplacingSelection)
+        if (!options.BypassTargetPolicy &&
+            target.HasSelectedText == true &&
+            !options.AllowReplacingSelection)
         {
             return Failure(
                 "The target has selected text. Enable explicit replacement permission before inserting.");
+        }
+
+        if (options.BypassTargetPolicy)
+        {
+            return null;
         }
 
         FocusedElementSnapshot? currentFocusedElement = await CaptureFocusedElementAsync(
@@ -272,7 +294,9 @@ public sealed class WindowsTextInsertionService : ITextInsertionService
         return null;
     }
 
-    private CapturedTargetSafetyFailure? GetCapturedTargetSafetyFailure(FocusTarget target)
+    private CapturedTargetSafetyFailure? GetCapturedTargetSafetyFailure(
+        FocusTarget target,
+        bool bypassTargetPolicy = false)
     {
         if (target.WindowHandle == IntPtr.Zero || !_windowing.IsWindow(target.WindowHandle))
         {
@@ -284,7 +308,7 @@ public sealed class WindowsTextInsertionService : ITextInsertionService
             return new CapturedTargetSafetyFailure(false, "Shruti cannot safely insert into an elevated target app.");
         }
 
-        if (target.IsEditable == false)
+        if (!bypassTargetPolicy && target.IsEditable == false)
         {
             return new CapturedTargetSafetyFailure(
                 false,
