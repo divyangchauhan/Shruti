@@ -26,16 +26,21 @@ public sealed class DictationTriggerRouter
                 if (!_controller.State.IsRunning)
                 {
                     await _controller
-                        .StartAsync(_controller.State.InsertionMode)
+                        .RunInsertionCompatibilityTestAsync()
                         .ConfigureAwait(false);
                 }
 
                 break;
 
             case DictationTriggerKind.PushToTalkReleased:
-                if (_controller.State.IsRunning)
+                break;
+
+            case DictationTriggerKind.GlobalHotkey:
+                if (!_controller.State.IsRunning)
                 {
-                    await _controller.StopAsync().ConfigureAwait(false);
+                    await _controller
+                        .RunInsertionCompatibilityTestAsync()
+                        .ConfigureAwait(false);
                 }
 
                 break;
@@ -45,7 +50,6 @@ public sealed class DictationTriggerRouter
                 break;
 
             case DictationTriggerKind.AppButton:
-            case DictationTriggerKind.GlobalHotkey:
             case DictationTriggerKind.FloatingButton:
             case DictationTriggerKind.TrayMenu:
                 if (_controller.State.IsRunning)

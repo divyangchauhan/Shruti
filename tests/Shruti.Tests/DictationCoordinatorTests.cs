@@ -163,6 +163,34 @@ public sealed class DictationCoordinatorTests
     }
 
     [Fact]
+    public async Task InsertTranscriptIntoCurrentTargetAsync_CapturesTargetAndSkipsAudioAndTranscription()
+    {
+        var services = TestServices.Create();
+
+        var result = await services.Coordinator.InsertTranscriptIntoCurrentTargetAsync(
+            TranscriptResult.FromText("compatibility payload"),
+            new TextInsertionOptions(),
+            statusProgress: null,
+            CancellationToken.None);
+
+        Assert.Equal(DictationRunOutcome.Inserted, result.Outcome);
+        Assert.Equal("compatibility payload", services.TextInsertion.LastInsertedText);
+        Assert.Equal(1, services.TargetFocus.CaptureCount);
+        Assert.Equal(1, services.TargetFocus.RestoreCount);
+        Assert.Equal(1, services.TextInsertion.InspectCount);
+        Assert.Equal(1, services.TextInsertion.InsertCount);
+        Assert.Equal(0, services.AudioCapture.StartCount);
+        Assert.Null(services.Transcription.LastSession);
+        Assert.Equal(
+            [
+                DictationSessionState.PreparingTarget,
+                DictationSessionState.InsertingText,
+                DictationSessionState.Complete
+            ],
+            result.StatusHistory.Select(status => status.State).ToArray());
+    }
+
+    [Fact]
     public async Task ClipboardPasteSubmission_CompletesAsInsertedWorkflow()
     {
         var services = TestServices.Create(

@@ -259,6 +259,36 @@ public sealed class DictationShellControllerTests
     }
 
     [Fact]
+    public async Task RunInsertionCompatibilityTestAsync_InsertsRandomPayloadWithoutAudioCapture()
+    {
+        var services = MockDictationAppServices.Create();
+        var controller = services.CreateShellController();
+
+        await controller.RunInsertionCompatibilityTestAsync();
+
+        Assert.Equal(DictationRunOutcome.Inserted, controller.LastResult?.Outcome);
+        Assert.Equal(DictationSessionState.Complete, controller.State.SessionState);
+        Assert.Contains(controller.State.TranscriptPreview, InsertionCompatibilityTestTexts.All);
+        Assert.Equal(controller.State.TranscriptPreview, services.TextInsertion.LastInsertedText);
+        Assert.Equal(0, services.AudioCapture.StartCount);
+        Assert.Null(services.Transcription.LastSession);
+        Assert.Equal(1, services.TargetFocus.CaptureCount);
+        Assert.Equal(1, services.TargetFocus.RestoreCount);
+        Assert.Equal(1, services.TextInsertion.InsertCount);
+        Assert.True(controller.State.CanCopy);
+    }
+
+    [Fact]
+    public void InsertionCompatibilityTestTexts_ProvidesBroadPayloadSet()
+    {
+        Assert.True(InsertionCompatibilityTestTexts.All.Count >= 30);
+        Assert.All(InsertionCompatibilityTestTexts.All, text => Assert.False(string.IsNullOrWhiteSpace(text)));
+        Assert.Contains(InsertionCompatibilityTestTexts.All, text => text.Contains("\r\n", StringComparison.Ordinal));
+        Assert.Contains(InsertionCompatibilityTestTexts.All, text => text.Contains('\u0928'));
+        Assert.Contains(InsertionCompatibilityTestTexts.All, text => text.Any(char.IsSurrogate));
+    }
+
+    [Fact]
     public async Task Pause_TogglesMockRecordingStateAndStillCompletes()
     {
         var services = MockDictationAppServices.Create();

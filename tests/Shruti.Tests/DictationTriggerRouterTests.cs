@@ -10,7 +10,6 @@ public sealed class DictationTriggerRouterTests
 {
     [Theory]
     [InlineData(DictationTriggerKind.AppButton)]
-    [InlineData(DictationTriggerKind.GlobalHotkey)]
     [InlineData(DictationTriggerKind.FloatingButton)]
     [InlineData(DictationTriggerKind.TrayMenu)]
     public async Task ToggleTrigger_StartsAndStopsMockDictation(DictationTriggerKind kind)
@@ -28,7 +27,27 @@ public sealed class DictationTriggerRouterTests
     }
 
     [Fact]
-    public async Task PushToTalk_StartsOnPressAndStopsOnRelease()
+    public async Task GlobalHotkey_InsertsCompatibilityTextWithoutAudioOrTranscription()
+    {
+        var services = MockDictationAppServices.Create();
+        var controller = services.CreateShellController();
+        var router = new DictationTriggerRouter(controller);
+
+        await router.HandleAsync(CreateTrigger(DictationTriggerKind.GlobalHotkey));
+
+        Assert.Equal(DictationRunOutcome.Inserted, controller.LastResult?.Outcome);
+        Assert.False(controller.State.IsRunning);
+        Assert.Contains(controller.State.TranscriptPreview, InsertionCompatibilityTestTexts.All);
+        Assert.Equal(controller.State.TranscriptPreview, services.TextInsertion.LastInsertedText);
+        Assert.Equal(0, services.AudioCapture.StartCount);
+        Assert.Null(services.Transcription.LastSession);
+        Assert.Equal(1, services.TargetFocus.CaptureCount);
+        Assert.Equal(1, services.TargetFocus.RestoreCount);
+        Assert.Equal(1, services.TextInsertion.InsertCount);
+    }
+
+    [Fact]
+    public async Task PushToTalkPress_InsertsCompatibilityTextAndReleaseDoesNothing()
     {
         var services = MockDictationAppServices.Create();
         var controller = services.CreateShellController();
@@ -36,12 +55,19 @@ public sealed class DictationTriggerRouterTests
 
         await router.HandleAsync(CreateTrigger(DictationTriggerKind.PushToTalkPressed));
 
-        Assert.True(controller.State.IsRunning);
+        Assert.False(controller.State.IsRunning);
+        Assert.Equal(DictationRunOutcome.Inserted, controller.LastResult?.Outcome);
+        Assert.Contains(controller.State.TranscriptPreview, InsertionCompatibilityTestTexts.All);
+        Assert.Equal(controller.State.TranscriptPreview, services.TextInsertion.LastInsertedText);
+        Assert.Equal(0, services.AudioCapture.StartCount);
+        Assert.Null(services.Transcription.LastSession);
+        Assert.Equal(1, services.TextInsertion.InsertCount);
 
         await router.HandleAsync(CreateTrigger(DictationTriggerKind.PushToTalkReleased));
 
         Assert.Equal(DictationSessionState.Complete, controller.State.SessionState);
         Assert.Equal(DictationRunOutcome.Inserted, controller.LastResult?.Outcome);
+        Assert.Equal(1, services.TextInsertion.InsertCount);
     }
 
     [Fact]
@@ -121,18 +147,20 @@ public sealed class DictationTriggerRouterTests
         Task dispatchTask = dispatcher.RunAsync(cancellation.Token);
 
         Assert.True(triggerService.Publish(DictationTriggerKind.GlobalHotkey));
-        await WaitUntilAsync(() => controller.State.IsRunning, cancellation.Token);
+        await WaitUntilAsync(
+            () => services.TextInsertion.InsertCount == 1,
+            cancellation.Token);
 
         Assert.True(triggerService.Publish(DictationTriggerKind.GlobalHotkey));
         await WaitUntilAsync(
-            () => controller.LastResult?.Outcome == DictationRunOutcome.Inserted,
+            () => services.TextInsertion.InsertCount == 2,
             cancellation.Token);
 
         cancellation.Cancel();
         await dispatchTask;
 
-        Assert.Equal(1, services.AudioCapture.StartCount);
-        Assert.Equal(1, services.TextInsertion.InsertCount);
+        Assert.Equal(0, services.AudioCapture.StartCount);
+        Assert.Equal(2, services.TextInsertion.InsertCount);
     }
 
     private static DictationTriggerEvent CreateTrigger(DictationTriggerKind kind)

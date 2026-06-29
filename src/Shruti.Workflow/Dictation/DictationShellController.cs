@@ -200,6 +200,41 @@ public sealed class DictationShellController
         return StartAsync(State.InsertionMode);
     }
 
+    public async Task RunInsertionCompatibilityTestAsync()
+    {
+        if (State.IsRunning)
+        {
+            return;
+        }
+
+        ActiveDictationRun? activeRun = TryCreateActiveRun();
+        if (activeRun is null)
+        {
+            return;
+        }
+
+        string testText = InsertionCompatibilityTestTexts.SelectRandom();
+        SetState(new DictationShellState(
+            DictationSessionState.PreparingTarget,
+            DictationInsertionMode.AutoInsert,
+            "Testing insertion",
+            "Bypassing transcription and inserting a randomized compatibility payload.",
+            testText,
+            "Target pending",
+            IsRunning: true,
+            CanStart: false,
+            CanStop: false,
+            CanCancel: false,
+            CanPause: false,
+            IsPaused: false,
+            CanRetry: false,
+            CanCopy: false));
+
+        Task runTask = RunInsertionCompatibilityTestCoreAsync(activeRun, testText);
+        activeRun.SetCompletion(runTask);
+        await runTask.ConfigureAwait(false);
+    }
+
     public void SetInsertionMode(DictationInsertionMode insertionMode)
     {
         if (State.IsRunning)
@@ -365,6 +400,43 @@ public sealed class DictationShellController
         {
             captureStarted.TrySetResult();
             await StopLevelMonitorAsync().ConfigureAwait(false);
+            CompleteActiveRun(activeRun);
+        }
+    }
+
+    private async Task RunInsertionCompatibilityTestCoreAsync(
+        ActiveDictationRun activeRun,
+        string testText)
+    {
+        var transcript = TranscriptResult.FromText(testText);
+        try
+        {
+            var progress = new SynchronousProgress<DictationStatus>(ApplyProgress);
+            DictationRunResult result = await _coordinator
+                .InsertTranscriptIntoCurrentTargetAsync(
+                    transcript,
+                    new TextInsertionOptions(),
+                    progress,
+                    activeRun.Token)
+                .ConfigureAwait(false);
+
+            LastResult = result;
+            SetState(CreateCompletedState(result, DictationInsertionMode.AutoInsert));
+        }
+        catch (Exception ex)
+        {
+            var result = new DictationRunResult(
+                DictationRunOutcome.Failed,
+                [new DictationStatus(DictationSessionState.Failed, "Failed")],
+                Target: null,
+                Transcript: transcript,
+                Message: ex.Message,
+                Error: ex);
+            LastResult = result;
+            SetState(CreateCompletedState(result, DictationInsertionMode.AutoInsert));
+        }
+        finally
+        {
             CompleteActiveRun(activeRun);
         }
     }

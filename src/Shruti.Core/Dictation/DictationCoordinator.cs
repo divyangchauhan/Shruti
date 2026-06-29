@@ -211,6 +211,64 @@ public sealed class DictationCoordinator
         }
     }
 
+    public async Task<DictationRunResult> InsertTranscriptIntoCurrentTargetAsync(
+        TranscriptResult transcript,
+        TextInsertionOptions? insertionOptions,
+        IProgress<DictationStatus>? statusProgress,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(transcript);
+
+        var statusHistory = new List<DictationStatus>();
+        FocusTarget? target = null;
+
+        void Transition(DictationSessionState state, string message)
+        {
+            var status = new DictationStatus(state, message);
+            statusHistory.Add(status);
+            statusProgress?.Report(status);
+        }
+
+        try
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+
+            Transition(DictationSessionState.PreparingTarget, "Capturing target");
+            target = await _targetFocusService.CaptureCurrentTargetAsync(cancellationToken).ConfigureAwait(false);
+            cancellationToken.ThrowIfCancellationRequested();
+
+            return await InsertFinalizedTranscriptCoreAsync(
+                    target,
+                    transcript,
+                    insertionOptions ?? new TextInsertionOptions(),
+                    statusHistory,
+                    Transition,
+                    cancellationToken)
+                .ConfigureAwait(false);
+        }
+        catch (OperationCanceledException)
+        {
+            Transition(DictationSessionState.Cancelled, "Cancelled");
+            return new DictationRunResult(
+                DictationRunOutcome.Cancelled,
+                statusHistory,
+                target,
+                transcript,
+                Message: "Transcript insertion was cancelled.");
+        }
+        catch (Exception ex)
+        {
+            Transition(DictationSessionState.Failed, "Failed");
+            return new DictationRunResult(
+                DictationRunOutcome.Failed,
+                statusHistory,
+                target,
+                transcript,
+                Message: ex.Message,
+                Error: ex);
+        }
+    }
+
     private async Task<DictationRunResult> CompleteAsync(
         DictationRequest request,
         FocusTarget? target,
