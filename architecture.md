@@ -469,6 +469,7 @@ Safe insertion policy:
 Known hard boundary:
 
 - A non-elevated Shruti process cannot reliably inject into elevated apps because of Windows integrity isolation. The app should not run elevated by default; instead, explain the limitation and offer copy/clipboard fallback.
+- Future elevated-target support should be a separate UIAccess-capable accessibility helper, not a normal app-process workaround. That path requires a `uiAccess="true"` manifest, code signing with a trusted certificate, secure installation under a trusted location such as `Program Files`, installer/update changes, and a clear user-facing security model.
 
 ## Audio Pipeline
 

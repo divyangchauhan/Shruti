@@ -187,6 +187,7 @@ Reference signals:
 - Screen-reader-friendly controls.
 - High-contrast theme.
 - Light/dark/system theme.
+- Future UIAccess accessibility helper for elevated-target insertion, gated behind signing, secure install location, and explicit user trust/security review.
 
 ## Non-Goals for the First Version
 

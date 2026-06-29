@@ -409,3 +409,4 @@ Acceptance criteria:
 - [ ] Define minimum supported CPU/RAM profile for MVP.
 - [ ] Decide whether the first `whisper.cpp` provider ships CPU-only or includes an accelerated option.
 - [ ] Decide whether MSIX alone is enough or a bootstrapper is required from day one.
+- [ ] Decide whether elevated-target insertion is worth a future UIAccess helper, including code signing, secure install location, installer changes, and user trust/security review.
