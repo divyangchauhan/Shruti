@@ -11,7 +11,7 @@ public sealed class DictationShellController
     private readonly DictationCoordinator _coordinator;
     private readonly IAudioCaptureControl _audioCaptureControl;
     private readonly ITranscriptClipboard _clipboard;
-    private readonly Func<TranscriptionSessionOptions> _transcriptionOptionsFactory;
+    private readonly Func<CancellationToken, Task<TranscriptionSessionOptions>> _transcriptionOptionsFactory;
     private readonly object _stateSync = new();
     private readonly object _runSync = new();
 
@@ -25,12 +25,12 @@ public sealed class DictationShellController
         DictationCoordinator coordinator,
         IAudioCaptureControl audioCaptureControl,
         ITranscriptClipboard clipboard,
-        Func<TranscriptionSessionOptions>? transcriptionOptionsFactory = null)
+        Func<CancellationToken, Task<TranscriptionSessionOptions>>? transcriptionOptionsFactory = null)
     {
         _coordinator = coordinator ?? throw new ArgumentNullException(nameof(coordinator));
         _audioCaptureControl = audioCaptureControl ?? throw new ArgumentNullException(nameof(audioCaptureControl));
         _clipboard = clipboard ?? throw new ArgumentNullException(nameof(clipboard));
-        _transcriptionOptionsFactory = transcriptionOptionsFactory ?? MockDictationAppServices.CreateTranscriptionOptions;
+        _transcriptionOptionsFactory = transcriptionOptionsFactory ?? MockDictationAppServices.CreateTranscriptionOptionsAsync;
         State = DictationShellState.Initial;
     }
 
@@ -238,11 +238,26 @@ public sealed class DictationShellController
             return false;
         }
 
-        await _clipboard.CopyTextAsync(text, cancellationToken).ConfigureAwait(false);
+        try
+        {
+            await _clipboard.CopyTextAsync(text, cancellationToken).ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            UpdateState(state => state with
+            {
+                StatusText = "Copy failed",
+                UserMessage = "Shruti could not copy the transcript.",
+                ErrorText = ex.Message
+            });
+            return false;
+        }
+
         UpdateState(state => state with
         {
             StatusText = "Copied",
-            UserMessage = "Transcript copied from the preview."
+            UserMessage = "Transcript copied from the preview.",
+            ErrorText = null
         });
 
         return true;
@@ -317,10 +332,14 @@ public sealed class DictationShellController
     {
         try
         {
+            await Task.Yield();
+
             var progress = new SynchronousProgress<DictationStatus>(ApplyProgress);
             var transcriptProgress = new SynchronousProgress<TranscriptEvent>(ApplyTranscriptEvent);
+            TranscriptionSessionOptions transcriptionOptions = await _transcriptionOptionsFactory(activeRun.Token)
+                .ConfigureAwait(false);
             var request = new DictationRequest(
-                _transcriptionOptionsFactory(),
+                transcriptionOptions,
                 insertionMode,
                 audioOptions: _audioOptions,
                 statusProgress: progress,
@@ -490,7 +509,8 @@ public sealed class DictationShellController
             ErrorText: result.Error?.Message,
             CanInsertPreview: result.RequiresPreview &&
                 result.Target is not null &&
-                !string.IsNullOrWhiteSpace(transcript));
+                !string.IsNullOrWhiteSpace(transcript) &&
+                result.InsertionResult?.Submitted is not true);
     }
 
     private static string FormatTarget(FocusTarget? target)

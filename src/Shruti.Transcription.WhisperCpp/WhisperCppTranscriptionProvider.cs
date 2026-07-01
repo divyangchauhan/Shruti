@@ -4,9 +4,12 @@ using Shruti.Transcription.Abstractions;
 
 namespace Shruti.Transcription.WhisperCpp;
 
-public sealed class WhisperCppTranscriptionProvider : ITranscriptionProvider
+public sealed class WhisperCppTranscriptionProvider : ITranscriptionProvider, IAsyncDisposable
 {
     private readonly IWhisperCppTranscriptionEngine _engine;
+    private readonly SemaphoreSlim _sessionCacheGate = new(1, 1);
+    private CachedInferenceSession? _cachedInferenceSession;
+    private bool _disposed;
 
     public WhisperCppTranscriptionProvider(IWhisperCppTranscriptionEngine engine)
     {
@@ -72,22 +75,134 @@ public sealed class WhisperCppTranscriptionProvider : ITranscriptionProvider
                 "The selected whisper.cpp model is unavailable or the requested backend is unsupported.");
         }
 
-        IWhisperCppInferenceSession inferenceSession = await _engine.CreateSessionAsync(
-                new WhisperCppTranscriptionSessionOptions(
-                    options.Model.LocalPath,
-                    options.Language,
-                    Backend: backend),
+        var nativeOptions = new WhisperCppTranscriptionSessionOptions(
+            options.Model.LocalPath,
+            options.Language,
+            Backend: backend);
+        CachedInferenceSessionLease inferenceSessionLease = await AcquireInferenceSessionAsync(
+                nativeOptions,
                 cancellationToken)
             .ConfigureAwait(false);
 
         try
         {
-            return new WhisperCppTranscriptionSession(inferenceSession, options);
+            return new WhisperCppTranscriptionSession(
+                inferenceSessionLease.Session,
+                options,
+                inferenceSessionLease.ReleaseAsync);
         }
         catch
         {
-            await inferenceSession.DisposeAsync().ConfigureAwait(false);
+            await inferenceSessionLease.ReleaseAsync().ConfigureAwait(false);
             throw;
+        }
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        CachedInferenceSession? sessionToDispose = null;
+        await _sessionCacheGate.WaitAsync().ConfigureAwait(false);
+        try
+        {
+            if (_disposed)
+            {
+                return;
+            }
+
+            _disposed = true;
+            if (_cachedInferenceSession is not null)
+            {
+                _cachedInferenceSession.DisposeWhenReleased = true;
+                if (_cachedInferenceSession.LeaseCount == 0)
+                {
+                    sessionToDispose = _cachedInferenceSession;
+                    _cachedInferenceSession = null;
+                }
+            }
+        }
+        finally
+        {
+            _sessionCacheGate.Release();
+        }
+
+        if (sessionToDispose is not null)
+        {
+            await sessionToDispose.Session.DisposeAsync().ConfigureAwait(false);
+        }
+    }
+
+    private async Task<CachedInferenceSessionLease> AcquireInferenceSessionAsync(
+        WhisperCppTranscriptionSessionOptions options,
+        CancellationToken cancellationToken)
+    {
+        await _sessionCacheGate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            ObjectDisposedException.ThrowIf(_disposed, this);
+
+            if (_cachedInferenceSession is { } cachedSession &&
+                cachedSession.Options == options &&
+                !cachedSession.DisposeWhenReleased)
+            {
+                cachedSession.LeaseCount++;
+                return new CachedInferenceSessionLease(this, cachedSession);
+            }
+
+            if (_cachedInferenceSession is { } staleSession)
+            {
+                staleSession.DisposeWhenReleased = true;
+                _cachedInferenceSession = null;
+                if (staleSession.LeaseCount == 0)
+                {
+                    await staleSession.Session.DisposeAsync().ConfigureAwait(false);
+                }
+            }
+
+            IWhisperCppInferenceSession inferenceSession = await _engine
+                .CreateSessionAsync(options, cancellationToken)
+                .ConfigureAwait(false);
+            _cachedInferenceSession = new CachedInferenceSession(options, inferenceSession)
+            {
+                LeaseCount = 1
+            };
+            return new CachedInferenceSessionLease(this, _cachedInferenceSession);
+        }
+        finally
+        {
+            _sessionCacheGate.Release();
+        }
+    }
+
+    private async Task ReleaseInferenceSessionAsync(CachedInferenceSession releasedSession)
+    {
+        CachedInferenceSession? sessionToDispose = null;
+        await _sessionCacheGate.WaitAsync().ConfigureAwait(false);
+        try
+        {
+            releasedSession.LeaseCount--;
+            if (releasedSession.LeaseCount < 0)
+            {
+                throw new InvalidOperationException("The whisper.cpp inference session lease was released too many times.");
+            }
+
+            if (releasedSession.LeaseCount == 0 &&
+                (releasedSession.DisposeWhenReleased || _disposed))
+            {
+                sessionToDispose = releasedSession;
+                if (ReferenceEquals(_cachedInferenceSession, releasedSession))
+                {
+                    _cachedInferenceSession = null;
+                }
+            }
+        }
+        finally
+        {
+            _sessionCacheGate.Release();
+        }
+
+        if (sessionToDispose is not null)
+        {
+            await sessionToDispose.Session.DisposeAsync().ConfigureAwait(false);
         }
     }
 
@@ -161,10 +276,52 @@ public sealed class WhisperCppTranscriptionProvider : ITranscriptionProvider
         };
     }
 
+    private sealed class CachedInferenceSession(
+        WhisperCppTranscriptionSessionOptions options,
+        IWhisperCppInferenceSession session)
+    {
+        public WhisperCppTranscriptionSessionOptions Options { get; } = options;
+
+        public IWhisperCppInferenceSession Session { get; } = session;
+
+        public int LeaseCount { get; set; }
+
+        public bool DisposeWhenReleased { get; set; }
+    }
+
+    private sealed class CachedInferenceSessionLease
+    {
+        private readonly WhisperCppTranscriptionProvider _owner;
+        private readonly CachedInferenceSession _cachedSession;
+        private bool _released;
+
+        public CachedInferenceSessionLease(
+            WhisperCppTranscriptionProvider owner,
+            CachedInferenceSession cachedSession)
+        {
+            _owner = owner;
+            _cachedSession = cachedSession;
+        }
+
+        public IWhisperCppInferenceSession Session => _cachedSession.Session;
+
+        public Task ReleaseAsync()
+        {
+            if (_released)
+            {
+                return Task.CompletedTask;
+            }
+
+            _released = true;
+            return _owner.ReleaseInferenceSessionAsync(_cachedSession);
+        }
+    }
+
     private sealed class WhisperCppTranscriptionSession : ITranscriptionSession
     {
         private readonly IWhisperCppInferenceSession _inferenceSession;
         private readonly TranscriptionSessionOptions _options;
+        private readonly Func<Task> _releaseInferenceSessionAsync;
         private readonly StreamingTranscriptionOptions _streamingOptions;
         private readonly MemoryStream _pcmAudio = new();
         private readonly Channel<TranscriptEvent> _events = Channel.CreateUnbounded<TranscriptEvent>();
@@ -181,10 +338,13 @@ public sealed class WhisperCppTranscriptionProvider : ITranscriptionProvider
 
         public WhisperCppTranscriptionSession(
             IWhisperCppInferenceSession inferenceSession,
-            TranscriptionSessionOptions options)
+            TranscriptionSessionOptions options,
+            Func<Task> releaseInferenceSessionAsync)
         {
             _inferenceSession = inferenceSession ?? throw new ArgumentNullException(nameof(inferenceSession));
             _options = options;
+            _releaseInferenceSessionAsync = releaseInferenceSessionAsync ??
+                throw new ArgumentNullException(nameof(releaseInferenceSessionAsync));
             _streamingOptions = options.EffectiveStreamingOptions;
             ValidateStreamingOptions(_streamingOptions);
 
@@ -315,6 +475,7 @@ public sealed class WhisperCppTranscriptionProvider : ITranscriptionProvider
 
         public ValueTask DisposeAsync()
         {
+            Task resourceDisposalTask;
             lock (_sync)
             {
                 _cancelled = true;
@@ -325,13 +486,13 @@ public sealed class WhisperCppTranscriptionProvider : ITranscriptionProvider
                 {
                     Task? partialTranscriptionTask = _partialTranscriptionTask;
                     _pcmAudio.Dispose();
-                    _resourceDisposalTask = Task.Run(
-                        () => DisposeResourcesAsync(partialTranscriptionTask),
-                        CancellationToken.None);
+                    _resourceDisposalTask = DisposeResourcesAsync(partialTranscriptionTask);
                 }
+
+                resourceDisposalTask = _resourceDisposalTask;
             }
 
-            return ValueTask.CompletedTask;
+            return new ValueTask(resourceDisposalTask);
         }
 
         private void SchedulePartialTranscriptionIfRequired()
@@ -423,7 +584,7 @@ public sealed class WhisperCppTranscriptionProvider : ITranscriptionProvider
             finally
             {
                 _partialTranscriptionCancellation.Dispose();
-                await _inferenceSession.DisposeAsync().ConfigureAwait(false);
+                await _releaseInferenceSessionAsync().ConfigureAwait(false);
             }
         }
 

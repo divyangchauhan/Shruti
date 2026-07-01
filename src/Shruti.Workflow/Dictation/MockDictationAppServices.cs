@@ -73,4 +73,11 @@ public sealed class MockDictationAppServices
             "en",
             TranscriptionMode.Balanced);
     }
+
+    public static Task<TranscriptionSessionOptions> CreateTranscriptionOptionsAsync(
+        CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        return Task.FromResult(CreateTranscriptionOptions());
+    }
 }

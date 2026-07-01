@@ -109,6 +109,27 @@ public sealed class WhisperCppTranscriptionProviderTests : IDisposable
     }
 
     [Fact]
+    public async Task CreateSessionAsync_ReusesLoadedInferenceSessionForMatchingOptions()
+    {
+        string modelPath = await CreateModelFileAsync();
+        var engine = new FakeEngine(TranscriptResult: null);
+        var provider = new WhisperCppTranscriptionProvider(engine);
+        TranscriptionSessionOptions options = CreateOptions(modelPath);
+
+        ITranscriptionSession first = await provider.CreateSessionAsync(options, CancellationToken.None);
+        await first.DisposeAsync();
+        ITranscriptionSession second = await provider.CreateSessionAsync(options, CancellationToken.None);
+        await second.DisposeAsync();
+
+        Assert.Equal(1, engine.SessionCreationCount);
+        Assert.Equal(0, engine.DisposeCount);
+
+        await provider.DisposeAsync();
+
+        Assert.Equal(1, engine.DisposeCount);
+    }
+
+    [Fact]
     public async Task CompleteAsync_RejectsOddLengthPcm()
     {
         string modelPath = await CreateModelFileAsync();
@@ -264,7 +285,7 @@ public sealed class WhisperCppTranscriptionProviderTests : IDisposable
     }
 
     [Fact]
-    public async Task CancelAndDispose_DoNotWaitForAnInFlightPartialTranscription()
+    public async Task DisposeAsync_WaitsForAnInFlightPartialTranscriptionBeforeReleasingTheSession()
     {
         string modelPath = await CreateModelFileAsync();
         var engine = new BlockingEngine(new WhisperCppTranscriptionResult(
@@ -284,10 +305,15 @@ public sealed class WhisperCppTranscriptionProviderTests : IDisposable
         await engine.Started.Task.WaitAsync(TimeSpan.FromSeconds(2));
 
         await session.CancelAsync();
-        await session.DisposeAsync().AsTask().WaitAsync(TimeSpan.FromSeconds(1));
+        Task disposal = session.DisposeAsync().AsTask();
 
+        Assert.False(await CompletesWithinAsync(disposal, TimeSpan.FromMilliseconds(100)));
         Assert.False(engine.Disposed.Task.IsCompleted);
         engine.Complete();
+        await disposal.WaitAsync(TimeSpan.FromSeconds(2));
+        Assert.False(engine.Disposed.Task.IsCompleted);
+
+        await provider.DisposeAsync();
         await engine.Disposed.Task.WaitAsync(TimeSpan.FromSeconds(2));
     }
 
@@ -318,9 +344,12 @@ public sealed class WhisperCppTranscriptionProviderTests : IDisposable
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() => finalization)
             .WaitAsync(TimeSpan.FromSeconds(1));
 
-        await session.CancelAsync();
-        await session.DisposeAsync().AsTask().WaitAsync(TimeSpan.FromSeconds(1));
+        Task disposal = session.DisposeAsync().AsTask();
+
+        Assert.False(await CompletesWithinAsync(disposal, TimeSpan.FromMilliseconds(100)));
         engine.Complete();
+        await disposal.WaitAsync(TimeSpan.FromSeconds(2));
+        await provider.DisposeAsync();
         await engine.Disposed.Task.WaitAsync(TimeSpan.FromSeconds(2));
     }
 
@@ -386,6 +415,12 @@ public sealed class WhisperCppTranscriptionProviderTests : IDisposable
         return values;
     }
 
+    private static async Task<bool> CompletesWithinAsync(Task task, TimeSpan timeout)
+    {
+        Task completedTask = await Task.WhenAny(task, Task.Delay(timeout));
+        return ReferenceEquals(completedTask, task);
+    }
+
     private static async Task ReadEventsAsync(
         IAsyncEnumerable<TranscriptEvent> source,
         ICollection<TranscriptEvent> destination,
@@ -431,6 +466,8 @@ public sealed class WhisperCppTranscriptionProviderTests : IDisposable
         public int SessionCreationCount { get; private set; }
 
         public int TranscriptionCount { get; private set; }
+
+        public int DisposeCount { get; private set; }
 
         public IReadOnlyList<int> TranscribedSampleCounts
         {
@@ -485,6 +522,11 @@ public sealed class WhisperCppTranscriptionProviderTests : IDisposable
 
             public ValueTask DisposeAsync()
             {
+                lock (_owner._sync)
+                {
+                    _owner.DisposeCount++;
+                }
+
                 return ValueTask.CompletedTask;
             }
         }
