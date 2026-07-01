@@ -34,6 +34,15 @@ public static class DiagnosticFailureText
             return MissingModelRecovery;
         }
 
+        if (result.InsertionResult is { Submitted: true, Inserted: false })
+        {
+            string submittedMessage = DiagnosticTextRedactor.Redact(
+                result.InsertionResult.Message ?? result.Message);
+            return string.IsNullOrWhiteSpace(submittedMessage)
+                ? "Paste was submitted but insertion could not be confirmed. The transcript remains available for manual paste."
+                : submittedMessage;
+        }
+
         if (LooksLikeInsertionFailure(combined, result))
         {
             return result.Target?.IsElevated == true

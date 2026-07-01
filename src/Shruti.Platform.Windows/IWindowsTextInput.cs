@@ -4,7 +4,9 @@ public interface IWindowsTextInput
 {
     WindowsInputSendResult SendUnicodeText(string text);
 
-    WindowsInputSendResult SendPasteShortcut();
+    WindowsInputSendResult SendUnicodeTextSlow(string text);
+
+    WindowsInputSendResult SendPasteShortcut(WindowsPasteShortcut shortcut = WindowsPasteShortcut.ControlV);
 
     WindowsInputSendResult ReleasePasteShortcutKeys();
 }
