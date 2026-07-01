@@ -27,6 +27,7 @@ public sealed partial class MainWindow : Window
     private readonly ModelCatalog _modelCatalog;
     private readonly IModelManager _modelManager;
     private readonly DictationTriggerRouter _triggerRouter;
+    private readonly WindowsTargetFocusService _targetFocusService;
     private readonly WindowsGlobalTriggerService _triggerService;
     private readonly WindowsTrayIconService _trayIconService;
     private readonly IWindowsWindowVisibility _windowVisibility;
@@ -58,6 +59,7 @@ public sealed partial class MainWindow : Window
         ModelCatalog modelCatalog,
         IModelManager modelManager,
         DictationTriggerRouter triggerRouter,
+        WindowsTargetFocusService targetFocusService,
         WindowsGlobalTriggerService triggerService,
         WindowsTrayIconService trayIconService,
         IWindowsWindowVisibility windowVisibility)
@@ -71,6 +73,7 @@ public sealed partial class MainWindow : Window
         _modelCatalog = modelCatalog ?? throw new ArgumentNullException(nameof(modelCatalog));
         _modelManager = modelManager ?? throw new ArgumentNullException(nameof(modelManager));
         _triggerRouter = triggerRouter ?? throw new ArgumentNullException(nameof(triggerRouter));
+        _targetFocusService = targetFocusService ?? throw new ArgumentNullException(nameof(targetFocusService));
         _triggerService = triggerService ?? throw new ArgumentNullException(nameof(triggerService));
         _trayIconService = trayIconService ?? throw new ArgumentNullException(nameof(trayIconService));
         _windowVisibility = windowVisibility ?? throw new ArgumentNullException(nameof(windowVisibility));
@@ -218,6 +221,12 @@ public sealed partial class MainWindow : Window
 
     private async void MainWindow_Activated(object sender, WindowActivatedEventArgs args)
     {
+        if (args.WindowActivationState == WindowActivationState.Deactivated)
+        {
+            _ = RememberExternalTargetAfterDeactivationAsync();
+            return;
+        }
+
         await EnsureSettingsLoadedAsync();
         await RefreshInstalledModelsAsync();
         await RefreshTranscriptionReadinessAsync();
@@ -226,6 +235,24 @@ public sealed partial class MainWindow : Window
         if (!_audioDevicesLoaded)
         {
             await LoadAudioDevicesAsync();
+        }
+    }
+
+    private async Task RememberExternalTargetAfterDeactivationAsync()
+    {
+        try
+        {
+            await Task.Delay(TimeSpan.FromMilliseconds(125)).ConfigureAwait(false);
+            if (!_isDisposed)
+            {
+                await _targetFocusService
+                    .RememberCurrentForegroundTargetAsync(CancellationToken.None)
+                    .ConfigureAwait(false);
+            }
+        }
+        catch
+        {
+            // Best-effort cache refresh; dictation can still fall back to preview.
         }
     }
 
@@ -1418,6 +1445,7 @@ public sealed partial class MainWindow : Window
         _controller.AudioLevelChanged -= Controller_AudioLevelChanged;
         _triggerRouter.FloatingWindowToggleRequested -= TriggerRouter_FloatingWindowToggleRequested;
         _triggerDispatchCancellation.Cancel();
+        _targetFocusService.Dispose();
         _trayIconService.CommandInvoked -= TrayIconService_CommandInvoked;
         _trayIconService.Dispose();
         _windowMessageHost.MessageReceived -= WindowMessageHost_MessageReceived;

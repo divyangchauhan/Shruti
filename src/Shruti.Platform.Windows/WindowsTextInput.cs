@@ -8,7 +8,18 @@ public sealed class WindowsTextInput : IWindowsTextInput
     private const uint KeyEventFKeyUp = 0x0002;
     private const uint KeyEventFUnicode = 0x0004;
     private const ushort VirtualKeyControl = 0x11;
+    private const ushort VirtualKeyShift = 0x10;
+    private const ushort VirtualKeyAlt = 0x12;
     private const ushort VirtualKeyV = 0x56;
+    private const ushort VirtualKeyLeftShift = 0xA0;
+    private const ushort VirtualKeyRightShift = 0xA1;
+    private const ushort VirtualKeyLeftControl = 0xA2;
+    private const ushort VirtualKeyRightControl = 0xA3;
+    private const ushort VirtualKeyLeftAlt = 0xA4;
+    private const ushort VirtualKeyRightAlt = 0xA5;
+    private const ushort VirtualKeyLeftWindows = 0x5B;
+    private const ushort VirtualKeyRightWindows = 0x5C;
+    private const int KeyPressedMask = 0x8000;
 
     internal static int NativeInputSize => Marshal.SizeOf<Input>();
 
@@ -21,28 +32,21 @@ public sealed class WindowsTextInput : IWindowsTextInput
             return WindowsInputSendResult.FromCounts(0, 0);
         }
 
-        var inputs = new Input[text.Length * 2];
+        Input[] textInputs = new Input[text.Length * 2];
 
         for (int index = 0; index < text.Length; index++)
         {
             ushort codeUnit = text[index];
-            inputs[index * 2] = CreateUnicodeInput(codeUnit, isKeyUp: false);
-            inputs[(index * 2) + 1] = CreateUnicodeInput(codeUnit, isKeyUp: true);
+            textInputs[index * 2] = CreateUnicodeInput(codeUnit, isKeyUp: false);
+            textInputs[(index * 2) + 1] = CreateUnicodeInput(codeUnit, isKeyUp: true);
         }
 
-        uint sent = NativeMethods.SendInput(
-            checked((uint)inputs.Length),
-            inputs,
-            Marshal.SizeOf<Input>());
-
-        return WindowsInputSendResult.FromCounts(
-            sent,
-            checked((uint)inputs.Length));
+        return SendInputs(PrependPressedModifierKeyUps(textInputs));
     }
 
     public WindowsInputSendResult SendPasteShortcut()
     {
-        Input[] inputs =
+        Input[] pasteInputs =
         [
             CreateVirtualKeyInput(VirtualKeyControl, isKeyUp: false),
             CreateVirtualKeyInput(VirtualKeyV, isKeyUp: false),
@@ -50,6 +54,32 @@ public sealed class WindowsTextInput : IWindowsTextInput
             CreateVirtualKeyInput(VirtualKeyControl, isKeyUp: true)
         ];
 
+        return SendInputs(PrependPressedModifierKeyUps(pasteInputs));
+    }
+
+    public WindowsInputSendResult ReleasePasteShortcutKeys()
+    {
+        Input[] inputs =
+        [
+            CreateVirtualKeyInput(VirtualKeyV, isKeyUp: true),
+            CreateVirtualKeyInput(VirtualKeyControl, isKeyUp: true),
+            CreateVirtualKeyInput(VirtualKeyLeftControl, isKeyUp: true),
+            CreateVirtualKeyInput(VirtualKeyRightControl, isKeyUp: true),
+            CreateVirtualKeyInput(VirtualKeyShift, isKeyUp: true),
+            CreateVirtualKeyInput(VirtualKeyLeftShift, isKeyUp: true),
+            CreateVirtualKeyInput(VirtualKeyRightShift, isKeyUp: true),
+            CreateVirtualKeyInput(VirtualKeyAlt, isKeyUp: true),
+            CreateVirtualKeyInput(VirtualKeyLeftAlt, isKeyUp: true),
+            CreateVirtualKeyInput(VirtualKeyRightAlt, isKeyUp: true),
+            CreateVirtualKeyInput(VirtualKeyLeftWindows, isKeyUp: true),
+            CreateVirtualKeyInput(VirtualKeyRightWindows, isKeyUp: true)
+        ];
+
+        return SendInputs(inputs);
+    }
+
+    private static WindowsInputSendResult SendInputs(Input[] inputs)
+    {
         uint sent = NativeMethods.SendInput(
             checked((uint)inputs.Length),
             inputs,
@@ -60,22 +90,72 @@ public sealed class WindowsTextInput : IWindowsTextInput
             checked((uint)inputs.Length));
     }
 
-    public WindowsInputSendResult ReleasePasteShortcutKeys()
+    private static Input[] PrependPressedModifierKeyUps(Input[] inputs)
     {
-        Input[] inputs =
-        [
-            CreateVirtualKeyInput(VirtualKeyV, isKeyUp: true),
-            CreateVirtualKeyInput(VirtualKeyControl, isKeyUp: true)
-        ];
+        Input[] modifierKeyUps = CreatePressedModifierKeyUpInputs();
+        if (modifierKeyUps.Length == 0)
+        {
+            return inputs;
+        }
 
-        uint sent = NativeMethods.SendInput(
-            checked((uint)inputs.Length),
+        var allInputs = new Input[modifierKeyUps.Length + inputs.Length];
+        Array.Copy(modifierKeyUps, allInputs, modifierKeyUps.Length);
+        Array.Copy(inputs, 0, allInputs, modifierKeyUps.Length, inputs.Length);
+        return allInputs;
+    }
+
+    private static Input[] CreatePressedModifierKeyUpInputs()
+    {
+        var inputs = new List<Input>(capacity: 8);
+
+        AddPressedModifierKeyUps(
             inputs,
-            Marshal.SizeOf<Input>());
+            VirtualKeyControl,
+            VirtualKeyLeftControl,
+            VirtualKeyRightControl);
+        AddPressedModifierKeyUps(
+            inputs,
+            VirtualKeyShift,
+            VirtualKeyLeftShift,
+            VirtualKeyRightShift);
+        AddPressedModifierKeyUps(
+            inputs,
+            VirtualKeyAlt,
+            VirtualKeyLeftAlt,
+            VirtualKeyRightAlt);
 
-        return WindowsInputSendResult.FromCounts(
-            sent,
-            checked((uint)inputs.Length));
+        AddPressedKeyUp(inputs, VirtualKeyLeftWindows);
+        AddPressedKeyUp(inputs, VirtualKeyRightWindows);
+
+        return inputs.ToArray();
+    }
+
+    private static void AddPressedModifierKeyUps(
+        List<Input> inputs,
+        ushort genericVirtualKey,
+        ushort leftVirtualKey,
+        ushort rightVirtualKey)
+    {
+        int initialCount = inputs.Count;
+        AddPressedKeyUp(inputs, leftVirtualKey);
+        AddPressedKeyUp(inputs, rightVirtualKey);
+        if (inputs.Count == initialCount)
+        {
+            AddPressedKeyUp(inputs, genericVirtualKey);
+        }
+    }
+
+    private static void AddPressedKeyUp(List<Input> inputs, ushort virtualKey)
+    {
+        if (IsKeyPressed(virtualKey))
+        {
+            inputs.Add(CreateVirtualKeyInput(virtualKey, isKeyUp: true));
+        }
+    }
+
+    private static bool IsKeyPressed(ushort virtualKey)
+    {
+        return (NativeMethods.GetAsyncKeyState(virtualKey) & KeyPressedMask) != 0;
     }
 
     private static Input CreateUnicodeInput(ushort codeUnit, bool isKeyUp)
@@ -167,5 +247,8 @@ public sealed class WindowsTextInput : IWindowsTextInput
             uint inputCount,
             [In] Input[] inputs,
             int inputSize);
+
+        [DllImport("user32.dll")]
+        public static extern short GetAsyncKeyState(int virtualKey);
     }
 }

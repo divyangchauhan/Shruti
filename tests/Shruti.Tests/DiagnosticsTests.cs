@@ -129,6 +129,31 @@ public sealed class DiagnosticsTests
     }
 
     [Fact]
+    public void FailureText_DoesNotTreatSubmittedClipboardPasteAsFailure()
+    {
+        var result = new DictationRunResult(
+            DictationRunOutcome.Inserted,
+            [new DictationStatus(DictationSessionState.Complete, "Complete")],
+            new FocusTarget(
+                IntPtr.Zero,
+                ProcessId: 42,
+                ProcessName: "winword",
+                WindowTitle: "Document1 - Word"),
+            TranscriptResult.FromText("hello"),
+            FocusRestoreResult: new FocusRestoreResult(Restored: true),
+            InsertionResult: new TextInsertionResult(
+                Inserted: false,
+                TextInsertionMethod.ClipboardPaste,
+                "Clipboard paste was submitted but cannot be confirmed.",
+                Submitted: true),
+            Message: "Clipboard paste was submitted but cannot be confirmed.");
+
+        string guidance = DiagnosticFailureText.ForDictationResult(result);
+
+        Assert.Equal("Clipboard paste was submitted but cannot be confirmed.", guidance);
+    }
+
+    [Fact]
     public void FailureText_MapsReadinessFailuresToRecoveryGuidance()
     {
         var missingModel = new TranscriptionReadinessResult(

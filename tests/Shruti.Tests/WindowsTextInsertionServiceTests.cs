@@ -26,7 +26,7 @@ public sealed class WindowsTextInsertionServiceTests
     }
 
     [Fact]
-    public async Task InspectAsync_RequiresPreviewWhenEditabilityIsUnknown()
+    public async Task InspectAsync_AllowsDirectInputWhenEditabilityIsUnknown()
     {
         var service = CreateService(new FakeWindowing { IsWindowResult = true });
 
@@ -34,12 +34,13 @@ public sealed class WindowsTextInsertionServiceTests
             CreateTarget(IsEditable: null),
             CancellationToken.None);
 
-        Assert.Equal(TextInsertionCapabilityOutcome.PreviewRecommended, capability.Outcome);
-        Assert.Equal("Shruti could not confirm that the captured target is editable.", capability.Message);
+        Assert.Equal(TextInsertionCapabilityOutcome.DirectInputAvailable, capability.Outcome);
+        Assert.Equal(TextInsertionMethod.DirectInput, capability.PreferredMethod);
+        Assert.Null(capability.Message);
     }
 
     [Fact]
-    public async Task InspectAsync_RequiresPreviewWhenSelectionStateIsUnknown()
+    public async Task InspectAsync_AllowsDirectInputWhenSelectionStateIsUnknown()
     {
         var service = CreateService(new FakeWindowing { IsWindowResult = true });
 
@@ -47,17 +48,16 @@ public sealed class WindowsTextInsertionServiceTests
             CreateTarget(HasSelectedText: null),
             CancellationToken.None);
 
-        Assert.Equal(TextInsertionCapabilityOutcome.PreviewRecommended, capability.Outcome);
-        Assert.Equal(
-            "Shruti could not determine whether the captured target has selected text.",
-            capability.Message);
+        Assert.Equal(TextInsertionCapabilityOutcome.DirectInputAvailable, capability.Outcome);
+        Assert.Equal(TextInsertionMethod.DirectInput, capability.PreferredMethod);
+        Assert.Null(capability.Message);
     }
 
     [Fact]
     public async Task CapturedTargetSafety_UsesTheSameMessageForInspectionAndInsertion()
     {
         var service = CreateService(new FakeWindowing { IsWindowResult = true });
-        FocusTarget target = CreateTarget(IsEditable: null);
+        FocusTarget target = CreateTarget(IsEditable: false);
 
         TextInsertionCapability capability = await service.InspectAsync(target, CancellationToken.None);
         TextInsertionResult result = await service.InsertAsync(
@@ -99,6 +99,20 @@ public sealed class WindowsTextInsertionServiceTests
         Assert.Equal(TextInsertionCapabilityOutcome.PreviewRecommended, capability.Outcome);
         Assert.Equal(TextInsertionMethod.None, capability.PreferredMethod);
         Assert.Equal("Terminal and shell targets require preview before insertion.", capability.Message);
+    }
+
+    [Fact]
+    public async Task InspectAsync_RequiresPreviewForElevatedTargets()
+    {
+        var service = CreateService(new FakeWindowing { IsWindowResult = true });
+
+        TextInsertionCapability capability = await service.InspectAsync(
+            CreateTarget(IsElevated: true),
+            CancellationToken.None);
+
+        Assert.Equal(TextInsertionCapabilityOutcome.PreviewRecommended, capability.Outcome);
+        Assert.Equal(TextInsertionMethod.None, capability.PreferredMethod);
+        Assert.Equal("Shruti cannot safely insert into an elevated target app.", capability.Message);
     }
 
     [Fact]
@@ -153,6 +167,8 @@ public sealed class WindowsTextInsertionServiceTests
             CancellationToken.None);
 
         Assert.True(result.Inserted);
+        Assert.True(result.Succeeded);
+        Assert.False(result.Submitted);
         Assert.Equal(TextInsertionMethod.DirectInput, result.Method);
         Assert.Equal("Hello, Shruti.", input.LastUnicodeText);
         Assert.Equal(0, input.SendPasteShortcutCount);
@@ -188,6 +204,34 @@ public sealed class WindowsTextInsertionServiceTests
     }
 
     [Fact]
+    public async Task InsertAsync_RefusesElevatedTargetsWithoutSendingInput()
+    {
+        var input = new FakeTextInput
+        {
+            UnicodeResult = CompleteResult(requestedInputCount: 28),
+            PasteResult = CompleteResult(requestedInputCount: 4)
+        };
+        var clipboard = new FakeClipboard();
+        var service = CreateService(
+            new FakeWindowing { IsWindowResult = true },
+            input,
+            clipboard);
+
+        TextInsertionResult result = await service.InsertAsync(
+            CreateTarget(IsElevated: true),
+            "Hello, Shruti.",
+            new TextInsertionOptions(),
+            CancellationToken.None);
+
+        Assert.False(result.Succeeded);
+        Assert.Equal(TextInsertionMethod.None, result.Method);
+        Assert.Equal("Shruti cannot safely insert into an elevated target app.", result.Message);
+        Assert.Equal(0, input.SendUnicodeTextCount);
+        Assert.Equal(0, input.SendPasteShortcutCount);
+        Assert.Equal(0, clipboard.CaptureCount);
+    }
+
+    [Fact]
     public async Task InsertAsync_ClipboardPreferredTargetSkipsDirectInputAndSubmitsPaste()
     {
         var input = new FakeTextInput
@@ -209,6 +253,8 @@ public sealed class WindowsTextInsertionServiceTests
             CancellationToken.None);
 
         Assert.False(result.Inserted);
+        Assert.True(result.Succeeded);
+        Assert.True(result.Submitted);
         Assert.Equal(TextInsertionMethod.ClipboardPaste, result.Method);
         Assert.Equal(0, input.SendUnicodeTextCount);
         Assert.Equal(1, input.SendPasteShortcutCount);
@@ -296,6 +342,8 @@ public sealed class WindowsTextInsertionServiceTests
             CancellationToken.None);
 
         Assert.False(result.Inserted);
+        Assert.True(result.Succeeded);
+        Assert.True(result.Submitted);
         Assert.Equal(TextInsertionMethod.ClipboardPaste, result.Method);
         Assert.Equal("Clipboard paste was submitted but cannot be confirmed.", result.Message);
         Assert.Equal(1, clipboard.CaptureCount);
@@ -409,6 +457,8 @@ public sealed class WindowsTextInsertionServiceTests
             CancellationToken.None);
 
         Assert.False(result.Inserted);
+        Assert.True(result.Succeeded);
+        Assert.True(result.Submitted);
         Assert.Equal("Clipboard paste was submitted but cannot be confirmed.", result.Message);
         Assert.Equal(1, clipboard.RestoreCount);
     }
@@ -439,6 +489,8 @@ public sealed class WindowsTextInsertionServiceTests
             CancellationToken.None);
 
         Assert.False(result.Inserted);
+        Assert.True(result.Succeeded);
+        Assert.True(result.Submitted);
         Assert.Equal(TextInsertionMethod.ClipboardPaste, result.Method);
         Assert.Equal(
             "Clipboard paste was submitted but cannot be confirmed, and Shruti could not restore the previous clipboard text.",
@@ -515,7 +567,7 @@ public sealed class WindowsTextInsertionServiceTests
     }
 
     [Fact]
-    public async Task InsertAsync_RefusesWhenTheCurrentFocusedFieldHasUnknownSelectionState()
+    public async Task InsertAsync_AllowsWhenTheCurrentFocusedFieldHasUnknownSelectionState()
     {
         var input = new FakeTextInput { UnicodeResult = CompleteResult(requestedInputCount: 28) };
         var focusedElementInspector = new FakeFocusedElementInspector(
@@ -535,11 +587,61 @@ public sealed class WindowsTextInsertionServiceTests
             new TextInsertionOptions(),
             CancellationToken.None);
 
+        Assert.True(result.Inserted);
+        Assert.Equal(1, input.SendUnicodeTextCount);
+    }
+
+    [Fact]
+    public async Task InsertAsync_RefusesWhenTheCurrentFocusedFieldIsConfirmedNotEditable()
+    {
+        var input = new FakeTextInput { UnicodeResult = CompleteResult(requestedInputCount: 28) };
+        var focusedElementInspector = new FakeFocusedElementInspector(
+            new FocusedElementSnapshot(
+                AutomationElementId: "ReadOnly",
+                IsEditable: false,
+                HasSelectedText: false));
+        var service = CreateService(
+            new FakeWindowing { IsWindowResult = true },
+            input,
+            new FakeClipboard(),
+            focusedElementInspector);
+
+        TextInsertionResult result = await service.InsertAsync(
+            CreateTarget(),
+            "Hello, Shruti.",
+            new TextInsertionOptions(),
+            CancellationToken.None);
+
         Assert.False(result.Inserted);
-        Assert.Equal(
-            "Shruti could not re-confirm whether the focused field has selected text.",
-            result.Message);
+        Assert.Equal("The currently focused field is not editable.", result.Message);
         Assert.Equal(0, input.SendUnicodeTextCount);
+    }
+
+    [Fact]
+    public async Task InsertAsync_RetriesFocusedElementInspectionBeforeSendingInput()
+    {
+        var input = new FakeTextInput { UnicodeResult = CompleteResult(requestedInputCount: 28) };
+        var focusedElementInspector = new FakeFocusedElementInspector(
+            null,
+            new FocusedElementSnapshot(
+                AutomationElementId: "Edit",
+                IsEditable: true,
+                HasSelectedText: false));
+        var service = CreateService(
+            new FakeWindowing { IsWindowResult = true },
+            input,
+            new FakeClipboard(),
+            focusedElementInspector);
+
+        TextInsertionResult result = await service.InsertAsync(
+            CreateTarget(),
+            "Hello, Shruti.",
+            new TextInsertionOptions(),
+            CancellationToken.None);
+
+        Assert.True(result.Inserted);
+        Assert.Equal(2, focusedElementInspector.CaptureCount);
+        Assert.Equal(1, input.SendUnicodeTextCount);
     }
 
     [Fact]
@@ -577,7 +679,8 @@ public sealed class WindowsTextInsertionServiceTests
             textInput ?? new FakeTextInput(),
             clipboard ?? new FakeClipboard(),
             focusedElementInspector ?? FakeFocusedElementInspector.EditableWithoutSelection,
-            clipboardPasteSettleDelay: TimeSpan.Zero);
+            clipboardPasteSettleDelay: TimeSpan.Zero,
+            focusedElementSettleDelay: TimeSpan.Zero);
     }
 
     private static FocusTarget CreateTarget(
@@ -758,16 +861,25 @@ public sealed class WindowsTextInsertionServiceTests
                 IsEditable: true,
                 HasSelectedText: false));
 
-        private readonly FocusedElementSnapshot? _snapshot;
+        private readonly Queue<FocusedElementSnapshot?> _snapshots;
 
-        public FakeFocusedElementInspector(FocusedElementSnapshot? snapshot)
+        public FakeFocusedElementInspector(params FocusedElementSnapshot?[] snapshots)
         {
-            _snapshot = snapshot;
+            _snapshots = new Queue<FocusedElementSnapshot?>(
+                snapshots.Length == 0 ? [null] : snapshots);
         }
+
+        public int CaptureCount { get; private set; }
 
         public FocusedElementSnapshot? CaptureFocusedElement(IntPtr ownerWindowHandle)
         {
-            return _snapshot;
+            CaptureCount++;
+            if (_snapshots.Count > 1)
+            {
+                return _snapshots.Dequeue();
+            }
+
+            return _snapshots.Peek();
         }
     }
 }

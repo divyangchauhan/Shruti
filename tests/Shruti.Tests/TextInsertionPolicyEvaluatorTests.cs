@@ -43,6 +43,23 @@ public sealed class TextInsertionPolicyEvaluatorTests
         Assert.Equal(TextInsertionPolicyMode.DirectInputPreferred, policy.Mode);
     }
 
+    [Theory]
+    [InlineData("notepad")]
+    [InlineData("chrome.exe")]
+    [InlineData("msedge")]
+    [InlineData("firefox")]
+    [InlineData("Code")]
+    [InlineData("Cursor.exe")]
+    public void Evaluate_KeepsKnownEditableAppClassesOnDefaultDirectInput(string processName)
+    {
+        var evaluator = new TextInsertionPolicyEvaluator();
+
+        TextInsertionPolicy policy = evaluator.Evaluate(CreateTarget(processName));
+
+        Assert.Equal(TextInsertionPolicy.Default, policy);
+        Assert.Equal(TextInsertionPolicyMode.DirectInputPreferred, policy.Mode);
+    }
+
     private static FocusTarget CreateTarget(string processName)
     {
         return new FocusTarget(

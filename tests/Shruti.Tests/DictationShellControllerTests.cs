@@ -85,6 +85,28 @@ public sealed class DictationShellControllerTests
     }
 
     [Fact]
+    public async Task CompletedTranscript_UpdatesPreviewBeforeInsertionCompletes()
+    {
+        var services = MockDictationAppServices.Create();
+        var controller = services.CreateShellController();
+        var insertionCompletion = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        services.TextInsertion.InsertCompletion = insertionCompletion;
+
+        await controller.StartAsync(DictationInsertionMode.AutoInsert);
+        Task stopping = controller.StopAsync();
+        await WaitForStateAsync(
+            controller,
+            state => state.SessionState == DictationSessionState.InsertingText &&
+                services.TextInsertion.InsertCount == 1);
+
+        Assert.Equal("hello from the Shruti mock dictation loop", controller.State.TranscriptPreview);
+        Assert.Equal(controller.State.TranscriptPreview, services.TextInsertion.LastInsertedText);
+
+        insertionCompletion.SetResult();
+        await stopping;
+    }
+
+    [Fact]
     public async Task PreviewFirst_StopLeavesTranscriptWithoutInsertion()
     {
         var services = MockDictationAppServices.Create();

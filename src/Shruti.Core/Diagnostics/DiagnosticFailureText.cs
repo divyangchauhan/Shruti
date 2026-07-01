@@ -91,7 +91,14 @@ public static class DiagnosticFailureText
 
     private static bool LooksLikeInsertionFailure(string text, DictationRunResult result)
     {
-        return result.InsertionResult?.Inserted == false ||
+        if (result.Outcome == DictationRunOutcome.Inserted &&
+            result.InsertionResult?.Succeeded == true &&
+            result.FocusRestoreResult?.Restored is not false)
+        {
+            return false;
+        }
+
+        return result.InsertionResult?.Succeeded == false ||
             result.FocusRestoreResult?.Restored == false ||
             ContainsAny(text, "insert", "target", "focus", "clipboard", "typing", "elevated");
     }

@@ -1,15 +1,21 @@
 using Shruti.Core.Platform;
+using System.Diagnostics;
 
 namespace Shruti.Platform.Windows;
 
-public sealed class WindowsTargetFocusService : ITargetFocusService
+public sealed class WindowsTargetFocusService : ITargetFocusService, IDisposable
 {
     private static readonly TimeSpan DefaultFocusSettleDelay = TimeSpan.FromMilliseconds(75);
 
     private readonly IWindowsWindowing _windowing;
     private readonly IWindowsProcessInspector _processInspector;
     private readonly IWindowsFocusedElementInspector _focusedElementInspector;
+    private readonly IWindowsForegroundWindowTracker _foregroundWindowTracker;
     private readonly TimeSpan _focusSettleDelay;
+    private readonly int _currentProcessId;
+    private readonly object _targetSync = new();
+    private FocusTarget? _lastExternalTarget;
+    private bool _isDisposed;
 
     public WindowsTargetFocusService()
         : this(
@@ -24,39 +30,108 @@ public sealed class WindowsTargetFocusService : ITargetFocusService
         IWindowsWindowing windowing,
         IWindowsProcessInspector processInspector,
         IWindowsFocusedElementInspector focusedElementInspector,
-        TimeSpan? focusSettleDelay = null)
+        TimeSpan? focusSettleDelay = null,
+        int? currentProcessId = null,
+        IWindowsForegroundWindowTracker? foregroundWindowTracker = null)
     {
         _windowing = windowing ?? throw new ArgumentNullException(nameof(windowing));
         _processInspector = processInspector ?? throw new ArgumentNullException(nameof(processInspector));
         _focusedElementInspector = focusedElementInspector ?? throw new ArgumentNullException(nameof(focusedElementInspector));
+        _foregroundWindowTracker = foregroundWindowTracker ?? new WindowsForegroundWindowTracker();
         _focusSettleDelay = focusSettleDelay ?? DefaultFocusSettleDelay;
+        _currentProcessId = currentProcessId ?? Process.GetCurrentProcess().Id;
+        _foregroundWindowTracker.ForegroundWindowChanged += ForegroundWindowTracker_ForegroundWindowChanged;
+        _foregroundWindowTracker.Start();
     }
 
     public Task<FocusTarget?> CaptureCurrentTargetAsync(CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
 
-        IntPtr foregroundWindow = _windowing.GetForegroundWindow();
-        if (foregroundWindow == IntPtr.Zero)
+        FocusTarget? currentTarget = CaptureForegroundTarget();
+        if (currentTarget is null)
         {
-            return Task.FromResult<FocusTarget?>(null);
+            return Task.FromResult(GetLastExternalTargetIfValid());
         }
 
-        WindowsWindowSnapshot? window = _windowing.CaptureWindow(foregroundWindow);
+        if (IsCurrentProcessTarget(currentTarget))
+        {
+            return Task.FromResult(GetLastExternalTargetIfValid());
+        }
+
+        RememberExternalTarget(currentTarget);
+        return Task.FromResult<FocusTarget?>(currentTarget);
+    }
+
+    public Task RememberCurrentForegroundTargetAsync(CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+
+        FocusTarget? currentTarget = CaptureForegroundTarget();
+        if (currentTarget is not null && !IsCurrentProcessTarget(currentTarget))
+        {
+            RememberExternalTarget(currentTarget);
+        }
+
+        return Task.CompletedTask;
+    }
+
+    public void Dispose()
+    {
+        if (_isDisposed)
+        {
+            return;
+        }
+
+        _isDisposed = true;
+        _foregroundWindowTracker.ForegroundWindowChanged -= ForegroundWindowTracker_ForegroundWindowChanged;
+        _foregroundWindowTracker.Dispose();
+    }
+
+    private void ForegroundWindowTracker_ForegroundWindowChanged(object? sender, IntPtr windowHandle)
+    {
+        try
+        {
+            FocusTarget? currentTarget = CaptureTarget(windowHandle);
+            if (currentTarget is not null && !IsCurrentProcessTarget(currentTarget))
+            {
+                RememberExternalTarget(currentTarget);
+            }
+        }
+        catch
+        {
+            // Foreground tracking is a best-effort cache for later insertion.
+        }
+    }
+
+    private FocusTarget? CaptureForegroundTarget()
+    {
+        IntPtr foregroundWindow = _windowing.GetForegroundWindow();
+        return CaptureTarget(foregroundWindow);
+    }
+
+    private FocusTarget? CaptureTarget(IntPtr windowHandle)
+    {
+        if (windowHandle == IntPtr.Zero)
+        {
+            return null;
+        }
+
+        WindowsWindowSnapshot? window = _windowing.CaptureWindow(windowHandle);
         if (window is null || window.ProcessId <= 0)
         {
-            return Task.FromResult<FocusTarget?>(null);
+            return null;
         }
 
         WindowsProcessSnapshot? process = _processInspector.Inspect(window.ProcessId);
         if (process is null)
         {
-            return Task.FromResult<FocusTarget?>(null);
+            return null;
         }
 
-        FocusedElementSnapshot? focusedElement = _focusedElementInspector.CaptureFocusedElement(foregroundWindow);
+        FocusedElementSnapshot? focusedElement = _focusedElementInspector.CaptureFocusedElement(windowHandle);
 
-        var target = new FocusTarget(
+        return new FocusTarget(
             window.WindowHandle,
             window.ProcessId,
             process.ProcessName,
@@ -66,8 +141,39 @@ public sealed class WindowsTargetFocusService : ITargetFocusService
             focusedElement?.HasSelectedText,
             process.IsElevated,
             window.ThreadId);
+    }
 
-        return Task.FromResult<FocusTarget?>(target);
+    private bool IsCurrentProcessTarget(FocusTarget target)
+    {
+        return target.ProcessId == _currentProcessId;
+    }
+
+    private void RememberExternalTarget(FocusTarget target)
+    {
+        lock (_targetSync)
+        {
+            _lastExternalTarget = target;
+        }
+    }
+
+    private FocusTarget? GetLastExternalTargetIfValid()
+    {
+        lock (_targetSync)
+        {
+            if (_lastExternalTarget is null)
+            {
+                return null;
+            }
+
+            if (_lastExternalTarget.WindowHandle != IntPtr.Zero &&
+                _windowing.IsWindow(_lastExternalTarget.WindowHandle))
+            {
+                return _lastExternalTarget;
+            }
+
+            _lastExternalTarget = null;
+            return null;
+        }
     }
 
     public async Task<FocusRestoreResult> RestoreAsync(

@@ -14,7 +14,7 @@ public sealed record DictationRunResult(
     string? Message = null,
     Exception? Error = null)
 {
-    public bool Inserted => Outcome == DictationRunOutcome.Inserted && InsertionResult?.Inserted == true;
+    public bool Inserted => Outcome == DictationRunOutcome.Inserted && InsertionResult?.Succeeded == true;
 
     public bool RequiresPreview => Outcome == DictationRunOutcome.PreviewRequired;
 

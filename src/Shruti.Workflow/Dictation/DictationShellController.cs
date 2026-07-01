@@ -442,7 +442,7 @@ public sealed class DictationShellController
 
     private void ApplyTranscriptEvent(TranscriptEvent transcriptEvent)
     {
-        if (transcriptEvent.Kind != TranscriptEventKind.PartialText ||
+        if (transcriptEvent.Kind is not TranscriptEventKind.PartialText and not TranscriptEventKind.Completed ||
             string.IsNullOrWhiteSpace(transcriptEvent.Text))
         {
             return;
