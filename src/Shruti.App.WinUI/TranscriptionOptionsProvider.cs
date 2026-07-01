@@ -43,11 +43,10 @@ public sealed class TranscriptionOptionsProvider
         }
     }
 
-    public TranscriptionSessionOptions Create()
+    public async Task<TranscriptionSessionOptions> CreateAsync(CancellationToken cancellationToken)
     {
-        TranscriptionReadinessResult readiness = EvaluateReadinessAsync(CancellationToken.None)
-            .GetAwaiter()
-            .GetResult();
+        TranscriptionReadinessResult readiness = await EvaluateReadinessAsync(cancellationToken)
+            .ConfigureAwait(false);
         if (!readiness.CanProceed || readiness.SelectedBackend is null)
         {
             throw new InvalidOperationException(readiness.Message);
