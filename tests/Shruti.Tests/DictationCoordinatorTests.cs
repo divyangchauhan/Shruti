@@ -163,7 +163,7 @@ public sealed class DictationCoordinatorTests
     }
 
     [Fact]
-    public async Task ClipboardPasteSubmission_CompletesAsInsertedWorkflow()
+    public async Task ClipboardPasteSubmission_CompletesAsPreviewRecoveryWorkflow()
     {
         var services = TestServices.Create(
             capability: new TextInsertionCapability(
@@ -179,8 +179,9 @@ public sealed class DictationCoordinatorTests
 
         var result = await services.Coordinator.RunOnceAsync(request, CancellationToken.None);
 
-        Assert.Equal(DictationRunOutcome.Inserted, result.Outcome);
-        Assert.True(result.Inserted);
+        Assert.Equal(DictationRunOutcome.PreviewRequired, result.Outcome);
+        Assert.True(result.RequiresPreview);
+        Assert.False(result.Inserted);
         Assert.False(result.InsertionResult?.Inserted);
         Assert.True(result.InsertionResult?.Submitted);
         Assert.Equal("Clipboard paste was submitted but cannot be confirmed.", result.Message);

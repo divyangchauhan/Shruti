@@ -9,14 +9,14 @@ public sealed class TextInsertionPolicyEvaluatorTests
     [InlineData("cmd")]
     [InlineData("pwsh.exe")]
     [InlineData(@"C:\Program Files\WindowsApps\Microsoft.WindowsTerminal\WindowsTerminal.exe")]
-    public void Evaluate_ReturnsPreviewRequiredForTerminalProcesses(string processName)
+    public void Evaluate_ReturnsClipboardPreferredForTerminalProcesses(string processName)
     {
         var evaluator = new TextInsertionPolicyEvaluator();
 
         TextInsertionPolicy policy = evaluator.Evaluate(CreateTarget(processName));
 
-        Assert.Equal("terminal.preview-required", policy.Id);
-        Assert.Equal(TextInsertionPolicyMode.PreviewRequired, policy.Mode);
+        Assert.Equal("terminal.clipboard-preferred", policy.Id);
+        Assert.Equal(TextInsertionPolicyMode.ClipboardPastePreferred, policy.Mode);
     }
 
     [Theory]
@@ -29,6 +29,23 @@ public sealed class TextInsertionPolicyEvaluatorTests
         TextInsertionPolicy policy = evaluator.Evaluate(CreateTarget(processName));
 
         Assert.Equal("office.clipboard-preferred", policy.Id);
+        Assert.Equal(TextInsertionPolicyMode.ClipboardPastePreferred, policy.Mode);
+    }
+
+    [Theory]
+    [InlineData("chrome.exe")]
+    [InlineData("msedge")]
+    [InlineData("firefox")]
+    [InlineData("Code")]
+    [InlineData("Cursor.exe")]
+    [InlineData("Discord")]
+    public void Evaluate_ReturnsClipboardPreferredForWebViewProcesses(string processName)
+    {
+        var evaluator = new TextInsertionPolicyEvaluator();
+
+        TextInsertionPolicy policy = evaluator.Evaluate(CreateTarget(processName));
+
+        Assert.Equal("webview.clipboard-preferred", policy.Id);
         Assert.Equal(TextInsertionPolicyMode.ClipboardPastePreferred, policy.Mode);
     }
 
@@ -45,11 +62,6 @@ public sealed class TextInsertionPolicyEvaluatorTests
 
     [Theory]
     [InlineData("notepad")]
-    [InlineData("chrome.exe")]
-    [InlineData("msedge")]
-    [InlineData("firefox")]
-    [InlineData("Code")]
-    [InlineData("Cursor.exe")]
     public void Evaluate_KeepsKnownEditableAppClassesOnDefaultDirectInput(string processName)
     {
         var evaluator = new TextInsertionPolicyEvaluator();

@@ -453,7 +453,9 @@ Use a layered strategy:
    - Snapshot existing clipboard content where possible.
    - Put transcript text on clipboard.
    - Send paste command.
-   - Restore previous clipboard content after a short delay if restoration is enabled.
+   - If paste cannot be sent, restore previous clipboard content where practical.
+   - If paste is submitted but cannot be confirmed, leave the transcript on
+     the clipboard for manual paste recovery and keep preview available.
 5. If insertion cannot be trusted, switch to preview/copy and explain the reason.
 
 Safe insertion policy:
@@ -461,11 +463,13 @@ Safe insertion policy:
 - By default, avoid overwriting selected text unless the user has enabled replacement behavior.
 - If a non-empty selection is detected, preview before insert or ask for confirmation.
 - If selection state cannot be determined for a sensitive target, prefer preview/copy unless the user has opted into aggressive insertion.
-- Maintain per-app rules so terminals, remote desktops, elevated apps, password fields, and unsupported controls can use safer defaults.
+- Maintain per-app rules so terminals, webview/Electron apps, remote desktops, elevated apps, password fields, and unsupported controls can use safer defaults.
+- Terminals use paste-safe insertion: line breaks are normalized to spaces and Shruti never sends Enter automatically.
 
 Known hard boundary:
 
 - A non-elevated Shruti process cannot reliably inject into elevated apps because of Windows integrity isolation. The app should not run elevated by default; instead, explain the limitation and offer copy/clipboard fallback.
+- Future elevated-target support should be a separate UIAccess-capable accessibility helper, not a normal app-process workaround. That path requires a `uiAccess="true"` manifest, code signing with a trusted certificate, secure installation under a trusted location such as `Program Files`, installer/update changes, and a clear user-facing security model.
 
 ## Audio Pipeline
 

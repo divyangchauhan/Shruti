@@ -88,7 +88,7 @@ public sealed class WindowsTextInsertionServiceTests
     }
 
     [Fact]
-    public async Task InspectAsync_RequiresPreviewForTerminalTargets()
+    public async Task InspectAsync_UsesClipboardFallbackForTerminalTargets()
     {
         var service = CreateService(new FakeWindowing { IsWindowResult = true });
 
@@ -96,9 +96,9 @@ public sealed class WindowsTextInsertionServiceTests
             CreateTarget(ProcessName: "WindowsTerminal.exe", WindowTitle: "PowerShell"),
             CancellationToken.None);
 
-        Assert.Equal(TextInsertionCapabilityOutcome.PreviewRecommended, capability.Outcome);
-        Assert.Equal(TextInsertionMethod.None, capability.PreferredMethod);
-        Assert.Equal("Terminal and shell targets require preview before insertion.", capability.Message);
+        Assert.Equal(TextInsertionCapabilityOutcome.ClipboardFallbackOnly, capability.Outcome);
+        Assert.Equal(TextInsertionMethod.ClipboardPaste, capability.PreferredMethod);
+        Assert.Equal("Terminal and shell targets use paste-safe insertion without submitting Enter.", capability.Message);
     }
 
     [Fact]
@@ -176,7 +176,7 @@ public sealed class WindowsTextInsertionServiceTests
     }
 
     [Fact]
-    public async Task InsertAsync_RefusesTerminalTargetsWithoutSendingInput()
+    public async Task InsertAsync_TerminalTargetsSubmitPasteWithoutLineBreaks()
     {
         var input = new FakeTextInput
         {
@@ -191,16 +191,53 @@ public sealed class WindowsTextInsertionServiceTests
 
         TextInsertionResult result = await service.InsertAsync(
             CreateTarget(ProcessName: "pwsh"),
+            "Hello,\nShruti.",
+            new TextInsertionOptions(),
+            CancellationToken.None);
+
+        Assert.False(result.Inserted);
+        Assert.False(result.Succeeded);
+        Assert.True(result.Submitted);
+        Assert.Equal(TextInsertionMethod.ClipboardPaste, result.Method);
+        Assert.Contains("Terminal paste was submitted but cannot be confirmed.", result.Message);
+        Assert.Equal(0, input.SendUnicodeTextCount);
+        Assert.Equal(1, input.SendPasteShortcutCount);
+        Assert.Equal(WindowsPasteShortcut.ControlV, input.LastPasteShortcut);
+        Assert.Equal(1, clipboard.CaptureCount);
+        Assert.Equal("Hello, Shruti.", clipboard.LastSetText);
+    }
+
+    [Fact]
+    public async Task InsertAsync_TerminalPasteFailureTriesShortcutFallbacks()
+    {
+        var input = new FakeTextInput
+        {
+            PasteResult = NoneResult(requestedInputCount: 4)
+        };
+        var clipboard = new FakeClipboard(
+            new WindowsClipboardSnapshot(CanRestore: true, Text: "previous clipboard text", SequenceNumber: 11));
+        var service = CreateService(
+            new FakeWindowing { IsWindowResult = true },
+            input,
+            clipboard);
+
+        TextInsertionResult result = await service.InsertAsync(
+            CreateTarget(ProcessName: "WindowsTerminal"),
             "Hello, Shruti.",
             new TextInsertionOptions(),
             CancellationToken.None);
 
         Assert.False(result.Inserted);
-        Assert.Equal(TextInsertionMethod.None, result.Method);
-        Assert.Equal("Terminal and shell targets require preview before insertion.", result.Message);
-        Assert.Equal(0, input.SendUnicodeTextCount);
-        Assert.Equal(0, input.SendPasteShortcutCount);
-        Assert.Equal(0, clipboard.CaptureCount);
+        Assert.False(result.Submitted);
+        Assert.Equal(3, input.SendPasteShortcutCount);
+        Assert.Equal(
+            [
+                WindowsPasteShortcut.ControlV,
+                WindowsPasteShortcut.ShiftInsert,
+                WindowsPasteShortcut.ControlShiftV
+            ],
+            input.PasteShortcuts);
+        Assert.Equal(1, clipboard.RestoreCount);
     }
 
     [Fact]
@@ -253,13 +290,54 @@ public sealed class WindowsTextInsertionServiceTests
             CancellationToken.None);
 
         Assert.False(result.Inserted);
-        Assert.True(result.Succeeded);
+        Assert.False(result.Succeeded);
         Assert.True(result.Submitted);
         Assert.Equal(TextInsertionMethod.ClipboardPaste, result.Method);
         Assert.Equal(0, input.SendUnicodeTextCount);
         Assert.Equal(1, input.SendPasteShortcutCount);
         Assert.Equal(1, clipboard.CaptureCount);
         Assert.Equal("Hello, Shruti.", clipboard.LastSetText);
+        Assert.Equal(0, clipboard.RestoreCount);
+        Assert.Equal("0x2A", result.OperationalDiagnostics["targetWindowHandle"]);
+        Assert.Equal("ClipboardPaste", result.Method.ToString());
+        Assert.Equal("ControlV", result.OperationalDiagnostics["pasteShortcut"]);
+        Assert.Equal("Complete", result.OperationalDiagnostics["sendInputOutcome"]);
+        Assert.Equal("11", result.OperationalDiagnostics["clipboardSequenceBefore"]);
+        Assert.Equal("True", result.OperationalDiagnostics["recoveryClipboardTextAvailable"]);
+    }
+
+    [Fact]
+    public async Task InsertAsync_WebViewPasteFailureFallsBackToSlowUnicodeTyping()
+    {
+        var input = new FakeTextInput
+        {
+            UnicodeResult = CompleteResult(requestedInputCount: 28),
+            PasteResult = NoneResult(requestedInputCount: 4)
+        };
+        var clipboard = new FakeClipboard(
+            new WindowsClipboardSnapshot(CanRestore: true, Text: "previous clipboard text", SequenceNumber: 11));
+        var service = CreateService(
+            new FakeWindowing { IsWindowResult = true },
+            input,
+            clipboard);
+
+        TextInsertionResult result = await service.InsertAsync(
+            CreateTarget(ProcessName: "Discord"),
+            "Hello, Shruti.",
+            new TextInsertionOptions(),
+            CancellationToken.None);
+
+        Assert.True(result.Inserted);
+        Assert.True(result.Succeeded);
+        Assert.False(result.Submitted);
+        Assert.Equal(TextInsertionMethod.DirectInput, result.Method);
+        Assert.Equal(1, input.SendPasteShortcutCount);
+        Assert.Equal(0, input.SendUnicodeTextCount);
+        Assert.Equal(1, input.SendUnicodeTextSlowCount);
+        Assert.Equal("Hello, Shruti.", input.LastSlowUnicodeText);
+        Assert.Equal(1, clipboard.RestoreCount);
+        Assert.Equal("slow", result.OperationalDiagnostics["unicodeInputMode"]);
+        Assert.Equal("webview", result.OperationalDiagnostics["targetProfile"]);
     }
 
     [Fact]
@@ -321,7 +399,7 @@ public sealed class WindowsTextInsertionServiceTests
     }
 
     [Fact]
-    public async Task InsertAsync_DirectInputFailureSubmitsClipboardPasteAndRestoresText()
+    public async Task InsertAsync_DirectInputFailureSubmitsClipboardPasteAndLeavesRecoveryClipboard()
     {
         var input = new FakeTextInput
         {
@@ -342,14 +420,15 @@ public sealed class WindowsTextInsertionServiceTests
             CancellationToken.None);
 
         Assert.False(result.Inserted);
-        Assert.True(result.Succeeded);
+        Assert.False(result.Succeeded);
         Assert.True(result.Submitted);
         Assert.Equal(TextInsertionMethod.ClipboardPaste, result.Method);
-        Assert.Equal("Clipboard paste was submitted but cannot be confirmed.", result.Message);
+        Assert.Equal(
+            "Clipboard paste was submitted but cannot be confirmed. The transcript remains on the clipboard for manual paste.",
+            result.Message);
         Assert.Equal(1, clipboard.CaptureCount);
         Assert.Equal("Hello, Shruti.", clipboard.LastSetText);
-        Assert.Equal(1, clipboard.RestoreCount);
-        Assert.Equal("previous clipboard text", clipboard.LastRestoredSnapshot?.Text);
+        Assert.Equal(0, clipboard.RestoreCount);
         Assert.Equal(1, input.SendPasteShortcutCount);
     }
 
@@ -457,14 +536,16 @@ public sealed class WindowsTextInsertionServiceTests
             CancellationToken.None);
 
         Assert.False(result.Inserted);
-        Assert.True(result.Succeeded);
+        Assert.False(result.Succeeded);
         Assert.True(result.Submitted);
-        Assert.Equal("Clipboard paste was submitted but cannot be confirmed.", result.Message);
-        Assert.Equal(1, clipboard.RestoreCount);
+        Assert.Equal(
+            "Clipboard paste was submitted but cannot be confirmed. The transcript remains on the clipboard for manual paste.",
+            result.Message);
+        Assert.Equal(0, clipboard.RestoreCount);
     }
 
     [Fact]
-    public async Task InsertAsync_ReportsClipboardRestorationFailureAfterSubmittedPaste()
+    public async Task InsertAsync_SubmittedPasteKeepsTranscriptOnClipboardForRecovery()
     {
         var input = new FakeTextInput
         {
@@ -474,8 +555,6 @@ public sealed class WindowsTextInsertionServiceTests
         var clipboard = new FakeClipboard(
             new WindowsClipboardSnapshot(CanRestore: true, Text: "previous", SequenceNumber: 11))
         {
-            RestoreResult = new WindowsClipboardRestoreResult(
-                WindowsClipboardRestoreOutcome.Failed)
         };
         var service = CreateService(
             new FakeWindowing { IsWindowResult = true },
@@ -489,12 +568,14 @@ public sealed class WindowsTextInsertionServiceTests
             CancellationToken.None);
 
         Assert.False(result.Inserted);
-        Assert.True(result.Succeeded);
+        Assert.False(result.Succeeded);
         Assert.True(result.Submitted);
         Assert.Equal(TextInsertionMethod.ClipboardPaste, result.Method);
         Assert.Equal(
-            "Clipboard paste was submitted but cannot be confirmed, and Shruti could not restore the previous clipboard text.",
+            "Clipboard paste was submitted but cannot be confirmed. The transcript remains on the clipboard for manual paste.",
             result.Message);
+        Assert.Equal("Hello, Shruti.", clipboard.LastSetText);
+        Assert.Equal(0, clipboard.RestoreCount);
     }
 
     [Fact]
@@ -772,7 +853,15 @@ public sealed class WindowsTextInsertionServiceTests
 
         public int SendPasteShortcutCount { get; private set; }
 
+        public int SendUnicodeTextSlowCount { get; private set; }
+
         public string? LastUnicodeText { get; private set; }
+
+        public string? LastSlowUnicodeText { get; private set; }
+
+        public WindowsPasteShortcut? LastPasteShortcut { get; private set; }
+
+        public List<WindowsPasteShortcut> PasteShortcuts { get; } = [];
 
         public WindowsInputSendResult SendUnicodeText(string text)
         {
@@ -781,9 +870,18 @@ public sealed class WindowsTextInsertionServiceTests
             return UnicodeResult;
         }
 
-        public WindowsInputSendResult SendPasteShortcut()
+        public WindowsInputSendResult SendUnicodeTextSlow(string text)
+        {
+            SendUnicodeTextSlowCount++;
+            LastSlowUnicodeText = text;
+            return UnicodeResult;
+        }
+
+        public WindowsInputSendResult SendPasteShortcut(WindowsPasteShortcut shortcut = WindowsPasteShortcut.ControlV)
         {
             SendPasteShortcutCount++;
+            LastPasteShortcut = shortcut;
+            PasteShortcuts.Add(shortcut);
             return PasteResult;
         }
 

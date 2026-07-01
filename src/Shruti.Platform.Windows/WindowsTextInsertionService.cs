@@ -6,6 +6,17 @@ public sealed class WindowsTextInsertionService : ITextInsertionService
 {
     private static readonly TimeSpan DefaultFocusedElementSettleDelay = TimeSpan.FromMilliseconds(50);
     private const int DefaultFocusedElementInspectionAttempts = 3;
+    private static readonly IReadOnlyList<WindowsPasteShortcut> StandardPasteShortcuts =
+    [
+        WindowsPasteShortcut.ControlV
+    ];
+
+    private static readonly IReadOnlyList<WindowsPasteShortcut> TerminalPasteShortcuts =
+    [
+        WindowsPasteShortcut.ControlV,
+        WindowsPasteShortcut.ShiftInsert,
+        WindowsPasteShortcut.ControlShiftV
+    ];
 
     private readonly IWindowsWindowing _windowing;
     private readonly IWindowsTextInput _textInput;
@@ -22,7 +33,7 @@ public sealed class WindowsTextInsertionService : ITextInsertionService
             new WindowsTextInput(),
             new WindowsClipboard(),
             new WindowsFocusedElementInspector(),
-            TimeSpan.FromMilliseconds(100))
+            TimeSpan.FromMilliseconds(250))
     {
     }
 
@@ -42,7 +53,7 @@ public sealed class WindowsTextInsertionService : ITextInsertionService
         _focusedElementInspector = focusedElementInspector ??
             throw new ArgumentNullException(nameof(focusedElementInspector));
         _policyEvaluator = policyEvaluator ?? new TextInsertionPolicyEvaluator();
-        _clipboardPasteSettleDelay = clipboardPasteSettleDelay ?? TimeSpan.FromMilliseconds(100);
+        _clipboardPasteSettleDelay = clipboardPasteSettleDelay ?? TimeSpan.FromMilliseconds(250);
         _focusedElementSettleDelay = focusedElementSettleDelay ?? DefaultFocusedElementSettleDelay;
         _focusedElementInspectionAttempts = Math.Max(1, focusedElementInspectionAttempts);
     }
@@ -54,7 +65,9 @@ public sealed class WindowsTextInsertionService : ITextInsertionService
         ArgumentNullException.ThrowIfNull(target);
         cancellationToken.ThrowIfCancellationRequested();
 
-        CapturedTargetSafetyFailure? safetyFailure = GetCapturedTargetSafetyFailure(target);
+        TextInsertionPolicy policy = _policyEvaluator.Evaluate(target);
+        WindowsTargetInsertionProfile profile = WindowsTargetInsertionProfile.FromTarget(target, policy);
+        CapturedTargetSafetyFailure? safetyFailure = GetCapturedTargetSafetyFailure(target, profile);
         if (safetyFailure is not null)
         {
             return Task.FromResult(safetyFailure.IsUnsupported
@@ -70,7 +83,6 @@ public sealed class WindowsTextInsertionService : ITextInsertionService
                 "The captured target has selected text and requires explicit replacement permission."));
         }
 
-        TextInsertionPolicy policy = _policyEvaluator.Evaluate(target);
         TextInsertionCapability? policyCapability = GetPolicyCapability(policy);
         if (policyCapability is not null)
         {
@@ -93,11 +105,17 @@ public sealed class WindowsTextInsertionService : ITextInsertionService
         ArgumentNullException.ThrowIfNull(options);
         cancellationToken.ThrowIfCancellationRequested();
 
-        TextInsertionResult? safetyFailure = await ValidateTargetForInsertionAsync(
-                target,
-                options,
+        TextInsertionPolicy policy = _policyEvaluator.Evaluate(target);
+        WindowsTargetInsertionProfile profile = WindowsTargetInsertionProfile.FromTarget(target, policy);
+        FocusedElementSnapshot? currentFocusedElement = await CaptureFocusedElementAsync(
+                target.WindowHandle,
                 cancellationToken)
             .ConfigureAwait(false);
+        TextInsertionResult? safetyFailure = ValidateTargetForInsertion(
+                target,
+                options,
+                profile,
+                currentFocusedElement);
         if (safetyFailure is not null)
         {
             return safetyFailure;
@@ -108,13 +126,12 @@ public sealed class WindowsTextInsertionService : ITextInsertionService
             return Failure("Shruti will not insert an empty transcript.");
         }
 
-        TextInsertionPolicy policy = _policyEvaluator.Evaluate(target);
         if (policy.Mode == TextInsertionPolicyMode.PreviewRequired)
         {
             return Failure(policy.Message);
         }
 
-        if (policy.Mode == TextInsertionPolicyMode.ClipboardPastePreferred)
+        if (profile.PreferClipboard)
         {
             if (!options.AllowClipboardFallback)
             {
@@ -122,21 +139,42 @@ public sealed class WindowsTextInsertionService : ITextInsertionService
                     $"{policy.Message} Clipboard fallback is disabled.");
             }
 
-            return await PasteViaClipboardAsync(text, cancellationToken).ConfigureAwait(false);
+            TextInsertionResult pasteResult = await PasteViaClipboardAsync(
+                    PrepareTextForProfile(text, profile),
+                    target,
+                    profile,
+                    currentFocusedElement,
+                    cancellationToken)
+                .ConfigureAwait(false);
+            if (pasteResult.Completed || !profile.UseSlowUnicodeFallback)
+            {
+                return pasteResult;
+            }
+
+            return InsertWithUnicode(
+                target,
+                PrepareTextForProfile(text, profile),
+                profile,
+                currentFocusedElement,
+                useSlowInput: true,
+                fallbackMessage: pasteResult.Message);
         }
 
-        WindowsInputSendResult directInput = _textInput.SendUnicodeText(text);
-        if (directInput.Outcome == WindowsInputSendOutcome.Complete)
+        TextInsertionResult directResult = InsertWithUnicode(
+            target,
+            text,
+            profile,
+            currentFocusedElement,
+            useSlowInput: false);
+        if (directResult.Inserted)
         {
-            return new TextInsertionResult(
-                Inserted: true,
-                TextInsertionMethod.DirectInput);
+            return directResult;
         }
 
-        if (directInput.Outcome == WindowsInputSendOutcome.Partial)
+        if (directResult.OperationalDiagnostics.TryGetValue("sendInputOutcome", out string? directOutcome) &&
+            string.Equals(directOutcome, WindowsInputSendOutcome.Partial.ToString(), StringComparison.Ordinal))
         {
-            return Failure(
-                "Direct input was only partially delivered. Shruti will not retry through the clipboard.");
+            return directResult;
         }
 
         if (!options.AllowClipboardFallback)
@@ -144,17 +182,35 @@ public sealed class WindowsTextInsertionService : ITextInsertionService
             return Failure("Direct input failed and clipboard fallback is disabled.");
         }
 
-        return await PasteViaClipboardAsync(text, cancellationToken).ConfigureAwait(false);
+        return await PasteViaClipboardAsync(
+                text,
+                target,
+                profile,
+                currentFocusedElement,
+                cancellationToken)
+            .ConfigureAwait(false);
     }
 
     private async Task<TextInsertionResult> PasteViaClipboardAsync(
         string text,
+        FocusTarget target,
+        WindowsTargetInsertionProfile profile,
+        FocusedElementSnapshot? focusedElement,
         CancellationToken cancellationToken)
     {
+        IntPtr foregroundBefore = _windowing.GetForegroundWindow();
         WindowsClipboardSnapshot snapshot = _clipboard.Capture();
         if (!snapshot.CanRestore)
         {
-            return Failure(snapshot.Message ?? "Clipboard fallback could not preserve existing clipboard data.");
+            return Failure(
+                snapshot.Message ?? "Clipboard fallback could not preserve existing clipboard data.",
+                CreateDiagnostics(
+                    target,
+                    profile,
+                    focusedElement,
+                    foregroundBefore,
+                    foregroundAfter: _windowing.GetForegroundWindow(),
+                    clipboardSnapshot: snapshot));
         }
 
         WindowsClipboardWriteResult write = _clipboard.SetText(text, snapshot.SequenceNumber);
@@ -164,51 +220,153 @@ public sealed class WindowsTextInsertionService : ITextInsertionService
                 ? _clipboard.RestoreIfUnchanged(snapshot, write.ExpectedSequenceNumber)
                 : null;
 
-            return Failure(DescribeClipboardWriteFailure(write, restoreAfterWriteFailure));
+            return Failure(
+                DescribeClipboardWriteFailure(write, restoreAfterWriteFailure),
+                CreateDiagnostics(
+                    target,
+                    profile,
+                    focusedElement,
+                    foregroundBefore,
+                    foregroundAfter: _windowing.GetForegroundWindow(),
+                    clipboardSnapshot: snapshot,
+                    clipboardWrite: write,
+                    clipboardRestore: restoreAfterWriteFailure));
         }
 
-        WindowsInputSendResult pasteInput;
-        WindowsClipboardRestoreResult restoreResult;
-        try
+        WindowsInputSendResult pasteInput = WindowsInputSendResult.FromCounts(0, 0);
+        WindowsPasteShortcut pasteShortcut = profile.PasteShortcuts[0];
+        cancellationToken.ThrowIfCancellationRequested();
+        foreach (WindowsPasteShortcut shortcut in profile.PasteShortcuts)
         {
-            cancellationToken.ThrowIfCancellationRequested();
-            pasteInput = _textInput.SendPasteShortcut();
+            pasteShortcut = shortcut;
+            pasteInput = _textInput.SendPasteShortcut(shortcut);
+            if (pasteInput.Outcome == WindowsInputSendOutcome.Complete)
+            {
+                break;
+            }
 
             if (pasteInput.Outcome == WindowsInputSendOutcome.Partial)
             {
                 _textInput.ReleasePasteShortcutKeys();
             }
-
-            if (pasteInput.SentInputCount > 0 && _clipboardPasteSettleDelay > TimeSpan.Zero)
-            {
-                await Task.Delay(_clipboardPasteSettleDelay, CancellationToken.None).ConfigureAwait(false);
-            }
         }
-        finally
+        if (pasteInput.SentInputCount > 0 && _clipboardPasteSettleDelay > TimeSpan.Zero)
         {
-            restoreResult = _clipboard.RestoreIfUnchanged(snapshot, write.ExpectedSequenceNumber);
+            await Task.Delay(_clipboardPasteSettleDelay, CancellationToken.None).ConfigureAwait(false);
         }
 
         if (pasteInput.Outcome != WindowsInputSendOutcome.Complete)
         {
-            return Failure(DescribePasteFailure(pasteInput, restoreResult));
+            WindowsClipboardRestoreResult restoreAfterPasteFailure = _clipboard.RestoreIfUnchanged(
+                snapshot,
+                write.ExpectedSequenceNumber);
+            return Failure(
+                DescribePasteFailure(pasteInput, restoreAfterPasteFailure),
+                CreateDiagnostics(
+                    target,
+                    profile,
+                    focusedElement,
+                    foregroundBefore,
+                    foregroundAfter: _windowing.GetForegroundWindow(),
+                    clipboardSnapshot: snapshot,
+                    clipboardWrite: write,
+                    clipboardRestore: restoreAfterPasteFailure,
+                    input: pasteInput,
+                    pasteShortcut: pasteShortcut));
         }
 
         return new TextInsertionResult(
             Inserted: false,
             TextInsertionMethod.ClipboardPaste,
-            restoreResult.Outcome == WindowsClipboardRestoreOutcome.Failed
-                ? "Clipboard paste was submitted but cannot be confirmed, and Shruti could not restore the previous clipboard text."
-                : "Clipboard paste was submitted but cannot be confirmed.",
-            Submitted: true);
+            profile.PreservesLineSafety
+                ? "Terminal paste was submitted but cannot be confirmed. The transcript remains on the clipboard for manual paste; line breaks were replaced with spaces to avoid command submission."
+                : "Clipboard paste was submitted but cannot be confirmed. The transcript remains on the clipboard for manual paste.",
+            Submitted: true,
+            Diagnostics: CreateDiagnostics(
+                target,
+                profile,
+                focusedElement,
+                foregroundBefore,
+                foregroundAfter: _windowing.GetForegroundWindow(),
+                clipboardSnapshot: snapshot,
+                clipboardWrite: write,
+                input: pasteInput,
+                pasteShortcut: pasteShortcut,
+                recoveryClipboardTextAvailable: true));
     }
 
-    private async Task<TextInsertionResult?> ValidateTargetForInsertionAsync(
+    private TextInsertionResult InsertWithUnicode(
+        FocusTarget target,
+        string text,
+        WindowsTargetInsertionProfile profile,
+        FocusedElementSnapshot? focusedElement,
+        bool useSlowInput,
+        string? fallbackMessage = null)
+    {
+        IntPtr foregroundBefore = _windowing.GetForegroundWindow();
+        WindowsInputSendResult directInput = useSlowInput
+            ? _textInput.SendUnicodeTextSlow(text)
+            : _textInput.SendUnicodeText(text);
+        IntPtr foregroundAfter = _windowing.GetForegroundWindow();
+        IReadOnlyDictionary<string, string?> diagnostics = CreateDiagnostics(
+            target,
+            profile,
+            focusedElement,
+            foregroundBefore,
+            foregroundAfter,
+            input: directInput,
+            unicodeInputMode: useSlowInput ? "slow" : "direct",
+            fallbackMessage: fallbackMessage);
+
+        if (directInput.Outcome == WindowsInputSendOutcome.Complete)
+        {
+            return new TextInsertionResult(
+                Inserted: true,
+                TextInsertionMethod.DirectInput,
+                useSlowInput && !string.IsNullOrWhiteSpace(fallbackMessage)
+                    ? "Inserted with slow Unicode typing after clipboard paste could not be submitted."
+                    : null,
+                Diagnostics: diagnostics);
+        }
+
+        if (directInput.Outcome == WindowsInputSendOutcome.Partial)
+        {
+            return Failure(
+                "Direct input was only partially delivered. Shruti will not retry through the clipboard.",
+                diagnostics);
+        }
+
+        return Failure(
+            string.IsNullOrWhiteSpace(fallbackMessage)
+                ? "Direct input failed."
+                : $"{fallbackMessage} Slow Unicode fallback also failed.",
+            diagnostics);
+    }
+
+    private static string PrepareTextForProfile(
+        string text,
+        WindowsTargetInsertionProfile profile)
+    {
+        return profile.PreservesLineSafety
+            ? ReplaceLineBreaksWithSpaces(text)
+            : text;
+    }
+
+    private static string ReplaceLineBreaksWithSpaces(string text)
+    {
+        return text
+            .Replace("\r\n", " ", StringComparison.Ordinal)
+            .Replace('\r', ' ')
+            .Replace('\n', ' ');
+    }
+
+    private TextInsertionResult? ValidateTargetForInsertion(
         FocusTarget target,
         TextInsertionOptions options,
-        CancellationToken cancellationToken)
+        WindowsTargetInsertionProfile profile,
+        FocusedElementSnapshot? currentFocusedElement)
     {
-        CapturedTargetSafetyFailure? safetyFailure = GetCapturedTargetSafetyFailure(target);
+        CapturedTargetSafetyFailure? safetyFailure = GetCapturedTargetSafetyFailure(target, profile);
         if (safetyFailure is not null)
         {
             return Failure(safetyFailure.Message);
@@ -220,17 +378,12 @@ public sealed class WindowsTextInsertionService : ITextInsertionService
                 "The target has selected text. Enable explicit replacement permission before inserting.");
         }
 
-        FocusedElementSnapshot? currentFocusedElement = await CaptureFocusedElementAsync(
-                target.WindowHandle,
-                cancellationToken)
-            .ConfigureAwait(false);
-
         if (currentFocusedElement is null)
         {
             return null;
         }
 
-        if (currentFocusedElement.IsEditable == false)
+        if (currentFocusedElement.IsEditable == false && !profile.AllowsAutomationLimitedTarget)
         {
             return Failure("The currently focused field is not editable.");
         }
@@ -272,7 +425,9 @@ public sealed class WindowsTextInsertionService : ITextInsertionService
         return null;
     }
 
-    private CapturedTargetSafetyFailure? GetCapturedTargetSafetyFailure(FocusTarget target)
+    private CapturedTargetSafetyFailure? GetCapturedTargetSafetyFailure(
+        FocusTarget target,
+        WindowsTargetInsertionProfile profile)
     {
         if (target.WindowHandle == IntPtr.Zero || !_windowing.IsWindow(target.WindowHandle))
         {
@@ -284,7 +439,7 @@ public sealed class WindowsTextInsertionService : ITextInsertionService
             return new CapturedTargetSafetyFailure(false, "Shruti cannot safely insert into an elevated target app.");
         }
 
-        if (target.IsEditable == false)
+        if (target.IsEditable == false && !profile.AllowsAutomationLimitedTarget)
         {
             return new CapturedTargetSafetyFailure(
                 false,
@@ -325,13 +480,194 @@ public sealed class WindowsTextInsertionService : ITextInsertionService
 
     private static TextInsertionResult Failure(string message)
     {
+        return Failure(message, diagnostics: null);
+    }
+
+    private static TextInsertionResult Failure(
+        string message,
+        IReadOnlyDictionary<string, string?>? diagnostics)
+    {
         return new TextInsertionResult(
             Inserted: false,
             TextInsertionMethod.None,
-            message);
+            message,
+            Diagnostics: diagnostics);
+    }
+
+    private static IReadOnlyDictionary<string, string?> CreateDiagnostics(
+        FocusTarget target,
+        WindowsTargetInsertionProfile profile,
+        FocusedElementSnapshot? focusedElement,
+        IntPtr foregroundBefore,
+        IntPtr foregroundAfter,
+        WindowsClipboardSnapshot? clipboardSnapshot = null,
+        WindowsClipboardWriteResult? clipboardWrite = null,
+        WindowsClipboardRestoreResult? clipboardRestore = null,
+        WindowsInputSendResult? input = null,
+        WindowsPasteShortcut? pasteShortcut = null,
+        string? unicodeInputMode = null,
+        bool? recoveryClipboardTextAvailable = null,
+        string? fallbackMessage = null)
+    {
+        var diagnostics = new Dictionary<string, string?>
+        {
+            ["targetWindowHandle"] = FormatWindowHandle(target.WindowHandle),
+            ["targetProcessName"] = target.ProcessName,
+            ["targetThreadId"] = target.ThreadId.ToString(),
+            ["targetProfile"] = profile.Id,
+            ["foregroundWindowBefore"] = FormatWindowHandle(foregroundBefore),
+            ["foregroundWindowAfter"] = FormatWindowHandle(foregroundAfter),
+            ["focusedElementAutomationId"] = focusedElement?.AutomationElementId,
+            ["focusedElementIsEditable"] = focusedElement?.IsEditable?.ToString(),
+            ["focusedElementHasSelectedText"] = focusedElement?.HasSelectedText?.ToString()
+        };
+
+        if (clipboardSnapshot is not null)
+        {
+            diagnostics["clipboardCanRestore"] = clipboardSnapshot.CanRestore.ToString();
+            diagnostics["clipboardSequenceBefore"] = clipboardSnapshot.SequenceNumber.ToString();
+        }
+
+        if (clipboardWrite is not null)
+        {
+            diagnostics["clipboardWriteOutcome"] = clipboardWrite.Outcome.ToString();
+            diagnostics["clipboardExpectedSequenceAfterWrite"] = clipboardWrite.ExpectedSequenceNumber.ToString();
+        }
+
+        if (clipboardRestore is not null)
+        {
+            diagnostics["clipboardRestoreOutcome"] = clipboardRestore.Outcome.ToString();
+        }
+
+        if (input is not null)
+        {
+            diagnostics["sendInputOutcome"] = input.Outcome.ToString();
+            diagnostics["sendInputSentCount"] = input.SentInputCount.ToString();
+            diagnostics["sendInputRequestedCount"] = input.RequestedInputCount.ToString();
+            diagnostics["sendInputLastError"] = input.LastError?.ToString();
+        }
+
+        if (pasteShortcut is not null)
+        {
+            diagnostics["pasteShortcut"] = pasteShortcut.Value.ToString();
+        }
+
+        if (!string.IsNullOrWhiteSpace(unicodeInputMode))
+        {
+            diagnostics["unicodeInputMode"] = unicodeInputMode;
+        }
+
+        if (recoveryClipboardTextAvailable is not null)
+        {
+            diagnostics["recoveryClipboardTextAvailable"] = recoveryClipboardTextAvailable.Value.ToString();
+        }
+
+        if (!string.IsNullOrWhiteSpace(fallbackMessage))
+        {
+            diagnostics["fallbackMessage"] = fallbackMessage;
+        }
+
+        return diagnostics;
+    }
+
+    private static string FormatWindowHandle(IntPtr windowHandle)
+    {
+        return windowHandle == IntPtr.Zero
+            ? "0x0"
+            : $"0x{windowHandle.ToInt64():X}";
     }
 
     private sealed record CapturedTargetSafetyFailure(bool IsUnsupported, string Message);
+
+    private sealed record WindowsTargetInsertionProfile(
+        string Id,
+        bool PreferClipboard,
+        bool AllowsAutomationLimitedTarget,
+        bool UseSlowUnicodeFallback,
+        bool PreservesLineSafety,
+        IReadOnlyList<WindowsPasteShortcut> PasteShortcuts)
+    {
+        private static readonly HashSet<string> TerminalProcesses = new(StringComparer.OrdinalIgnoreCase)
+        {
+            "alacritty",
+            "bash",
+            "cmd",
+            "conhost",
+            "debian",
+            "kali",
+            "mintty",
+            "openssh",
+            "OpenConsole",
+            "powershell",
+            "pwsh",
+            "ssh",
+            "ubuntu",
+            "wezterm-gui",
+            "WindowsTerminal",
+            "wsl",
+            "wt"
+        };
+
+        private static readonly HashSet<string> WebViewProcesses = new(StringComparer.OrdinalIgnoreCase)
+        {
+            "chrome",
+            "Code",
+            "Cursor",
+            "Discord",
+            "firefox",
+            "msedge",
+            "Slack",
+            "Teams",
+            "Windsurf"
+        };
+
+        public static WindowsTargetInsertionProfile FromTarget(
+            FocusTarget target,
+            TextInsertionPolicy policy)
+        {
+            string processName = TextInsertionPolicyEvaluator.NormalizeProcessName(target.ProcessName);
+            if (TerminalProcesses.Contains(processName))
+            {
+                return new WindowsTargetInsertionProfile(
+                    "terminal",
+                    PreferClipboard: true,
+                    AllowsAutomationLimitedTarget: true,
+                    UseSlowUnicodeFallback: false,
+                    PreservesLineSafety: true,
+                    TerminalPasteShortcuts);
+            }
+
+            if (WebViewProcesses.Contains(processName))
+            {
+                return new WindowsTargetInsertionProfile(
+                    "webview",
+                    PreferClipboard: true,
+                    AllowsAutomationLimitedTarget: true,
+                    UseSlowUnicodeFallback: true,
+                    PreservesLineSafety: false,
+                    StandardPasteShortcuts);
+            }
+
+            if (policy.Mode == TextInsertionPolicyMode.ClipboardPastePreferred)
+            {
+                return new WindowsTargetInsertionProfile(
+                    "clipboard-preferred",
+                    PreferClipboard: true,
+                    AllowsAutomationLimitedTarget: false,
+                    UseSlowUnicodeFallback: false,
+                    PreservesLineSafety: false,
+                    StandardPasteShortcuts);
+            }
+
+            return new WindowsTargetInsertionProfile(
+                "standard",
+                PreferClipboard: false,
+                AllowsAutomationLimitedTarget: false,
+                UseSlowUnicodeFallback: false,
+                PreservesLineSafety: false,
+                StandardPasteShortcuts);
+        }
+    }
 
     private static string DescribeClipboardWriteFailure(
         WindowsClipboardWriteResult write,

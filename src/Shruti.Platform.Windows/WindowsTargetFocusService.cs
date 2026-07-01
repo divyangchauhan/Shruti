@@ -181,24 +181,35 @@ public sealed class WindowsTargetFocusService : ITargetFocusService, IDisposable
         CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
+        IntPtr foregroundBefore = _windowing.GetForegroundWindow();
 
         if (target.WindowHandle == IntPtr.Zero)
         {
             return new FocusRestoreResult(
                 Restored: false,
-                Message: "No captured window handle is available.");
+                Message: "No captured window handle is available.",
+                TargetWindowHandle: target.WindowHandle,
+                ForegroundWindowBefore: foregroundBefore,
+                ForegroundWindowAfter: foregroundBefore);
         }
 
         if (!_windowing.IsWindow(target.WindowHandle))
         {
             return new FocusRestoreResult(
                 Restored: false,
-                Message: "The captured target window no longer exists.");
+                Message: "The captured target window no longer exists.",
+                TargetWindowHandle: target.WindowHandle,
+                ForegroundWindowBefore: foregroundBefore,
+                ForegroundWindowAfter: _windowing.GetForegroundWindow());
         }
 
-        if (_windowing.GetForegroundWindow() == target.WindowHandle)
+        if (foregroundBefore == target.WindowHandle)
         {
-            return new FocusRestoreResult(Restored: true);
+            return new FocusRestoreResult(
+                Restored: true,
+                TargetWindowHandle: target.WindowHandle,
+                ForegroundWindowBefore: foregroundBefore,
+                ForegroundWindowAfter: foregroundBefore);
         }
 
         if (_windowing.IsMinimized(target.WindowHandle))
@@ -211,7 +222,11 @@ public sealed class WindowsTargetFocusService : ITargetFocusService, IDisposable
         {
             return new FocusRestoreResult(
                 Restored: false,
-                Message: "Windows did not allow Shruti to restore focus to the target app.");
+                Message: "Windows did not allow Shruti to restore focus to the target app.",
+                TargetWindowHandle: target.WindowHandle,
+                ForegroundWindowBefore: foregroundBefore,
+                ForegroundWindowAfter: _windowing.GetForegroundWindow(),
+                RequestedForeground: true);
         }
 
         if (_focusSettleDelay > TimeSpan.Zero)
@@ -219,11 +234,21 @@ public sealed class WindowsTargetFocusService : ITargetFocusService, IDisposable
             await Task.Delay(_focusSettleDelay, cancellationToken).ConfigureAwait(false);
         }
 
-        bool restored = _windowing.GetForegroundWindow() == target.WindowHandle;
+        IntPtr foregroundAfter = _windowing.GetForegroundWindow();
+        bool restored = foregroundAfter == target.WindowHandle;
         return restored
-            ? new FocusRestoreResult(Restored: true)
+            ? new FocusRestoreResult(
+                Restored: true,
+                TargetWindowHandle: target.WindowHandle,
+                ForegroundWindowBefore: foregroundBefore,
+                ForegroundWindowAfter: foregroundAfter,
+                RequestedForeground: true)
             : new FocusRestoreResult(
                 Restored: false,
-                Message: "The captured target window was not foreground after restore.");
+                Message: "The captured target window was not foreground after restore.",
+                TargetWindowHandle: target.WindowHandle,
+                ForegroundWindowBefore: foregroundBefore,
+                ForegroundWindowAfter: foregroundAfter,
+                RequestedForeground: true);
     }
 }
