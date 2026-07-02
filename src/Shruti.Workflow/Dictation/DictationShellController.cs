@@ -312,28 +312,37 @@ public sealed class DictationShellController
         var progress = new SynchronousProgress<DictationStatus>(ApplyProgress);
         var options = new TextInsertionOptions(
             AllowReplacingSelection: allowReplacingSelection);
-        DictationRunResult result = await _coordinator
-            .InsertFinalizedTranscriptAsync(
-                previousResult.Target,
-                TranscriptResult.FromText(text),
-                options,
-                progress,
-                cancellationToken)
+        DictationRunResult result = await Task.Run(() => _coordinator
+                .InsertFinalizedTranscriptAsync(
+                    previousResult.Target,
+                    TranscriptResult.FromText(text),
+                    options,
+                    progress,
+                    cancellationToken))
             .ConfigureAwait(false);
 
         LastResult = result;
         SetState(CreateCompletedState(result, State.InsertionMode));
     }
 
-    private async Task RunOnceAsync(
+    private Task RunOnceAsync(
+        DictationInsertionMode insertionMode,
+        ActiveDictationRun activeRun,
+        TaskCompletionSource captureStarted)
+    {
+        // Task.Run keeps the whole run - including target capture and its
+        // UI Automation calls - off the caller's thread. Task.Yield would
+        // resume on the UI dispatcher when started from a UI event handler.
+        return Task.Run(() => RunOnceCoreAsync(insertionMode, activeRun, captureStarted));
+    }
+
+    private async Task RunOnceCoreAsync(
         DictationInsertionMode insertionMode,
         ActiveDictationRun activeRun,
         TaskCompletionSource captureStarted)
     {
         try
         {
-            await Task.Yield();
-
             var progress = new SynchronousProgress<DictationStatus>(ApplyProgress);
             var transcriptProgress = new SynchronousProgress<TranscriptEvent>(ApplyTranscriptEvent);
             TranscriptionSessionOptions transcriptionOptions = await _transcriptionOptionsFactory(activeRun.Token)
@@ -482,7 +491,7 @@ public sealed class DictationShellController
         string target = FormatTarget(result.Target);
         string message = result.Outcome switch
         {
-            DictationRunOutcome.Inserted => "Inserted into the target.",
+            DictationRunOutcome.Inserted => result.InsertionResult?.Message ?? "Inserted into the target.",
             DictationRunOutcome.PreviewRequired => result.Message ?? "Preview is ready before insertion.",
             DictationRunOutcome.CopyOnly => "Copied transcript for copy-only mode.",
             DictationRunOutcome.Cancelled => "Cancelled. Nothing was inserted.",

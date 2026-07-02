@@ -450,13 +450,29 @@ Use a layered strategy:
 2. Prefer direct Unicode text input with `SendInput` when compatible.
 3. Use UI Automation only where it can safely identify editability or selection state; avoid destructive `ValuePattern.SetValue` for normal insertion because it can replace entire field contents.
 4. Fall back to clipboard paste:
-   - Snapshot existing clipboard content where possible.
+   - Snapshot existing clipboard content where possible. System-synthesized
+     text formats (including `CF_LOCALE`) count as restorable text; non-text
+     clipboard content no longer blocks the paste, but the result reports
+     that the previous clipboard could not be preserved.
    - Put transcript text on clipboard.
-   - Send paste command.
+   - Verify the target still owns the foreground, then send the paste command.
    - If paste cannot be sent, restore previous clipboard content where practical.
-   - If paste is submitted but cannot be confirmed, leave the transcript on
-     the clipboard for manual paste recovery and keep preview available.
+   - If the paste shortcut was delivered while the target stayed foreground,
+     report the insertion as successful and leave the transcript on the
+     clipboard as a recovery copy. If the target lost focus before the paste
+     could be confirmed, report it as submitted-but-unconfirmed and keep
+     preview available.
 5. If insertion cannot be trusted, switch to preview/copy and explain the reason.
+
+Foreground integrity checks:
+
+- Focus restore escalates through `SetForegroundWindow`, an
+  `AttachThreadInput` retry, and finally a synthetic-input foreground
+  permission grant, polling between attempts until the target settles.
+- Immediately before any `SendInput` call, the insertion service re-verifies
+  that the captured target is the foreground window and aborts to preview if
+  it is not, so keystrokes cannot land in an unrelated window and still be
+  reported as inserted.
 
 Safe insertion policy:
 

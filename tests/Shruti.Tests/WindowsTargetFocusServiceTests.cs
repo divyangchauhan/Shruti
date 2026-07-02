@@ -294,20 +294,228 @@ public sealed class WindowsTargetFocusServiceTests
     public async Task RestoreAsync_ReturnsFailureWhenWindowsRejectsForegroundChange()
     {
         var handle = new IntPtr(600);
-        var service = CreateService(
-            new FakeWindowing
-            {
-                ForegroundWindow = new IntPtr(601),
-                ExistingWindow = handle,
-                SetForegroundResult = false
-            },
-            new FakeProcessInspector(),
-            new FakeFocusedElementInspector());
+        var windowing = new FakeWindowing
+        {
+            ForegroundWindow = new IntPtr(601),
+            ExistingWindow = handle,
+            SetForegroundResult = false
+        };
+        var service = CreateService(windowing, new FakeProcessInspector(), new FakeFocusedElementInspector());
 
         FocusRestoreResult result = await service.RestoreAsync(CreateTarget(handle), CancellationToken.None);
 
         Assert.False(result.Restored);
         Assert.Equal("Windows did not allow Shruti to restore focus to the target app.", result.Message);
+        Assert.Equal(1, windowing.ThreadAttachCount);
+        Assert.Equal(1, windowing.PermissionInputCount);
+    }
+
+    [Fact]
+    public async Task RestoreAsync_EscalatesToThreadAttachWhenPlainRequestDoesNotSettle()
+    {
+        var handle = new IntPtr(620);
+        var windowing = new FakeWindowing
+        {
+            ForegroundWindow = new IntPtr(621),
+            ExistingWindow = handle,
+            SetForegroundResult = true,
+            SetForegroundMakesWindowForeground = false,
+            ThreadAttachMakesWindowForeground = true
+        };
+        var service = CreateService(windowing, new FakeProcessInspector(), new FakeFocusedElementInspector());
+
+        FocusRestoreResult result = await service.RestoreAsync(CreateTarget(handle), CancellationToken.None);
+
+        Assert.True(result.Restored);
+        Assert.Equal(1, windowing.SetForegroundCount);
+        Assert.Equal(1, windowing.ThreadAttachCount);
+        Assert.Equal(0, windowing.PermissionInputCount);
+    }
+
+    [Fact]
+    public async Task RestoreAsync_EscalatesToPermissionInputWhenThreadAttachFails()
+    {
+        var handle = new IntPtr(640);
+        var windowing = new FakeWindowing
+        {
+            ForegroundWindow = new IntPtr(641),
+            ExistingWindow = handle,
+            SetForegroundResult = false,
+            PermissionInputGrantsForeground = true
+        };
+        var service = CreateService(windowing, new FakeProcessInspector(), new FakeFocusedElementInspector());
+
+        FocusRestoreResult result = await service.RestoreAsync(CreateTarget(handle), CancellationToken.None);
+
+        Assert.True(result.Restored);
+        Assert.Equal(1, windowing.ThreadAttachCount);
+        Assert.Equal(1, windowing.PermissionInputCount);
+        Assert.Equal(2, windowing.SetForegroundCount);
+    }
+
+    [Fact]
+    public async Task RestoreAsync_ReportsUnsettledForegroundWhenAllEscalationsFail()
+    {
+        var handle = new IntPtr(660);
+        var windowing = new FakeWindowing
+        {
+            ForegroundWindow = new IntPtr(661),
+            ExistingWindow = handle,
+            SetForegroundResult = true,
+            SetForegroundMakesWindowForeground = false
+        };
+        var service = CreateService(windowing, new FakeProcessInspector(), new FakeFocusedElementInspector());
+
+        FocusRestoreResult result = await service.RestoreAsync(CreateTarget(handle), CancellationToken.None);
+
+        Assert.False(result.Restored);
+        Assert.Equal("The captured target window was not foreground after restore.", result.Message);
+        Assert.True(result.RequestedForeground);
+    }
+
+    [Fact]
+    public async Task ForegroundWindowChange_DoesNotRememberShellWindows()
+    {
+        var taskbarHandle = new IntPtr(900);
+        var shrutiHandle = new IntPtr(901);
+        const int shrutiProcessId = 999;
+        var windowing = new FakeWindowing
+        {
+            CapturedWindow = new WindowsWindowSnapshot(
+                taskbarHandle,
+                ProcessId: 4321,
+                ThreadId: 8765,
+                WindowTitle: null)
+        };
+        windowing.WindowClassNames[taskbarHandle] = "Shell_TrayWnd";
+        var foregroundTracker = new FakeForegroundWindowTracker();
+        var service = CreateService(
+            windowing,
+            new FakeProcessInspector(
+                new WindowsProcessSnapshot(
+                    ProcessId: 4321,
+                    ProcessName: "explorer",
+                    IsElevated: false),
+                new WindowsProcessSnapshot(
+                    ProcessId: shrutiProcessId,
+                    ProcessName: "Shruti.App.WinUI",
+                    IsElevated: false)),
+            new FakeFocusedElementInspector(),
+            currentProcessId: shrutiProcessId,
+            foregroundWindowTracker: foregroundTracker);
+
+        foregroundTracker.Publish(taskbarHandle);
+
+        windowing.ForegroundWindow = shrutiHandle;
+        windowing.CapturedWindow = new WindowsWindowSnapshot(
+            shrutiHandle,
+            ProcessId: shrutiProcessId,
+            ThreadId: 9876,
+            WindowTitle: "Shruti");
+
+        FocusTarget? target = await service.CaptureCurrentTargetAsync(CancellationToken.None);
+
+        Assert.Null(target);
+    }
+
+    [Fact]
+    public async Task ForegroundWindowChange_DoesNotRememberShellProcesses()
+    {
+        var startMenuHandle = new IntPtr(910);
+        var shrutiHandle = new IntPtr(911);
+        const int shrutiProcessId = 999;
+        var windowing = new FakeWindowing
+        {
+            CapturedWindow = new WindowsWindowSnapshot(
+                startMenuHandle,
+                ProcessId: 4322,
+                ThreadId: 8766,
+                WindowTitle: "Start")
+        };
+        var foregroundTracker = new FakeForegroundWindowTracker();
+        var service = CreateService(
+            windowing,
+            new FakeProcessInspector(
+                new WindowsProcessSnapshot(
+                    ProcessId: 4322,
+                    ProcessName: "StartMenuExperienceHost",
+                    IsElevated: false),
+                new WindowsProcessSnapshot(
+                    ProcessId: shrutiProcessId,
+                    ProcessName: "Shruti.App.WinUI",
+                    IsElevated: false)),
+            new FakeFocusedElementInspector(),
+            currentProcessId: shrutiProcessId,
+            foregroundWindowTracker: foregroundTracker);
+
+        foregroundTracker.Publish(startMenuHandle);
+
+        windowing.ForegroundWindow = shrutiHandle;
+        windowing.CapturedWindow = new WindowsWindowSnapshot(
+            shrutiHandle,
+            ProcessId: shrutiProcessId,
+            ThreadId: 9876,
+            WindowTitle: "Shruti");
+
+        FocusTarget? target = await service.CaptureCurrentTargetAsync(CancellationToken.None);
+
+        Assert.Null(target);
+    }
+
+    [Fact]
+    public async Task CaptureCurrentTargetAsync_RefreshesCachedTargetMetadataAtCaptureTime()
+    {
+        var externalHandle = new IntPtr(920);
+        var shrutiHandle = new IntPtr(921);
+        const int shrutiProcessId = 999;
+        var windowing = new FakeWindowing
+        {
+            CapturedWindow = new WindowsWindowSnapshot(
+                externalHandle,
+                ProcessId: 1234,
+                ThreadId: 5678,
+                WindowTitle: "Untitled - Notepad")
+        };
+        var foregroundTracker = new FakeForegroundWindowTracker();
+        var service = CreateService(
+            windowing,
+            new FakeProcessInspector(
+                new WindowsProcessSnapshot(
+                    ProcessId: 1234,
+                    ProcessName: "notepad",
+                    IsElevated: false),
+                new WindowsProcessSnapshot(
+                    ProcessId: shrutiProcessId,
+                    ProcessName: "Shruti.App.WinUI",
+                    IsElevated: false)),
+            new FakeFocusedElementInspector(
+                new FocusedElementSnapshot(
+                    AutomationElementId: "Edit",
+                    IsEditable: true,
+                    HasSelectedText: false)),
+            currentProcessId: shrutiProcessId,
+            foregroundWindowTracker: foregroundTracker);
+
+        foregroundTracker.Publish(externalHandle);
+
+        // The window title changed after the target was remembered.
+        windowing.CapturedWindow = new WindowsWindowSnapshot(
+            externalHandle,
+            ProcessId: 1234,
+            ThreadId: 5678,
+            WindowTitle: "notes.txt - Notepad");
+        windowing.ForegroundWindow = shrutiHandle;
+        windowing.CapturedWindow = new WindowsWindowSnapshot(
+            shrutiHandle,
+            ProcessId: shrutiProcessId,
+            ThreadId: 9876,
+            WindowTitle: "Shruti");
+
+        FocusTarget? target = await service.CaptureCurrentTargetAsync(CancellationToken.None);
+
+        Assert.NotNull(target);
+        Assert.Equal("notes.txt - Notepad", target.WindowTitle);
+        Assert.True(target.IsEditable);
     }
 
     private static WindowsTargetFocusService CreateService(
@@ -344,15 +552,42 @@ public sealed class WindowsTargetFocusServiceTests
 
         public IntPtr MinimizedWindow { get; set; }
 
-        public WindowsWindowSnapshot? CapturedWindow { get; set; }
+        public Dictionary<IntPtr, WindowsWindowSnapshot> Windows { get; } = [];
+
+        public Dictionary<IntPtr, string> WindowClassNames { get; } = [];
+
+        private WindowsWindowSnapshot? _capturedWindow;
+
+        public WindowsWindowSnapshot? CapturedWindow
+        {
+            get => _capturedWindow;
+            set
+            {
+                _capturedWindow = value;
+                if (value is not null)
+                {
+                    Windows[value.WindowHandle] = value;
+                }
+            }
+        }
 
         public bool SetForegroundResult { get; set; } = true;
 
         public bool SetForegroundMakesWindowForeground { get; set; }
 
+        public bool ThreadAttachResult { get; set; }
+
+        public bool ThreadAttachMakesWindowForeground { get; set; }
+
+        public bool PermissionInputGrantsForeground { get; set; }
+
         public int RestoreWindowCount { get; private set; }
 
         public int SetForegroundCount { get; private set; }
+
+        public int ThreadAttachCount { get; private set; }
+
+        public int PermissionInputCount { get; private set; }
 
         public IntPtr GetForegroundWindow()
         {
@@ -361,12 +596,12 @@ public sealed class WindowsTargetFocusServiceTests
 
         public WindowsWindowSnapshot? CaptureWindow(IntPtr windowHandle)
         {
-            return CapturedWindow?.WindowHandle == windowHandle ? CapturedWindow : null;
+            return Windows.TryGetValue(windowHandle, out WindowsWindowSnapshot? window) ? window : null;
         }
 
         public bool IsWindow(IntPtr windowHandle)
         {
-            return ExistingWindow == windowHandle || CapturedWindow?.WindowHandle == windowHandle;
+            return ExistingWindow == windowHandle || Windows.ContainsKey(windowHandle);
         }
 
         public bool IsMinimized(IntPtr windowHandle)
@@ -383,12 +618,41 @@ public sealed class WindowsTargetFocusServiceTests
         public bool SetForegroundWindow(IntPtr windowHandle)
         {
             SetForegroundCount++;
+            if (PermissionInputCount > 0 && PermissionInputGrantsForeground)
+            {
+                ForegroundWindow = windowHandle;
+                return true;
+            }
+
             if (SetForegroundResult && SetForegroundMakesWindowForeground)
             {
                 ForegroundWindow = windowHandle;
             }
 
             return SetForegroundResult;
+        }
+
+        public string? GetWindowClassName(IntPtr windowHandle)
+        {
+            return WindowClassNames.TryGetValue(windowHandle, out string? className) ? className : null;
+        }
+
+        public bool SetForegroundWindowWithThreadAttach(IntPtr windowHandle, int windowThreadId)
+        {
+            ThreadAttachCount++;
+            if (ThreadAttachMakesWindowForeground)
+            {
+                ForegroundWindow = windowHandle;
+                return true;
+            }
+
+            return ThreadAttachResult;
+        }
+
+        public bool SendForegroundPermissionInput()
+        {
+            PermissionInputCount++;
+            return true;
         }
     }
 

@@ -55,14 +55,18 @@ public sealed class WindowsProcessInspector : IWindowsProcessInspector
                 inheritHandle: false,
                 checked((uint)processId));
 
+            // Treat an uninspectable process as elevated: UIPI silently
+            // discards injected input for higher-integrity targets while
+            // SendInput still reports success, so failing open would produce
+            // false "inserted" results against exactly those targets.
             if (processHandle == IntPtr.Zero)
             {
-                return false;
+                return true;
             }
 
             if (!NativeMethods.OpenProcessToken(processHandle, TokenQuery, out tokenHandle))
             {
-                return false;
+                return true;
             }
 
             var elevation = new TokenElevation();
@@ -74,7 +78,7 @@ public sealed class WindowsProcessInspector : IWindowsProcessInspector
                 size,
                 out int returnedLength);
 
-            return read && returnedLength >= size && elevation.TokenIsElevated != 0;
+            return !read || returnedLength < size || elevation.TokenIsElevated != 0;
         }
         finally
         {

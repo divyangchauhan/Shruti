@@ -176,7 +176,7 @@ public sealed class WindowsTextInsertionServiceTests
     }
 
     [Fact]
-    public async Task InsertAsync_TerminalTargetsSubmitPasteWithoutLineBreaks()
+    public async Task InsertAsync_TerminalTargetsPasteWithoutLineBreaks()
     {
         var input = new FakeTextInput
         {
@@ -195,11 +195,12 @@ public sealed class WindowsTextInsertionServiceTests
             new TextInsertionOptions(),
             CancellationToken.None);
 
-        Assert.False(result.Inserted);
-        Assert.False(result.Succeeded);
+        Assert.True(result.Inserted);
+        Assert.True(result.Succeeded);
         Assert.True(result.Submitted);
         Assert.Equal(TextInsertionMethod.ClipboardPaste, result.Method);
-        Assert.Contains("Terminal paste was submitted but cannot be confirmed.", result.Message);
+        Assert.Contains("without submitting Enter", result.Message);
+        Assert.Contains("line breaks were replaced with spaces", result.Message);
         Assert.Equal(0, input.SendUnicodeTextCount);
         Assert.Equal(1, input.SendPasteShortcutCount);
         Assert.Equal(WindowsPasteShortcut.ControlV, input.LastPasteShortcut);
@@ -269,7 +270,7 @@ public sealed class WindowsTextInsertionServiceTests
     }
 
     [Fact]
-    public async Task InsertAsync_ClipboardPreferredTargetSkipsDirectInputAndSubmitsPaste()
+    public async Task InsertAsync_ClipboardPreferredTargetSkipsDirectInputAndPastes()
     {
         var input = new FakeTextInput
         {
@@ -289,8 +290,8 @@ public sealed class WindowsTextInsertionServiceTests
             new TextInsertionOptions(),
             CancellationToken.None);
 
-        Assert.False(result.Inserted);
-        Assert.False(result.Succeeded);
+        Assert.True(result.Inserted);
+        Assert.True(result.Succeeded);
         Assert.True(result.Submitted);
         Assert.Equal(TextInsertionMethod.ClipboardPaste, result.Method);
         Assert.Equal(0, input.SendUnicodeTextCount);
@@ -399,7 +400,7 @@ public sealed class WindowsTextInsertionServiceTests
     }
 
     [Fact]
-    public async Task InsertAsync_DirectInputFailureSubmitsClipboardPasteAndLeavesRecoveryClipboard()
+    public async Task InsertAsync_DirectInputFailureFallsBackToClipboardPaste()
     {
         var input = new FakeTextInput
         {
@@ -419,12 +420,12 @@ public sealed class WindowsTextInsertionServiceTests
             new TextInsertionOptions(),
             CancellationToken.None);
 
-        Assert.False(result.Inserted);
-        Assert.False(result.Succeeded);
+        Assert.True(result.Inserted);
+        Assert.True(result.Succeeded);
         Assert.True(result.Submitted);
         Assert.Equal(TextInsertionMethod.ClipboardPaste, result.Method);
         Assert.Equal(
-            "Clipboard paste was submitted but cannot be confirmed. The transcript remains on the clipboard for manual paste.",
+            "Pasted into the target. The transcript also remains on the clipboard.",
             result.Message);
         Assert.Equal(1, clipboard.CaptureCount);
         Assert.Equal("Hello, Shruti.", clipboard.LastSetText);
@@ -433,9 +434,13 @@ public sealed class WindowsTextInsertionServiceTests
     }
 
     [Fact]
-    public async Task InsertAsync_ClipboardFallbackRefusesToOverwriteUnrestorableClipboardData()
+    public async Task InsertAsync_PastesOverUnrestorableClipboardDataAndReportsIt()
     {
-        var input = new FakeTextInput { UnicodeResult = NoneResult(requestedInputCount: 28) };
+        var input = new FakeTextInput
+        {
+            UnicodeResult = NoneResult(requestedInputCount: 28),
+            PasteResult = CompleteResult(requestedInputCount: 4)
+        };
         var clipboard = new FakeClipboard(WindowsClipboardSnapshot.Unavailable("Clipboard has an image."));
         var service = CreateService(
             new FakeWindowing { IsWindowResult = true },
@@ -448,11 +453,12 @@ public sealed class WindowsTextInsertionServiceTests
             new TextInsertionOptions(),
             CancellationToken.None);
 
-        Assert.False(result.Inserted);
-        Assert.Equal(TextInsertionMethod.None, result.Method);
-        Assert.Equal("Clipboard has an image.", result.Message);
-        Assert.Equal(0, clipboard.SetTextCount);
-        Assert.Equal(0, input.SendPasteShortcutCount);
+        Assert.True(result.Inserted);
+        Assert.Equal(TextInsertionMethod.ClipboardPaste, result.Method);
+        Assert.Contains("The previous clipboard content could not be preserved.", result.Message);
+        Assert.Equal(1, clipboard.SetTextCount);
+        Assert.Equal("Hello, Shruti.", clipboard.LastSetText);
+        Assert.Equal(1, input.SendPasteShortcutCount);
     }
 
     [Fact]
@@ -511,7 +517,7 @@ public sealed class WindowsTextInsertionServiceTests
     }
 
     [Fact]
-    public async Task InsertAsync_DoesNotOverwriteClipboardWhenOwnershipChanges()
+    public async Task InsertAsync_SuccessfulPasteDoesNotRestoreClipboard()
     {
         var input = new FakeTextInput
         {
@@ -535,17 +541,13 @@ public sealed class WindowsTextInsertionServiceTests
             new TextInsertionOptions(),
             CancellationToken.None);
 
-        Assert.False(result.Inserted);
-        Assert.False(result.Succeeded);
+        Assert.True(result.Inserted);
         Assert.True(result.Submitted);
-        Assert.Equal(
-            "Clipboard paste was submitted but cannot be confirmed. The transcript remains on the clipboard for manual paste.",
-            result.Message);
         Assert.Equal(0, clipboard.RestoreCount);
     }
 
     [Fact]
-    public async Task InsertAsync_SubmittedPasteKeepsTranscriptOnClipboardForRecovery()
+    public async Task InsertAsync_SuccessfulPasteKeepsTranscriptOnClipboardForRecovery()
     {
         var input = new FakeTextInput
         {
@@ -567,13 +569,11 @@ public sealed class WindowsTextInsertionServiceTests
             new TextInsertionOptions(),
             CancellationToken.None);
 
-        Assert.False(result.Inserted);
-        Assert.False(result.Succeeded);
+        Assert.True(result.Inserted);
+        Assert.True(result.Succeeded);
         Assert.True(result.Submitted);
         Assert.Equal(TextInsertionMethod.ClipboardPaste, result.Method);
-        Assert.Equal(
-            "Clipboard paste was submitted but cannot be confirmed. The transcript remains on the clipboard for manual paste.",
-            result.Message);
+        Assert.Contains("The transcript also remains on the clipboard.", result.Message);
         Assert.Equal("Hello, Shruti.", clipboard.LastSetText);
         Assert.Equal(0, clipboard.RestoreCount);
     }
@@ -726,6 +726,121 @@ public sealed class WindowsTextInsertionServiceTests
     }
 
     [Fact]
+    public async Task InsertAsync_RefusesDirectInputWhenTargetIsNotForeground()
+    {
+        var input = new FakeTextInput { UnicodeResult = CompleteResult(requestedInputCount: 28) };
+        var service = CreateService(
+            new FakeWindowing { IsWindowResult = true, ForegroundWindow = new IntPtr(99) },
+            input,
+            new FakeClipboard());
+
+        TextInsertionResult result = await service.InsertAsync(
+            CreateTarget(),
+            "Hello, Shruti.",
+            new TextInsertionOptions(),
+            CancellationToken.None);
+
+        Assert.False(result.Inserted);
+        Assert.Equal(TextInsertionMethod.None, result.Method);
+        Assert.Equal(
+            "The target window was not foreground when insertion started, so no input was sent.",
+            result.Message);
+        Assert.Equal(0, input.SendUnicodeTextCount);
+    }
+
+    [Fact]
+    public async Task InsertAsync_RefusesClipboardPasteWhenTargetIsNotForeground()
+    {
+        var input = new FakeTextInput { PasteResult = CompleteResult(requestedInputCount: 4) };
+        var clipboard = new FakeClipboard();
+        var service = CreateService(
+            new FakeWindowing { IsWindowResult = true, ForegroundWindow = new IntPtr(99) },
+            input,
+            clipboard);
+
+        TextInsertionResult result = await service.InsertAsync(
+            CreateTarget(ProcessName: "winword"),
+            "Hello, Shruti.",
+            new TextInsertionOptions(),
+            CancellationToken.None);
+
+        Assert.False(result.Inserted);
+        Assert.Equal(
+            "The target window was not foreground when insertion started, so no input was sent.",
+            result.Message);
+        Assert.Equal(0, clipboard.CaptureCount);
+        Assert.Equal(0, clipboard.SetTextCount);
+        Assert.Equal(0, input.SendPasteShortcutCount);
+    }
+
+    [Fact]
+    public async Task InsertAsync_ReportsFailureWhenFocusIsLostWhileTyping()
+    {
+        var windowing = new FakeWindowing { IsWindowResult = true };
+        var input = new FakeTextInput
+        {
+            UnicodeResult = CompleteResult(requestedInputCount: 28),
+            OnSendUnicodeText = () => windowing.ForegroundWindow = new IntPtr(99)
+        };
+        var service = CreateService(windowing, input, new FakeClipboard());
+
+        TextInsertionResult result = await service.InsertAsync(
+            CreateTarget(),
+            "Hello, Shruti.",
+            new TextInsertionOptions(),
+            CancellationToken.None);
+
+        Assert.False(result.Inserted);
+        Assert.Equal(
+            "The target lost focus while the transcript was being typed; the inserted text may be incomplete or may have reached another window.",
+            result.Message);
+        Assert.Equal(1, input.SendUnicodeTextCount);
+    }
+
+    [Fact]
+    public async Task InsertAsync_ReportsSubmittedWhenFocusIsLostBeforePasteConfirmation()
+    {
+        var windowing = new FakeWindowing { IsWindowResult = true };
+        var input = new FakeTextInput
+        {
+            UnicodeResult = NoneResult(requestedInputCount: 28),
+            PasteResult = CompleteResult(requestedInputCount: 4),
+            OnSendPasteShortcut = () => windowing.ForegroundWindow = new IntPtr(99)
+        };
+        var clipboard = new FakeClipboard(
+            new WindowsClipboardSnapshot(CanRestore: true, Text: "previous", SequenceNumber: 11));
+        var service = CreateService(windowing, input, clipboard);
+
+        TextInsertionResult result = await service.InsertAsync(
+            CreateTarget(),
+            "Hello, Shruti.",
+            new TextInsertionOptions(),
+            CancellationToken.None);
+
+        Assert.False(result.Inserted);
+        Assert.True(result.Submitted);
+        Assert.Equal(
+            "Clipboard paste was sent, but the target lost focus before the paste could be confirmed. The transcript remains on the clipboard for manual paste.",
+            result.Message);
+        Assert.Equal(0, clipboard.RestoreCount);
+    }
+
+    [Theory]
+    [InlineData(new uint[0], true)]
+    [InlineData(new uint[] { 13 }, true)]
+    [InlineData(new uint[] { 13, 16, 1, 7 }, true)]
+    [InlineData(new uint[] { 13, 49443 }, false)]
+    [InlineData(new uint[] { 2 }, false)]
+    public void WindowsClipboard_TreatsSystemTextFormatsAsRestorable(uint[] formats, bool expected)
+    {
+        // CF_LOCALE (16) plus the synthesized CF_TEXT/CF_OEMTEXT formats are
+        // added by Windows itself whenever text is on the clipboard; treating
+        // them as foreign data would disable the clipboard-paste path for
+        // nearly every real clipboard.
+        Assert.Equal(expected, WindowsClipboard.IsRestorableTextFormatSet(formats));
+    }
+
+    [Fact]
     public async Task InsertAsync_ReleasesPasteKeysAfterPartialPasteSubmission()
     {
         var input = new FakeTextInput
@@ -812,9 +927,14 @@ public sealed class WindowsTextInsertionServiceTests
     {
         public bool IsWindowResult { get; init; }
 
+        // Tests target the window created by CreateTarget (handle 42); the
+        // insertion service refuses to send input unless that window is
+        // foreground, so the fake starts with the target focused.
+        public IntPtr ForegroundWindow { get; set; } = new(42);
+
         public IntPtr GetForegroundWindow()
         {
-            return IntPtr.Zero;
+            return ForegroundWindow;
         }
 
         public WindowsWindowSnapshot? CaptureWindow(IntPtr windowHandle)
@@ -841,6 +961,21 @@ public sealed class WindowsTextInsertionServiceTests
         {
             return true;
         }
+
+        public string? GetWindowClassName(IntPtr windowHandle)
+        {
+            return null;
+        }
+
+        public bool SetForegroundWindowWithThreadAttach(IntPtr windowHandle, int windowThreadId)
+        {
+            return true;
+        }
+
+        public bool SendForegroundPermissionInput()
+        {
+            return true;
+        }
     }
 
     private sealed class FakeTextInput : IWindowsTextInput
@@ -863,10 +998,15 @@ public sealed class WindowsTextInsertionServiceTests
 
         public List<WindowsPasteShortcut> PasteShortcuts { get; } = [];
 
+        public Action? OnSendUnicodeText { get; init; }
+
+        public Action? OnSendPasteShortcut { get; init; }
+
         public WindowsInputSendResult SendUnicodeText(string text)
         {
             SendUnicodeTextCount++;
             LastUnicodeText = text;
+            OnSendUnicodeText?.Invoke();
             return UnicodeResult;
         }
 
@@ -882,6 +1022,7 @@ public sealed class WindowsTextInsertionServiceTests
             SendPasteShortcutCount++;
             LastPasteShortcut = shortcut;
             PasteShortcuts.Add(shortcut);
+            OnSendPasteShortcut?.Invoke();
             return PasteResult;
         }
 

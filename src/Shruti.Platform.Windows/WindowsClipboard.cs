@@ -8,6 +8,7 @@ public sealed class WindowsClipboard : IWindowsClipboard
     private const uint CfText = 1;
     private const uint CfOemText = 7;
     private const uint CfUnicodeText = 13;
+    private const uint CfLocale = 16;
     private const uint GmemMoveable = 0x0002;
 
     public WindowsClipboardSnapshot Capture()
@@ -16,7 +17,7 @@ public sealed class WindowsClipboard : IWindowsClipboard
         if (!TryOpenClipboard())
         {
             return WindowsClipboardSnapshot.Unavailable(
-                "The clipboard is currently in use.",
+                "The clipboard is currently in use, so the previous clipboard content cannot be preserved.",
                 sequenceNumber);
         }
 
@@ -31,10 +32,10 @@ public sealed class WindowsClipboard : IWindowsClipboard
                     sequenceNumber);
             }
 
-            if (formats.Any(format => format is not CfText and not CfOemText and not CfUnicodeText))
+            if (!IsRestorableTextFormatSet(formats))
             {
                 return WindowsClipboardSnapshot.Unavailable(
-                    "Clipboard fallback would overwrite non-text clipboard data.",
+                    "The clipboard holds non-text content that Shruti cannot restore after pasting.",
                     sequenceNumber);
             }
 
@@ -52,6 +53,20 @@ public sealed class WindowsClipboard : IWindowsClipboard
         {
             NativeMethods.CloseClipboard();
         }
+    }
+
+    /// <summary>
+    /// A clipboard is restorable as text when every enumerated format is a
+    /// plain-text format or one the system synthesizes alongside text.
+    /// Windows automatically adds <c>CF_LOCALE</c> (and synthesizes the other
+    /// text formats) whenever text is placed on the clipboard, so it must be
+    /// treated as part of a plain-text clipboard rather than foreign data.
+    /// </summary>
+    internal static bool IsRestorableTextFormatSet(IEnumerable<uint> formats)
+    {
+        ArgumentNullException.ThrowIfNull(formats);
+
+        return formats.All(format => format is CfText or CfOemText or CfUnicodeText or CfLocale);
     }
 
     public WindowsClipboardWriteResult SetText(
