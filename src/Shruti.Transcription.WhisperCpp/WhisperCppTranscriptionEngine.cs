@@ -30,15 +30,19 @@ public sealed class WhisperCppTranscriptionEngine : IWhisperCppTranscriptionEngi
             throw new ArgumentOutOfRangeException(nameof(options), "GPU device index cannot be negative.");
         }
 
-        IWhisperCppNativeContext context = _nativeApi.LoadModel(
-            options.ModelPath,
-            options.Backend,
-            options.GpuDevice);
-        IWhisperCppInferenceSession session = new WhisperCppInferenceSession(
-            context,
-            options.Language,
-            options.EffectiveThreadCount);
-        return Task.FromResult(session);
+        return Task.Run<IWhisperCppInferenceSession>(
+            () =>
+            {
+                IWhisperCppNativeContext context = _nativeApi.LoadModel(
+                    options.ModelPath,
+                    options.Backend,
+                    options.GpuDevice);
+                return new WhisperCppInferenceSession(
+                    context,
+                    options.Language,
+                    options.EffectiveThreadCount);
+            },
+            cancellationToken);
     }
 
     private sealed class WhisperCppInferenceSession : IWhisperCppInferenceSession

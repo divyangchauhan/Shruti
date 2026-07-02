@@ -59,7 +59,7 @@ public sealed class AppComposition
             coordinator,
             audioCaptureService,
             transcriptClipboard,
-            transcriptionOptionsProvider.Create);
+            transcriptionOptionsProvider.CreateAsync);
         var triggerRouter = new DictationTriggerRouter(controller);
         return new MainWindow(
             controller,

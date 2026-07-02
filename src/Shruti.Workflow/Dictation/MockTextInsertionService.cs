@@ -12,6 +12,10 @@ public sealed class MockTextInsertionService : ITextInsertionService
 
     public TextInsertionOptions? LastOptions { get; private set; }
 
+    public TextInsertionCapability? Capability { get; set; }
+
+    public TextInsertionResult? Result { get; set; }
+
     public TaskCompletionSource? InsertCompletion { get; set; }
 
     public Task<TextInsertionCapability> InspectAsync(
@@ -21,7 +25,7 @@ public sealed class MockTextInsertionService : ITextInsertionService
         cancellationToken.ThrowIfCancellationRequested();
         InspectCount++;
 
-        var capability = new TextInsertionCapability(
+        TextInsertionCapability capability = Capability ?? new TextInsertionCapability(
             TextInsertionCapabilityOutcome.DirectInputAvailable,
             TextInsertionMethod.DirectInput,
             "Mock target accepts direct insertion.");
@@ -45,7 +49,7 @@ public sealed class MockTextInsertionService : ITextInsertionService
             await InsertCompletion.Task.WaitAsync(cancellationToken).ConfigureAwait(false);
         }
 
-        return new TextInsertionResult(
+        return Result ?? new TextInsertionResult(
             Inserted: true,
             TextInsertionMethod.DirectInput,
             "Inserted into the mock target.");

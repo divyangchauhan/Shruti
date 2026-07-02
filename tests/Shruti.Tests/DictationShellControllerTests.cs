@@ -1,6 +1,7 @@
 using Shruti.Workflow.Dictation;
 using Shruti.Core;
 using Shruti.Core.Dictation;
+using Shruti.Core.Platform;
 using Xunit;
 
 namespace Shruti.Tests;
@@ -127,6 +128,25 @@ public sealed class DictationShellControllerTests
     }
 
     [Fact]
+    public async Task CopyTranscriptAsync_WhenClipboardWriteFailsLeavesRecoverableState()
+    {
+        var services = MockDictationAppServices.Create();
+        var controller = services.CreateShellController();
+
+        await controller.StartAsync(DictationInsertionMode.PreviewFirst);
+        await controller.StopAsync();
+        services.Clipboard.CopyException = new InvalidOperationException("Clipboard is busy.");
+
+        bool copied = await controller.CopyTranscriptAsync();
+
+        Assert.False(copied);
+        Assert.Equal("Copy failed", controller.State.StatusText);
+        Assert.Equal("Clipboard is busy.", controller.State.ErrorText);
+        Assert.True(controller.State.CanCopy);
+        Assert.Null(services.Clipboard.LastCopiedText);
+    }
+
+    [Fact]
     public async Task PreviewFirst_InsertPreviewInsertsEditedTranscript()
     {
         var services = MockDictationAppServices.Create();
@@ -144,6 +164,34 @@ public sealed class DictationShellControllerTests
         Assert.Equal("edited preview text", services.TextInsertion.LastInsertedText);
         Assert.True(services.TextInsertion.LastOptions?.AllowReplacingSelection);
         Assert.False(controller.State.CanInsertPreview);
+    }
+
+    [Fact]
+    public async Task SubmittedClipboardPaste_DoesNotEnableDuplicatePreviewInsertion()
+    {
+        var services = MockDictationAppServices.Create();
+        services.TextInsertion.Capability = new TextInsertionCapability(
+            TextInsertionCapabilityOutcome.ClipboardFallbackOnly,
+            TextInsertionMethod.ClipboardPaste,
+            "Clipboard paste is required for this target.");
+        services.TextInsertion.Result = new TextInsertionResult(
+            Inserted: false,
+            TextInsertionMethod.ClipboardPaste,
+            "Clipboard paste was submitted but cannot be confirmed.",
+            Submitted: true);
+        var controller = services.CreateShellController();
+
+        await controller.StartAsync(DictationInsertionMode.AutoInsert);
+        await controller.StopAsync();
+
+        Assert.Equal(DictationRunOutcome.PreviewRequired, controller.LastResult?.Outcome);
+        Assert.True(controller.LastResult?.InsertionResult?.Submitted);
+        Assert.False(controller.State.CanInsertPreview);
+
+        await controller.InsertPreviewAsync("edited preview text", allowReplacingSelection: true);
+
+        Assert.Equal(1, services.TextInsertion.InsertCount);
+        Assert.Equal("No transcript is ready for insertion.", controller.State.UserMessage);
     }
 
     [Fact]
