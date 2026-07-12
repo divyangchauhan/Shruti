@@ -171,8 +171,12 @@ public sealed class WindowsTextInsertionService : ITextInsertionService
             return directResult;
         }
 
+        // Once any keystrokes were delivered (partially, or completely but
+        // with focus lost mid-typing), retrying through the clipboard could
+        // duplicate text; surface the direct-input failure instead.
         if (directResult.OperationalDiagnostics.TryGetValue("sendInputOutcome", out string? directOutcome) &&
-            string.Equals(directOutcome, WindowsInputSendOutcome.Partial.ToString(), StringComparison.Ordinal))
+            (string.Equals(directOutcome, WindowsInputSendOutcome.Partial.ToString(), StringComparison.Ordinal) ||
+             string.Equals(directOutcome, WindowsInputSendOutcome.Complete.ToString(), StringComparison.Ordinal)))
         {
             return directResult;
         }
@@ -199,19 +203,22 @@ public sealed class WindowsTextInsertionService : ITextInsertionService
         CancellationToken cancellationToken)
     {
         IntPtr foregroundBefore = _windowing.GetForegroundWindow();
-        WindowsClipboardSnapshot snapshot = _clipboard.Capture();
-        if (!snapshot.CanRestore)
+        if (foregroundBefore != target.WindowHandle)
         {
             return Failure(
-                snapshot.Message ?? "Clipboard fallback could not preserve existing clipboard data.",
+                "The target window was not foreground when insertion started, so no input was sent.",
                 CreateDiagnostics(
                     target,
                     profile,
                     focusedElement,
                     foregroundBefore,
-                    foregroundAfter: _windowing.GetForegroundWindow(),
-                    clipboardSnapshot: snapshot));
+                    foregroundAfter: _windowing.GetForegroundWindow()));
         }
+
+        // A snapshot that cannot be restored (for example rich or image
+        // clipboard content) no longer blocks insertion; the paste proceeds
+        // and the result notes that the previous clipboard was not preserved.
+        WindowsClipboardSnapshot snapshot = _clipboard.Capture();
 
         WindowsClipboardWriteResult write = _clipboard.SetText(text, snapshot.SequenceNumber);
         if (!write.TemporaryTextWritten)
@@ -275,24 +282,47 @@ public sealed class WindowsTextInsertionService : ITextInsertionService
                     pasteShortcut: pasteShortcut));
         }
 
+        IntPtr foregroundAfterPaste = _windowing.GetForegroundWindow();
+        IReadOnlyDictionary<string, string?> pasteDiagnostics = CreateDiagnostics(
+            target,
+            profile,
+            focusedElement,
+            foregroundBefore,
+            foregroundAfter: foregroundAfterPaste,
+            clipboardSnapshot: snapshot,
+            clipboardWrite: write,
+            input: pasteInput,
+            pasteShortcut: pasteShortcut,
+            recoveryClipboardTextAvailable: true);
+
+        if (foregroundAfterPaste != target.WindowHandle)
+        {
+            return new TextInsertionResult(
+                Inserted: false,
+                TextInsertionMethod.ClipboardPaste,
+                "Clipboard paste was sent, but the target lost focus before the paste could be confirmed. The transcript remains on the clipboard for manual paste.",
+                Submitted: true,
+                Diagnostics: pasteDiagnostics);
+        }
+
         return new TextInsertionResult(
-            Inserted: false,
+            Inserted: true,
             TextInsertionMethod.ClipboardPaste,
-            profile.PreservesLineSafety
-                ? "Terminal paste was submitted but cannot be confirmed. The transcript remains on the clipboard for manual paste; line breaks were replaced with spaces to avoid command submission."
-                : "Clipboard paste was submitted but cannot be confirmed. The transcript remains on the clipboard for manual paste.",
+            DescribePasteSuccess(profile, snapshot),
             Submitted: true,
-            Diagnostics: CreateDiagnostics(
-                target,
-                profile,
-                focusedElement,
-                foregroundBefore,
-                foregroundAfter: _windowing.GetForegroundWindow(),
-                clipboardSnapshot: snapshot,
-                clipboardWrite: write,
-                input: pasteInput,
-                pasteShortcut: pasteShortcut,
-                recoveryClipboardTextAvailable: true));
+            Diagnostics: pasteDiagnostics);
+    }
+
+    private static string DescribePasteSuccess(
+        WindowsTargetInsertionProfile profile,
+        WindowsClipboardSnapshot snapshot)
+    {
+        string message = profile.PreservesLineSafety
+            ? "Pasted into the target without submitting Enter; line breaks were replaced with spaces. The transcript also remains on the clipboard."
+            : "Pasted into the target. The transcript also remains on the clipboard.";
+        return snapshot.CanRestore
+            ? message
+            : $"{message} The previous clipboard content could not be preserved.";
     }
 
     private TextInsertionResult InsertWithUnicode(
@@ -304,6 +334,20 @@ public sealed class WindowsTextInsertionService : ITextInsertionService
         string? fallbackMessage = null)
     {
         IntPtr foregroundBefore = _windowing.GetForegroundWindow();
+        if (foregroundBefore != target.WindowHandle)
+        {
+            return Failure(
+                "The target window was not foreground when insertion started, so no input was sent.",
+                CreateDiagnostics(
+                    target,
+                    profile,
+                    focusedElement,
+                    foregroundBefore,
+                    foregroundAfter: _windowing.GetForegroundWindow(),
+                    unicodeInputMode: useSlowInput ? "slow" : "direct",
+                    fallbackMessage: fallbackMessage));
+        }
+
         WindowsInputSendResult directInput = useSlowInput
             ? _textInput.SendUnicodeTextSlow(text)
             : _textInput.SendUnicodeText(text);
@@ -320,6 +364,15 @@ public sealed class WindowsTextInsertionService : ITextInsertionService
 
         if (directInput.Outcome == WindowsInputSendOutcome.Complete)
         {
+            if (foregroundAfter != target.WindowHandle)
+            {
+                // SendInput reported success, but the keystrokes may have gone
+                // to whichever window took focus mid-injection.
+                return Failure(
+                    "The target lost focus while the transcript was being typed; the inserted text may be incomplete or may have reached another window.",
+                    diagnostics);
+            }
+
             return new TextInsertionResult(
                 Inserted: true,
                 TextInsertionMethod.DirectInput,

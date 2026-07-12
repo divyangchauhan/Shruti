@@ -5,8 +5,10 @@ namespace Shruti.Platform.Windows;
 public sealed class WindowsTextInput : IWindowsTextInput
 {
     private const uint InputKeyboard = 1;
+    private const uint KeyEventFExtendedKey = 0x0001;
     private const uint KeyEventFKeyUp = 0x0002;
     private const uint KeyEventFUnicode = 0x0004;
+    private const uint MapVirtualKeyToScanCode = 0;
     private const ushort VirtualKeyControl = 0x11;
     private const ushort VirtualKeyShift = 0x10;
     private const ushort VirtualKeyAlt = 0x12;
@@ -248,6 +250,16 @@ public sealed class WindowsTextInput : IWindowsTextInput
 
     private static Input CreateVirtualKeyInput(ushort virtualKey, bool isKeyUp)
     {
+        // Some apps resolve keys from the hardware scan code rather than the
+        // virtual key, so provide both. Navigation keys and right-side
+        // modifiers live in the extended scan-code range and need the
+        // extended-key flag to avoid being read as numpad keys.
+        uint flags = isKeyUp ? KeyEventFKeyUp : 0;
+        if (IsExtendedKey(virtualKey))
+        {
+            flags |= KeyEventFExtendedKey;
+        }
+
         return new Input
         {
             Type = InputKeyboard,
@@ -256,10 +268,20 @@ public sealed class WindowsTextInput : IWindowsTextInput
                 Keyboard = new KeyboardInput
                 {
                     VirtualKey = virtualKey,
-                    Flags = isKeyUp ? KeyEventFKeyUp : 0
+                    ScanCode = checked((ushort)NativeMethods.MapVirtualKey(virtualKey, MapVirtualKeyToScanCode)),
+                    Flags = flags
                 }
             }
         };
+    }
+
+    private static bool IsExtendedKey(ushort virtualKey)
+    {
+        return virtualKey is VirtualKeyInsert
+            or VirtualKeyRightControl
+            or VirtualKeyRightAlt
+            or VirtualKeyLeftWindows
+            or VirtualKeyRightWindows;
     }
 
     [StructLayout(LayoutKind.Sequential)]
@@ -322,5 +344,8 @@ public sealed class WindowsTextInput : IWindowsTextInput
 
         [DllImport("user32.dll")]
         public static extern short GetAsyncKeyState(int virtualKey);
+
+        [DllImport("user32.dll", EntryPoint = "MapVirtualKeyW")]
+        public static extern uint MapVirtualKey(uint code, uint mapType);
     }
 }

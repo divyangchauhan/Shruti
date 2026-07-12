@@ -13,4 +13,10 @@ public interface IWindowsWindowing
     bool RestoreWindow(IntPtr windowHandle);
 
     bool SetForegroundWindow(IntPtr windowHandle);
+
+    string? GetWindowClassName(IntPtr windowHandle);
+
+    bool SetForegroundWindowWithThreadAttach(IntPtr windowHandle, int windowThreadId);
+
+    bool SendForegroundPermissionInput();
 }

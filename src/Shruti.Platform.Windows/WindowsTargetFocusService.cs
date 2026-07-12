@@ -6,6 +6,34 @@ namespace Shruti.Platform.Windows;
 public sealed class WindowsTargetFocusService : ITargetFocusService, IDisposable
 {
     private static readonly TimeSpan DefaultFocusSettleDelay = TimeSpan.FromMilliseconds(75);
+    private const int ForegroundPollAttempts = 4;
+
+    // Shell surfaces are never valid dictation targets; remembering them would
+    // poison the "last external target" cache used when Shruti owns the
+    // foreground (e.g. after a tray or Start-menu interaction).
+    private static readonly HashSet<string> ShellWindowClasses = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "Shell_TrayWnd",
+        "Shell_SecondaryTrayWnd",
+        "Shell_InputSwitchTopLevelWindow",
+        "TopLevelWindowForOverflowXamlIsland",
+        "TaskListThumbnailWnd",
+        "MultitaskingViewFrame",
+        "XamlExplorerHostIslandWindow",
+        "ForegroundStaging",
+        "Progman",
+        "WorkerW"
+    };
+
+    private static readonly HashSet<string> ShellProcessNames = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "StartMenuExperienceHost",
+        "SearchHost",
+        "SearchApp",
+        "ShellExperienceHost",
+        "LockApp",
+        "LogonUI"
+    };
 
     private readonly IWindowsWindowing _windowing;
     private readonly IWindowsProcessInspector _processInspector;
@@ -48,15 +76,10 @@ public sealed class WindowsTargetFocusService : ITargetFocusService, IDisposable
     {
         cancellationToken.ThrowIfCancellationRequested();
 
-        FocusTarget? currentTarget = CaptureForegroundTarget();
+        FocusTarget? currentTarget = CaptureForegroundTarget(includeFocusedElement: true);
         if (currentTarget is null)
         {
-            return Task.FromResult(GetLastExternalTargetIfValid());
-        }
-
-        if (IsCurrentProcessTarget(currentTarget))
-        {
-            return Task.FromResult(GetLastExternalTargetIfValid());
+            return Task.FromResult(RefreshAndGetLastExternalTarget());
         }
 
         RememberExternalTarget(currentTarget);
@@ -67,8 +90,8 @@ public sealed class WindowsTargetFocusService : ITargetFocusService, IDisposable
     {
         cancellationToken.ThrowIfCancellationRequested();
 
-        FocusTarget? currentTarget = CaptureForegroundTarget();
-        if (currentTarget is not null && !IsCurrentProcessTarget(currentTarget))
+        FocusTarget? currentTarget = CaptureForegroundTarget(includeFocusedElement: true);
+        if (currentTarget is not null)
         {
             RememberExternalTarget(currentTarget);
         }
@@ -92,8 +115,12 @@ public sealed class WindowsTargetFocusService : ITargetFocusService, IDisposable
     {
         try
         {
-            FocusTarget? currentTarget = CaptureTarget(windowHandle);
-            if (currentTarget is not null && !IsCurrentProcessTarget(currentTarget))
+            // The tracker callback runs on the thread that owns the WinEvent
+            // hook (the UI thread), so it must stay cheap: no UI Automation
+            // inspection here. Focused-element metadata is refreshed when the
+            // cached target is promoted for an insertion.
+            FocusTarget? currentTarget = CaptureTarget(windowHandle, includeFocusedElement: false);
+            if (currentTarget is not null)
             {
                 RememberExternalTarget(currentTarget);
             }
@@ -104,13 +131,13 @@ public sealed class WindowsTargetFocusService : ITargetFocusService, IDisposable
         }
     }
 
-    private FocusTarget? CaptureForegroundTarget()
+    private FocusTarget? CaptureForegroundTarget(bool includeFocusedElement)
     {
         IntPtr foregroundWindow = _windowing.GetForegroundWindow();
-        return CaptureTarget(foregroundWindow);
+        return CaptureTarget(foregroundWindow, includeFocusedElement);
     }
 
-    private FocusTarget? CaptureTarget(IntPtr windowHandle)
+    private FocusTarget? CaptureTarget(IntPtr windowHandle, bool includeFocusedElement)
     {
         if (windowHandle == IntPtr.Zero)
         {
@@ -123,13 +150,33 @@ public sealed class WindowsTargetFocusService : ITargetFocusService, IDisposable
             return null;
         }
 
+        // Skip Shruti's own windows before any UI Automation work: inspecting
+        // this process's focused element from its own UI thread can stall on
+        // the in-process automation provider.
+        if (window.ProcessId == _currentProcessId)
+        {
+            return null;
+        }
+
+        if (IsShellWindow(windowHandle))
+        {
+            return null;
+        }
+
         WindowsProcessSnapshot? process = _processInspector.Inspect(window.ProcessId);
         if (process is null)
         {
             return null;
         }
 
-        FocusedElementSnapshot? focusedElement = _focusedElementInspector.CaptureFocusedElement(windowHandle);
+        if (ShellProcessNames.Contains(process.ProcessName))
+        {
+            return null;
+        }
+
+        FocusedElementSnapshot? focusedElement = includeFocusedElement
+            ? _focusedElementInspector.CaptureFocusedElement(windowHandle)
+            : null;
 
         return new FocusTarget(
             window.WindowHandle,
@@ -143,9 +190,10 @@ public sealed class WindowsTargetFocusService : ITargetFocusService, IDisposable
             window.ThreadId);
     }
 
-    private bool IsCurrentProcessTarget(FocusTarget target)
+    private bool IsShellWindow(IntPtr windowHandle)
     {
-        return target.ProcessId == _currentProcessId;
+        string? className = _windowing.GetWindowClassName(windowHandle);
+        return !string.IsNullOrEmpty(className) && ShellWindowClasses.Contains(className);
     }
 
     private void RememberExternalTarget(FocusTarget target)
@@ -156,23 +204,48 @@ public sealed class WindowsTargetFocusService : ITargetFocusService, IDisposable
         }
     }
 
-    private FocusTarget? GetLastExternalTargetIfValid()
+    private FocusTarget? RefreshAndGetLastExternalTarget()
+    {
+        FocusTarget? cachedTarget;
+        lock (_targetSync)
+        {
+            cachedTarget = _lastExternalTarget;
+        }
+
+        if (cachedTarget is null)
+        {
+            return null;
+        }
+
+        if (cachedTarget.WindowHandle == IntPtr.Zero ||
+            !_windowing.IsWindow(cachedTarget.WindowHandle))
+        {
+            ForgetExternalTarget(cachedTarget);
+            return null;
+        }
+
+        // Re-capture so title, elevation, and focused-element metadata reflect
+        // the window as it is now instead of when it was last foreground.
+        FocusTarget? refreshedTarget = CaptureTarget(cachedTarget.WindowHandle, includeFocusedElement: true);
+        if (refreshedTarget is null)
+        {
+            // The window still exists but a fresh snapshot was unavailable;
+            // fall back to the last known capture.
+            return cachedTarget;
+        }
+
+        RememberExternalTarget(refreshedTarget);
+        return refreshedTarget;
+    }
+
+    private void ForgetExternalTarget(FocusTarget staleTarget)
     {
         lock (_targetSync)
         {
-            if (_lastExternalTarget is null)
+            if (ReferenceEquals(_lastExternalTarget, staleTarget))
             {
-                return null;
+                _lastExternalTarget = null;
             }
-
-            if (_lastExternalTarget.WindowHandle != IntPtr.Zero &&
-                _windowing.IsWindow(_lastExternalTarget.WindowHandle))
-            {
-                return _lastExternalTarget;
-            }
-
-            _lastExternalTarget = null;
-            return null;
         }
     }
 
@@ -217,38 +290,68 @@ public sealed class WindowsTargetFocusService : ITargetFocusService, IDisposable
             _windowing.RestoreWindow(target.WindowHandle);
         }
 
+        // Windows' foreground lock frequently rejects a plain
+        // SetForegroundWindow, so escalate through progressively stronger
+        // strategies until the target actually owns the foreground.
         bool requestedForeground = _windowing.SetForegroundWindow(target.WindowHandle);
-        if (!requestedForeground)
+        bool restored = await WaitForForegroundAsync(target.WindowHandle, cancellationToken).ConfigureAwait(false);
+
+        if (!restored)
         {
-            return new FocusRestoreResult(
-                Restored: false,
-                Message: "Windows did not allow Shruti to restore focus to the target app.",
-                TargetWindowHandle: target.WindowHandle,
-                ForegroundWindowBefore: foregroundBefore,
-                ForegroundWindowAfter: _windowing.GetForegroundWindow(),
-                RequestedForeground: true);
+            requestedForeground |= _windowing.SetForegroundWindowWithThreadAttach(
+                target.WindowHandle,
+                target.ThreadId);
+            restored = await WaitForForegroundAsync(target.WindowHandle, cancellationToken).ConfigureAwait(false);
         }
 
-        if (_focusSettleDelay > TimeSpan.Zero)
+        if (!restored)
         {
-            await Task.Delay(_focusSettleDelay, cancellationToken).ConfigureAwait(false);
+            _windowing.SendForegroundPermissionInput();
+            requestedForeground |= _windowing.SetForegroundWindow(target.WindowHandle);
+            restored = await WaitForForegroundAsync(target.WindowHandle, cancellationToken).ConfigureAwait(false);
         }
 
         IntPtr foregroundAfter = _windowing.GetForegroundWindow();
-        bool restored = foregroundAfter == target.WindowHandle;
-        return restored
-            ? new FocusRestoreResult(
+        if (restored)
+        {
+            return new FocusRestoreResult(
                 Restored: true,
                 TargetWindowHandle: target.WindowHandle,
                 ForegroundWindowBefore: foregroundBefore,
                 ForegroundWindowAfter: foregroundAfter,
-                RequestedForeground: true)
-            : new FocusRestoreResult(
-                Restored: false,
-                Message: "The captured target window was not foreground after restore.",
-                TargetWindowHandle: target.WindowHandle,
-                ForegroundWindowBefore: foregroundBefore,
-                ForegroundWindowAfter: foregroundAfter,
                 RequestedForeground: true);
+        }
+
+        return new FocusRestoreResult(
+            Restored: false,
+            Message: requestedForeground
+                ? "The captured target window was not foreground after restore."
+                : "Windows did not allow Shruti to restore focus to the target app.",
+            TargetWindowHandle: target.WindowHandle,
+            ForegroundWindowBefore: foregroundBefore,
+            ForegroundWindowAfter: foregroundAfter,
+            RequestedForeground: true);
+    }
+
+    private async Task<bool> WaitForForegroundAsync(
+        IntPtr targetWindowHandle,
+        CancellationToken cancellationToken)
+    {
+        for (int attempt = 0; attempt < ForegroundPollAttempts; attempt++)
+        {
+            if (_windowing.GetForegroundWindow() == targetWindowHandle)
+            {
+                return true;
+            }
+
+            if (_focusSettleDelay <= TimeSpan.Zero)
+            {
+                return _windowing.GetForegroundWindow() == targetWindowHandle;
+            }
+
+            await Task.Delay(_focusSettleDelay, cancellationToken).ConfigureAwait(false);
+        }
+
+        return _windowing.GetForegroundWindow() == targetWindowHandle;
     }
 }
