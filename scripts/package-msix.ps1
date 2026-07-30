@@ -4,7 +4,14 @@ param(
     [string] $Version = "0.1.0.0",
     [ValidateSet("None", "Vulkan", "CUDA")]
     [string] $GpuBackend = "None",
-    [switch] $SkipNativeBuild
+    [switch] $SkipNativeBuild,
+    [string] $Publisher,
+    [string] $CertificatePath,
+    [string] $CertificateThumbprint,
+    [ValidateSet("CurrentUser", "LocalMachine")]
+    [string] $CertificateStoreLocation = "CurrentUser",
+    [string] $CertificatePasswordEnvironmentVariable = "SHRUTI_SIGNING_CERT_PASSWORD",
+    [string] $TimestampUrl
 )
 
 $ErrorActionPreference = "Stop"
@@ -48,6 +55,126 @@ function Find-WindowsSdkTool {
     }
 
     throw "$ToolName was not found. Install the Windows 10/11 SDK packaging tools."
+}
+
+function Get-CodeSigningCertificate {
+    if (-not [string]::IsNullOrWhiteSpace($CertificatePath) -and
+        -not [string]::IsNullOrWhiteSpace($CertificateThumbprint)) {
+        throw "Specify either CertificatePath or CertificateThumbprint, not both."
+    }
+
+    if (-not [string]::IsNullOrWhiteSpace($CertificatePath)) {
+        $resolvedPath = (Resolve-Path -LiteralPath $CertificatePath -ErrorAction Stop).Path
+        $password = [Environment]::GetEnvironmentVariable($CertificatePasswordEnvironmentVariable)
+        $flags = [System.Security.Cryptography.X509Certificates.X509KeyStorageFlags]::EphemeralKeySet
+        $certificate = [System.Security.Cryptography.X509Certificates.X509Certificate2]::new(
+            $resolvedPath,
+            $password,
+            $flags)
+
+        return [pscustomobject]@{
+            Certificate = $certificate
+            Path = $resolvedPath
+            Password = $password
+            Thumbprint = $null
+            StoreLocation = $null
+        }
+    }
+
+    if (-not [string]::IsNullOrWhiteSpace($CertificateThumbprint)) {
+        $normalizedThumbprint = $CertificateThumbprint.Replace(" ", "")
+        $storeLocationValue = [System.Security.Cryptography.X509Certificates.StoreLocation]::$CertificateStoreLocation
+        $store = [System.Security.Cryptography.X509Certificates.X509Store]::new(
+            [System.Security.Cryptography.X509Certificates.StoreName]::My,
+            $storeLocationValue)
+        try {
+            $store.Open([System.Security.Cryptography.X509Certificates.OpenFlags]::ReadOnly)
+            $matches = $store.Certificates.Find(
+                [System.Security.Cryptography.X509Certificates.X509FindType]::FindByThumbprint,
+                $normalizedThumbprint,
+                $false)
+            if ($matches.Count -eq 0) {
+                throw "No certificate with thumbprint $normalizedThumbprint was found in $CertificateStoreLocation\My."
+            }
+
+            $certificate = $matches[0]
+            return [pscustomobject]@{
+                Certificate = $certificate
+                Path = $null
+                Password = $null
+                Thumbprint = $normalizedThumbprint
+                StoreLocation = $CertificateStoreLocation
+            }
+        }
+        finally {
+            $store.Close()
+        }
+    }
+
+    return $null
+}
+
+function Assert-CodeSigningCertificate {
+    param([System.Security.Cryptography.X509Certificates.X509Certificate2] $Certificate)
+
+    if (-not $Certificate.HasPrivateKey) {
+        throw "The signing certificate does not have an accessible private key."
+    }
+
+    $now = [DateTimeOffset]::Now
+    if ($now -lt $Certificate.NotBefore -or $now -gt $Certificate.NotAfter) {
+        throw "The signing certificate is not valid at the current time."
+    }
+
+    $enhancedKeyUsage = $Certificate.Extensions |
+        Where-Object { $_ -is [System.Security.Cryptography.X509Certificates.X509EnhancedKeyUsageExtension] } |
+        Select-Object -First 1
+    if ($enhancedKeyUsage) {
+        $supportsCodeSigning = $enhancedKeyUsage.EnhancedKeyUsages |
+            Where-Object { $_.Value -eq "1.3.6.1.5.5.7.3.3" } |
+            Select-Object -First 1
+        if (-not $supportsCodeSigning) {
+            throw "The signing certificate does not allow Code Signing enhanced key usage."
+        }
+    }
+}
+
+function Invoke-PackageSigning {
+    param(
+        [string] $SignTool,
+        [string] $Package,
+        [pscustomobject] $SigningCertificate
+    )
+
+    $arguments = @("sign", "/fd", "SHA256")
+    if ($SigningCertificate.Path) {
+        $arguments += @("/f", $SigningCertificate.Path)
+        if (-not [string]::IsNullOrEmpty($SigningCertificate.Password)) {
+            $arguments += @("/p", $SigningCertificate.Password)
+        }
+    }
+    else {
+        if ($SigningCertificate.StoreLocation -eq "LocalMachine") {
+            $arguments += "/sm"
+        }
+
+        $arguments += @("/sha1", $SigningCertificate.Thumbprint)
+    }
+
+    if (-not [string]::IsNullOrWhiteSpace($TimestampUrl)) {
+        $arguments += @("/tr", $TimestampUrl, "/td", "SHA256")
+    }
+
+    $arguments += $Package
+    & $SignTool @arguments
+    if ($LASTEXITCODE -ne 0) {
+        throw "SignTool failed to sign the MSIX package with exit code $LASTEXITCODE."
+    }
+
+    & $SignTool verify /pa /v $Package
+    if ($LASTEXITCODE -ne 0) {
+        throw "SignTool could not verify the signed MSIX package as trusted."
+    }
 }
 
 function New-PackageLogo {
@@ -94,6 +221,26 @@ if (-not (Test-Path $manifestTemplate)) {
     throw "Package manifest template not found at $manifestTemplate."
 }
 
+$signingCertificate = Get-CodeSigningCertificate
+if ($signingCertificate) {
+    Assert-CodeSigningCertificate $signingCertificate.Certificate
+    $certificatePublisher = $signingCertificate.Certificate.Subject
+    if (-not [string]::IsNullOrWhiteSpace($Publisher) -and
+        -not [string]::Equals($Publisher, $certificatePublisher, [StringComparison]::OrdinalIgnoreCase)) {
+        throw "Publisher '$Publisher' does not match signing certificate subject '$certificatePublisher'."
+    }
+
+    $effectivePublisher = $certificatePublisher
+}
+else {
+    $effectivePublisher = if ([string]::IsNullOrWhiteSpace($Publisher)) {
+        "CN=Shruti Dev"
+    }
+    else {
+        $Publisher
+    }
+}
+
 if (-not $SkipNativeBuild) {
     & (Join-Path $root "scripts\build-whispercpp.ps1") -Configuration $Configuration -GpuBackend $GpuBackend
     if ($LASTEXITCODE -ne 0) {
@@ -113,9 +260,10 @@ Invoke-CheckedCommand "dotnet" @(
     "publish", (Join-Path $root "src\Shruti.App.WinUI\Shruti.App.WinUI.csproj"),
     "--configuration", $Configuration,
     "--runtime", "win-x64",
-    "--self-contained", "false",
+    "--self-contained", "true",
     "-p:Platform=$Platform",
     "-p:WindowsPackageType=None",
+    "-p:WindowsAppSDKSelfContained=true",
     "-o", $publishDirectory
 )
 
@@ -132,6 +280,9 @@ if (-not (Test-Path $packagedNativeLibrary)) {
 
 $manifest = Get-Content $manifestTemplate -Raw
 $manifest = $manifest.Replace("__PACKAGE_VERSION__", $Version)
+$manifest = $manifest.Replace(
+    "__PACKAGE_PUBLISHER__",
+    [System.Security.SecurityElement]::Escape($effectivePublisher))
 Set-Content -Path (Join-Path $stageDirectory "AppxManifest.xml") -Value $manifest -Encoding utf8
 
 New-PackageLogo (Join-Path $assetDirectory "StoreLogo.png") 50 50
@@ -143,8 +294,32 @@ $makeAppx = Find-WindowsSdkTool "makeappx.exe"
 Remove-Item $packagePath -Force -ErrorAction SilentlyContinue
 Invoke-CheckedCommand $makeAppx @("pack", "/d", $stageDirectory, "/p", $packagePath, "/overwrite")
 
+$isSigned = $null -ne $signingCertificate
+if ($isSigned) {
+    $signTool = Find-WindowsSdkTool "signtool.exe"
+    Invoke-PackageSigning $signTool $packagePath $signingCertificate
+}
+
+$verificationArguments = @{
+    PackagePath = $packagePath
+    ExpectedVersion = $Version
+    ExpectedPublisher = $effectivePublisher
+    RuntimeMode = "SelfContained"
+}
+if ($isSigned) {
+    $verificationArguments.RequireSignature = $true
+}
+
+& (Join-Path $root "scripts\verify-msix-package.ps1") @verificationArguments
+if ($LASTEXITCODE -ne 0) {
+    throw "scripts\verify-msix-package.ps1 failed with exit code $LASTEXITCODE."
+}
+
 [pscustomobject]@{
     PackagePath = $packagePath
     StageDirectory = $stageDirectory
     IncludesNativeLibrary = (Test-Path $packagedNativeLibrary)
+    RuntimeMode = "SelfContained"
+    Publisher = $effectivePublisher
+    Signed = $isSigned
 }
