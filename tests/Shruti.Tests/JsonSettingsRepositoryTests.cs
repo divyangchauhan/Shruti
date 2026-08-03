@@ -55,6 +55,7 @@ public sealed class JsonSettingsRepositoryTests : IDisposable
             AudioRetentionPolicy = AudioRetentionPolicy.Keep,
             BackendPreference = ComputeBackend.Cpu,
             AllowSlowTranscription = true,
+            HasCompletedOnboarding = true,
             TriggerConfiguration = new TriggerConfiguration(
                 EnableGlobalHotkey: true,
                 EnablePushToTalk: false,

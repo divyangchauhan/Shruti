@@ -189,23 +189,42 @@ function New-PackageLogo {
     Add-Type -AssemblyName System.Drawing
     $bitmap = [System.Drawing.Bitmap]::new($Width, $Height)
     $graphics = [System.Drawing.Graphics]::FromImage($bitmap)
-    $brush = [System.Drawing.SolidBrush]::new([System.Drawing.Color]::FromArgb(17, 24, 39))
-    $accentBrush = [System.Drawing.SolidBrush]::new([System.Drawing.Color]::FromArgb(94, 234, 212))
-    $fontSize = [Math]::Max(18, [Math]::Floor([Math]::Min($Width, $Height) * 0.48))
-    $font = [System.Drawing.Font]::new("Segoe UI", $fontSize, [System.Drawing.FontStyle]::Bold, [System.Drawing.GraphicsUnit]::Pixel)
+    $accentBrush = [System.Drawing.SolidBrush]::new([System.Drawing.Color]::FromArgb(222, 110, 30))
+    $waveBrush = [System.Drawing.SolidBrush]::new([System.Drawing.Color]::White)
+    $glyphSize = [Math]::Min($Width, $Height) * 0.82
+    $glyphX = ($Width - $glyphSize) / 2
+    $glyphY = ($Height - $glyphSize) / 2
+    $cornerRadius = $glyphSize * 0.22
+    $cornerDiameter = $cornerRadius * 2
+    $glyphPath = [System.Drawing.Drawing2D.GraphicsPath]::new()
     try {
         $graphics.Clear([System.Drawing.Color]::Transparent)
-        $graphics.FillRectangle($brush, 0, 0, $Width, $Height)
-        $format = [System.Drawing.StringFormat]::new()
-        $format.Alignment = [System.Drawing.StringAlignment]::Center
-        $format.LineAlignment = [System.Drawing.StringAlignment]::Center
-        $graphics.DrawString("S", $font, $accentBrush, [System.Drawing.RectangleF]::new(0, 0, $Width, $Height), $format)
+        $graphics.SmoothingMode = [System.Drawing.Drawing2D.SmoothingMode]::AntiAlias
+        $glyphPath.AddArc($glyphX, $glyphY, $cornerDiameter, $cornerDiameter, 180, 90)
+        $glyphPath.AddArc($glyphX + $glyphSize - $cornerDiameter, $glyphY, $cornerDiameter, $cornerDiameter, 270, 90)
+        $glyphPath.AddArc($glyphX + $glyphSize - $cornerDiameter, $glyphY + $glyphSize - $cornerDiameter, $cornerDiameter, $cornerDiameter, 0, 90)
+        $glyphPath.AddArc($glyphX, $glyphY + $glyphSize - $cornerDiameter, $cornerDiameter, $cornerDiameter, 90, 90)
+        $glyphPath.CloseFigure()
+        $graphics.FillPath($accentBrush, $glyphPath)
+
+        $barWidth = [Math]::Max(1.5, $glyphSize * 0.065)
+        $barGap = $glyphSize * 0.075
+        $barHeights = @(0.25, 0.48, 0.70, 0.43, 0.22)
+        $waveWidth = ($barWidth * $barHeights.Count) + ($barGap * ($barHeights.Count - 1))
+        $waveX = ($Width - $waveWidth) / 2
+        for ($index = 0; $index -lt $barHeights.Count; $index++) {
+            $barHeight = $glyphSize * $barHeights[$index]
+            $barX = $waveX + ($index * ($barWidth + $barGap))
+            $barY = ($Height - $barHeight) / 2
+            $graphics.FillRectangle($waveBrush, $barX, $barY, $barWidth, $barHeight)
+        }
+
         $bitmap.Save($Path, [System.Drawing.Imaging.ImageFormat]::Png)
     }
     finally {
-        $font.Dispose()
+        $glyphPath.Dispose()
+        $waveBrush.Dispose()
         $accentBrush.Dispose()
-        $brush.Dispose()
         $graphics.Dispose()
         $bitmap.Dispose()
     }

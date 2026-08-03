@@ -108,6 +108,7 @@ public sealed class JsonSettingsRepository : ISettingsRepository
                 ? settings.BackendPreference
                 : ShrutiSettings.Default.BackendPreference,
             AllowSlowTranscription = settings.AllowSlowTranscription,
+            HasCompletedOnboarding = settings.HasCompletedOnboarding,
             TriggerConfiguration = settings.TriggerConfiguration ?? ShrutiSettings.Default.TriggerConfiguration
         };
     }

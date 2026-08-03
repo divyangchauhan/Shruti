@@ -24,6 +24,8 @@ public sealed record ShrutiSettings
 
     public bool AllowSlowTranscription { get; init; }
 
+    public bool HasCompletedOnboarding { get; init; }
+
     public TriggerConfiguration TriggerConfiguration { get; init; } = new(
         EnableGlobalHotkey: false,
         EnablePushToTalk: true,
