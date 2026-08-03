@@ -77,11 +77,13 @@ try {
     $requiredEntries = @(
         "AppxBlockMap.xml",
         "[Content_Types].xml",
+        "resources.pri",
         "Assets/StoreLogo.png",
         "Assets/Square44x44Logo.png",
         "Assets/Square150x150Logo.png",
         "Assets/Wide310x150Logo.png",
         "VFS/ProgramFilesX64/Shruti/Shruti.App.WinUI.exe",
+        "VFS/ProgramFilesX64/Shruti/Shruti.App.WinUI.pri",
         "VFS/ProgramFilesX64/Shruti/shruti_whisper.dll"
     )
     foreach ($requiredEntry in $requiredEntries) {

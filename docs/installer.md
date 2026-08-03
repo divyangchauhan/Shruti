@@ -17,6 +17,7 @@ The script:
 
 - builds the `whisper.cpp` native shim with CMake,
 - publishes `src/Shruti.App.WinUI` as a self-contained `win-x64` app,
+- generates the package-level `resources.pri` required for packaged WinUI XAML,
 - stages a full-trust MSIX layout under `artifacts\installer\stage`,
 - verifies `shruti_whisper.dll` is present in the package layout, and
 - writes the package to `artifacts\installer\output\Shruti-0.1.0.0-x64.msix`.
@@ -29,8 +30,9 @@ by a certificate trusted on the target machine.
 
 `package-msix.ps1` automatically verifies the identity, publisher, version,
 architecture, required assets, native transcription DLL, self-contained .NET
-and Windows App SDK files, absence of PDBs, and signature when signing is
-enabled. To verify an existing unsigned CI artifact independently:
+and Windows App SDK files, package-level WinUI resource index, absence of PDBs,
+and signature when signing is enabled. To verify an existing unsigned CI
+artifact independently:
 
 ```powershell
 .\scripts\verify-msix-package.ps1 `

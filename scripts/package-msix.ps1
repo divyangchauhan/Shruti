@@ -18,9 +18,11 @@ $ErrorActionPreference = "Stop"
 $root = Split-Path -Parent $PSScriptRoot
 $packageSource = Join-Path $root "src\Shruti.App.Package"
 $manifestTemplate = Join-Path $packageSource "Package.appxmanifest"
+$appBuildOutputRoot = Join-Path $root "src\Shruti.App.WinUI\bin\$Platform\$Configuration"
 $publishDirectory = Join-Path $root "artifacts\installer\publish\$Configuration\$Platform"
 $stageDirectory = Join-Path $root "artifacts\installer\stage\$Configuration\$Platform"
 $outputDirectory = Join-Path $root "artifacts\installer\output"
+$priConfigPath = Join-Path $root "artifacts\installer\priconfig.xml"
 $nativeBuildDirectory = Join-Path $root "artifacts\whispercpp-native"
 $nativeLibraryPath = Join-Path $nativeBuildDirectory "$Configuration\shruti_whisper.dll"
 $packagePath = Join-Path $outputDirectory "Shruti-$Version-$Platform.msix"
@@ -267,10 +269,19 @@ Invoke-CheckedCommand "dotnet" @(
     "-o", $publishDirectory
 )
 
+$appResourceIndex = Get-ChildItem -LiteralPath $appBuildOutputRoot -Recurse -Filter "Shruti.App.WinUI.pri" |
+    Where-Object { $_.FullName -match "\\win-x64\\Shruti\.App\.WinUI\.pri$" } |
+    Sort-Object LastWriteTimeUtc -Descending |
+    Select-Object -First 1
+if (-not $appResourceIndex) {
+    throw "The WinUI resource index was not found under $appBuildOutputRoot."
+}
+
 $appDirectory = Join-Path $stageDirectory "VFS\ProgramFilesX64\Shruti"
 $assetDirectory = Join-Path $stageDirectory "Assets"
 New-Item -ItemType Directory -Force -Path $appDirectory, $assetDirectory | Out-Null
 Copy-Item -Path (Join-Path $publishDirectory "*") -Destination $appDirectory -Recurse -Force
+Copy-Item -LiteralPath $appResourceIndex.FullName -Destination $appDirectory -Force
 Get-ChildItem $appDirectory -Recurse -Filter "*.pdb" | Remove-Item -Force
 
 $packagedNativeLibrary = Join-Path $appDirectory "shruti_whisper.dll"
@@ -289,6 +300,27 @@ New-PackageLogo (Join-Path $assetDirectory "StoreLogo.png") 50 50
 New-PackageLogo (Join-Path $assetDirectory "Square44x44Logo.png") 44 44
 New-PackageLogo (Join-Path $assetDirectory "Square150x150Logo.png") 150 150
 New-PackageLogo (Join-Path $assetDirectory "Wide310x150Logo.png") 310 150
+
+$makePri = Find-WindowsSdkTool "makepri.exe"
+Remove-Item $priConfigPath -Force -ErrorAction SilentlyContinue
+Invoke-CheckedCommand $makePri @(
+    "createconfig",
+    "/cf", $priConfigPath,
+    "/dq", "en-US"
+)
+[xml] $priConfig = Get-Content -LiteralPath $priConfigPath -Raw
+if ($priConfig.resources.packaging) {
+    $null = $priConfig.resources.RemoveChild($priConfig.resources.packaging)
+}
+$priConfig.Save($priConfigPath)
+Invoke-CheckedCommand $makePri @(
+    "new",
+    "/pr", $stageDirectory,
+    "/cf", $priConfigPath,
+    "/of", (Join-Path $stageDirectory "resources.pri"),
+    "/in", "DivyangChauhan.Shruti",
+    "/o"
+)
 
 $makeAppx = Find-WindowsSdkTool "makeappx.exe"
 Remove-Item $packagePath -Force -ErrorAction SilentlyContinue
