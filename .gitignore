@@ -16,3 +16,6 @@ artifacts/
 models/
 recordings/
 transcripts/
+
+# Local project status notes.
+PROJECT_PENDING_STATUS.md

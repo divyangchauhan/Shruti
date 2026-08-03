@@ -256,11 +256,11 @@ Acceptance criteria:
 ### 13. Packaging and Release Readiness
 
 - [x] Create MSIX packaging project.
-- [ ] Configure Windows App SDK runtime requirements.
+- [x] Configure Windows App SDK runtime requirements with self-contained deployment.
 - [x] Bundle required native DLLs.
-- [ ] Configure code signing.
-- [ ] Verify install/update/uninstall.
-- [ ] Ensure app updates preserve models, settings, transcripts, and retained recordings.
+- [x] Configure optional trusted-certificate code signing and signature verification.
+- [~] Verify install/update/uninstall; guarded lifecycle tooling is ready, signed clean-machine execution remains.
+- [~] Ensure app updates preserve models, settings, transcripts, and retained recordings; lifecycle hashing is ready, signed clean-machine execution remains.
 - [ ] Add installer/bootstrapper if MSIX alone is insufficient.
 - [ ] Prepare `winget` manifest after installer stabilizes.
 - [ ] Add release notes template.
@@ -371,7 +371,7 @@ Acceptance criteria:
 
 | PR | Status | Target merge | Scope | Primary risk retired |
 | --- | --- | --- | --- | --- |
-| PR-26 | Planned | 2026-08-14 | Signing, update preservation, clean-machine install test | Release readiness |
+| PR-26 | In Progress | 2026-08-14 | Self-contained runtime, signing, package verification, update preservation, clean-machine install test | Release readiness |
 | PR-27 | Planned | 2026-08-16 | Bootstrapper or installer adjustments, release notes, optional `winget` prep | Distribution polish |
 
 ## Release Gates

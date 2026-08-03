@@ -6,7 +6,7 @@
   IgnorableNamespaces="uap rescap">
   <Identity
     Name="DivyangChauhan.Shruti"
-    Publisher="CN=Shruti Dev"
+    Publisher="__PACKAGE_PUBLISHER__"
     Version="__PACKAGE_VERSION__"
     ProcessorArchitecture="x64" />
   <Properties>
