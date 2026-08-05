@@ -61,6 +61,7 @@ public sealed partial class MainWindow : Window
     private bool _floatingMicShownForSession;
     private bool _isOnboardingModelOperation;
     private int _onboardingStep;
+    private ComputeBackend _resolvedBackend = ComputeBackend.Cpu;
     private string _currentPage = "Home";
     private IReadOnlyList<InstalledModel> _installedModels = [];
     private ShrutiSettings _settings = ShrutiSettings.Default;
@@ -326,12 +327,12 @@ public sealed partial class MainWindow : Window
         await PersistSettingsAsync();
     }
 
-    private async void TriggerConfigurationCheckBox_Click(object sender, RoutedEventArgs e)
+    private async void TriggerConfigurationToggle_Toggled(object sender, RoutedEventArgs e)
     {
         if (ReferenceEquals(sender, FloatingButtonCheckBox))
         {
             _floatingMicDismissedForSession = false;
-            _floatingMicShownForSession = FloatingButtonCheckBox.IsChecked == true;
+            _floatingMicShownForSession = FloatingButtonCheckBox.IsOn;
         }
 
         await ApplyTriggerConfigurationAsync();
@@ -340,6 +341,12 @@ public sealed partial class MainWindow : Window
     private async void TriggerConfigurationInput_LostFocus(object sender, RoutedEventArgs e)
     {
         await ApplyTriggerConfigurationAsync();
+    }
+
+    private void ChangeHotkeyButton_Click(object sender, RoutedEventArgs e)
+    {
+        PushToTalkKeyTextBox.Focus(FocusState.Programmatic);
+        PushToTalkKeyTextBox.SelectAll();
     }
 
     private async void MainWindow_Activated(object sender, WindowActivatedEventArgs args)
@@ -648,6 +655,7 @@ public sealed partial class MainWindow : Window
         AutomationProperties.SetName(PauseButton, state.IsPaused ? "Resume recording" : "Pause recording");
         PauseButton.IsEnabled = state.CanPause;
         PauseButton.Visibility = state.IsRunning ? Visibility.Visible : Visibility.Collapsed;
+        MicrophoneReadinessPill.Visibility = state.IsRunning ? Visibility.Collapsed : Visibility.Visible;
         RetryButton.IsEnabled = state.CanRetry;
         RetryButton.Visibility = state.CanRetry ? Visibility.Visible : Visibility.Collapsed;
         CopyButton.IsEnabled = state.CanCopy;
@@ -741,7 +749,8 @@ public sealed partial class MainWindow : Window
                 Height = idleHeight,
                 VerticalAlignment = VerticalAlignment.Center,
                 Background = GetBrush("ShrutiBorderStrongBrush"),
-                CornerRadius = new CornerRadius(2)
+                CornerRadius = new CornerRadius(2),
+                Opacity = 0
             };
             _waveformBars.Add(bar);
             AudioWaveformPanel.Children.Add(bar);
@@ -760,6 +769,7 @@ public sealed partial class MainWindow : Window
                 : 4 + ((index * 7) % 5);
             _waveformBars[index].Background = GetBrush(
                 active ? "ShrutiAccentVividBrush" : "ShrutiBorderStrongBrush");
+            _waveformBars[index].Opacity = active ? 1 : 0;
         }
     }
 
@@ -930,7 +940,9 @@ public sealed partial class MainWindow : Window
         int installedCount = _modelCatalog.Models.Count(model => FindInstalledModel(model.Id) is not null);
         if (!_isModelOperationRunning)
         {
-            ModelsStatusText.Text = $"{installedCount} of {_modelCatalog.Models.Count} recommended models installed.";
+            ModelsStatusText.Text = installedCount == 1
+                ? "1 model on this PC"
+                : $"{installedCount} models on this PC";
         }
 
         foreach (ModelCatalogEntry model in _modelCatalog.Models)
@@ -972,7 +984,7 @@ public sealed partial class MainWindow : Window
         }
         else if (isInstalled)
         {
-            titleRow.Children.Add(CreateBadge("Installed", "ShrutiSuccessBrush", "ShrutiSuccessSoftBrush"));
+            titleRow.Children.Add(CreateBadge("✓ Installed", "ShrutiSuccessBrush", "ShrutiSuccessSoftBrush"));
         }
 
         (string computeForeground, string computeBackground) = GetComputeBrushKeys(compute);
@@ -999,7 +1011,7 @@ public sealed partial class MainWindow : Window
         {
             actions.Children.Add(CreateBadge("In use", "ShrutiAccentBrush", "ShrutiAccentSoftBrush"));
         }
-        else
+        else if (!isInstalled)
         {
             var selectButton = new Button
             {
@@ -1058,6 +1070,16 @@ public sealed partial class MainWindow : Window
             ToolTipService.SetToolTip(removeButton, $"Remove {model.DisplayName} from local storage.");
             removeButton.Click += RemoveModelButton_Click;
             actions.Children.Add(removeButton);
+
+            var selectButton = new Button
+            {
+                Content = "Set active",
+                Tag = model.Id,
+                IsEnabled = !_isModelOperationRunning
+            };
+            ToolTipService.SetToolTip(selectButton, $"Use {model.DisplayName} for dictation.");
+            selectButton.Click += SelectModelButton_Click;
+            actions.Children.Add(selectButton);
         }
 
         grid.Children.Add(actions);
@@ -1295,9 +1317,13 @@ public sealed partial class MainWindow : Window
     {
         ModelCatalogEntry selected = _transcriptionOptionsProvider.GetSelectedModelEntry(_settings);
         InstalledModel? installed = FindInstalledModel(selected.Id);
+        SettingsActiveModelNameText.Text = "Active model";
+        string compute = _settings.BackendPreference == ComputeBackend.Auto
+            ? _resolvedBackend.ToString().ToUpperInvariant()
+            : _settings.BackendPreference.ToString().ToUpperInvariant();
         SelectedModelStatusText.Text = installed is null
-            ? $"{selected.DisplayName} is not installed. Download or import it from Models before dictation can use it."
-            : $"{selected.DisplayName} is installed and ready for readiness checks.";
+            ? $"{selected.DisplayName} · not installed"
+            : $"{selected.DisplayName} · {compute} · on this PC";
     }
 
     private static string FormatModelDetails(ModelCatalogEntry model)
@@ -1400,23 +1426,23 @@ public sealed partial class MainWindow : Window
     private TriggerConfiguration GetTriggerConfigurationFromControls()
     {
         return new TriggerConfiguration(
-            EnableGlobalHotkey: GlobalHotkeyCheckBox.IsChecked == true,
-            EnablePushToTalk: PushToTalkCheckBox.IsChecked == true,
-            EnableFloatingButton: FloatingButtonCheckBox.IsChecked == true,
-            EnableTrayMenu: TrayMenuCheckBox.IsChecked == true,
+            EnableGlobalHotkey: GlobalHotkeyCheckBox.IsOn,
+            EnablePushToTalk: PushToTalkCheckBox.IsOn,
+            EnableFloatingButton: FloatingButtonCheckBox.IsOn,
+            EnableTrayMenu: TrayMenuCheckBox.IsOn,
             HotkeyGesture: HotkeyGestureTextBox.Text,
             PushToTalkKey: PushToTalkKeyTextBox.Text,
-            EnableFloatingWindowShortcut: FloatingWindowShortcutCheckBox.IsChecked == true,
+            EnableFloatingWindowShortcut: FloatingWindowShortcutCheckBox.IsOn,
             FloatingWindowShortcut: FloatingWindowShortcutTextBox.Text);
     }
 
     private void ApplyTriggerConfigurationToControls(TriggerConfiguration configuration)
     {
-        GlobalHotkeyCheckBox.IsChecked = configuration.EnableGlobalHotkey;
-        PushToTalkCheckBox.IsChecked = configuration.EnablePushToTalk;
-        FloatingButtonCheckBox.IsChecked = configuration.EnableFloatingButton;
-        FloatingWindowShortcutCheckBox.IsChecked = configuration.EnableFloatingWindowShortcut;
-        TrayMenuCheckBox.IsChecked = configuration.EnableTrayMenu;
+        GlobalHotkeyCheckBox.IsOn = configuration.EnableGlobalHotkey;
+        PushToTalkCheckBox.IsOn = configuration.EnablePushToTalk;
+        FloatingButtonCheckBox.IsOn = configuration.EnableFloatingButton;
+        FloatingWindowShortcutCheckBox.IsOn = configuration.EnableFloatingWindowShortcut;
+        TrayMenuCheckBox.IsOn = configuration.EnableTrayMenu;
         HotkeyGestureTextBox.Text = configuration.HotkeyGesture ?? string.Empty;
         PushToTalkKeyTextBox.Text = configuration.PushToTalkKey ?? string.Empty;
         FloatingWindowShortcutTextBox.Text = configuration.FloatingWindowShortcut ?? string.Empty;
@@ -1560,7 +1586,19 @@ public sealed partial class MainWindow : Window
     private void UpdateComputeButtons()
     {
         ComputeBackend selected = GetSelectedBackendPreference();
-        foreach (Button button in new[] { BackendAutoButton, BackendNpuButton, BackendGpuButton, BackendCpuButton })
+        UpdateComputeButtonGroup(
+            [BackendAutoButton, BackendNpuButton, BackendGpuButton, BackendCpuButton],
+            selected);
+        UpdateComputeButtonGroup(
+            [SettingsBackendNpuButton, SettingsBackendGpuButton, SettingsBackendCpuButton],
+            selected == ComputeBackend.Auto ? _resolvedBackend : selected);
+
+        UpdateActiveComputeBadge(selected);
+    }
+
+    private void UpdateComputeButtonGroup(IEnumerable<Button> buttons, ComputeBackend selected)
+    {
+        foreach (Button button in buttons)
         {
             bool isSelected = button.Tag is string tag &&
                 Enum.TryParse(tag, out ComputeBackend candidate) &&
@@ -1573,8 +1611,6 @@ public sealed partial class MainWindow : Window
                 : new SolidColorBrush(Windows.UI.Color.FromArgb(0, 0, 0, 0));
             button.Foreground = GetBrush(isSelected ? "ShrutiTextPrimaryBrush" : "ShrutiTextSecondaryBrush");
         }
-
-        UpdateActiveComputeBadge(selected);
     }
 
     private void UpdateActiveComputeBadge(ComputeBackend backend)
@@ -1656,6 +1692,8 @@ public sealed partial class MainWindow : Window
                 .EvaluateReadinessAsync(CancellationToken.None);
             string backend = readiness.SelectedBackend?.ToString() ?? _settings.BackendPreference.ToString();
             string device = readiness.DeviceName ?? "No compatible device";
+            _resolvedBackend = readiness.SelectedBackend ??
+                (_settings.BackendPreference == ComputeBackend.Auto ? ComputeBackend.Cpu : _settings.BackendPreference);
 
             ModelSummaryText.Text = model.DisplayName;
             BackendSummaryText.Text = "on this PC";
@@ -1664,6 +1702,7 @@ public sealed partial class MainWindow : Window
                 : $"{model.ProviderId} / {backend} / unavailable";
             BackendReadinessText.Text = FormatReadiness(readiness);
             UpdateActiveComputeBadge(readiness.SelectedBackend ?? _settings.BackendPreference);
+            UpdateComputeButtons();
             UpdateSelectedModelStatus();
         }
         catch (Exception ex)
@@ -1780,7 +1819,7 @@ public sealed partial class MainWindow : Window
         _floatingMicWindow.Show(
             _controller.State,
             GetSelectedTheme(),
-            _triggerService.Configuration.PushToTalkKey);
+            _transcriptionOptionsProvider.GetSelectedModelEntry(_settings).DisplayName);
     }
 
     private FloatingMicWindow CreateFloatingMicWindow()

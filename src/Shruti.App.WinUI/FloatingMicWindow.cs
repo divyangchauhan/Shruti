@@ -12,12 +12,13 @@ namespace Shruti.App.WinUI;
 
 public sealed class FloatingMicWindow : Window
 {
-    private const double PreferredWindowWidthDip = 360;
-    private const double PreferredWindowHeightDip = 72;
+    private const double MinimumWindowWidthDip = 312;
+    private const double PreferredWindowHeightDip = 60;
     private const double DefaultDpi = 96;
+    private const int DwmWindowCornerPreference = 33;
+    private const int DwmRoundPreference = 2;
 
     private readonly Button _triggerButton;
-    private readonly Button _dismissButton;
     private readonly FontIcon _triggerIcon;
     private readonly TextBlock _titleText;
     private readonly TextBlock _shortcutText;
@@ -42,13 +43,15 @@ public sealed class FloatingMicWindow : Window
         };
         _triggerButton = new Button
         {
-            Width = 38,
-            Height = 38,
+            Width = 36,
+            Height = 36,
             Padding = new Thickness(0),
-            CornerRadius = new CornerRadius(19),
+            CornerRadius = new CornerRadius(18),
             Background = new Microsoft.UI.Xaml.Media.SolidColorBrush(Windows.UI.Color.FromArgb(255, 252, 233, 216)),
             Foreground = new Microsoft.UI.Xaml.Media.SolidColorBrush(Windows.UI.Color.FromArgb(255, 188, 86, 16)),
             BorderThickness = new Thickness(0),
+            IsTabStop = false,
+            UseSystemFocusVisuals = false,
             Content = _triggerIcon
         };
         AutomationProperties.SetName(_triggerButton, "Start dictation");
@@ -69,33 +72,13 @@ public sealed class FloatingMicWindow : Window
             Opacity = 0.7,
             Text = "Ctrl+Win+Space · on this PC"
         };
-        _dismissButton = new Button
-        {
-            Width = 28,
-            Height = 28,
-            Padding = new Thickness(0),
-            Background = null,
-            BorderThickness = new Thickness(0),
-            CornerRadius = new CornerRadius(14),
-            Content = new FontIcon
-            {
-                FontFamily = new Microsoft.UI.Xaml.Media.FontFamily("Segoe Fluent Icons"),
-                Glyph = "\uE711",
-                FontSize = 12
-            }
-        };
-        AutomationProperties.SetName(_dismissButton, "Hide floating microphone");
-        ToolTipService.SetToolTip(_dismissButton, "Hide floating microphone");
-        _dismissButton.Click += DismissButton_Click;
-
         var content = new Grid
         {
-            ColumnSpacing = 12
+            ColumnSpacing = 10
         };
         content.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
         content.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
         content.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-        content.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
         content.Children.Add(_triggerButton);
 
         var waveform = new StackPanel
@@ -130,13 +113,11 @@ public sealed class FloatingMicWindow : Window
         text.Children.Add(_shortcutText);
         Grid.SetColumn(text, 2);
         content.Children.Add(text);
-        Grid.SetColumn(_dismissButton, 3);
-        content.Children.Add(_dismissButton);
 
         _root = new Border
         {
-            Padding = new Thickness(12, 10, 12, 10),
-            CornerRadius = new CornerRadius(36),
+            Padding = new Thickness(12, 10, 18, 10),
+            CornerRadius = new CornerRadius(30),
             BorderThickness = new Thickness(1),
             Child = content
         };
@@ -152,14 +133,15 @@ public sealed class FloatingMicWindow : Window
 
     public bool IsVisible { get; private set; }
 
-    public void Show(DictationShellState state, ElementTheme theme, string? shortcut)
+    public void Show(DictationShellState state, ElementTheme theme, string? modelName)
     {
         ApplyTheme(theme);
-        _shortcutText.Text = $"{(string.IsNullOrWhiteSpace(shortcut) ? "Hold shortcut" : shortcut)} · on this PC";
+        _shortcutText.Text = $"{(string.IsNullOrWhiteSpace(modelName) ? "Local model" : modelName)} · on this PC";
         UpdateState(state);
-        ResizeForCurrentDpi();
+        ResizeForCurrentDpi(modelName);
 
         IntPtr windowHandle = WindowNative.GetWindowHandle(this);
+        ApplyRoundedWindowCorners(windowHandle);
         if (!_isInitialized)
         {
             _windowVisibility.MakeNonActivating(windowHandle);
@@ -224,7 +206,7 @@ public sealed class FloatingMicWindow : Window
             bar.Background = new Microsoft.UI.Xaml.Media.SolidColorBrush(listening
                 ? (_isDark ? Windows.UI.Color.FromArgb(255, 234, 141, 70) : Windows.UI.Color.FromArgb(255, 222, 110, 30))
                 : (_isDark ? Windows.UI.Color.FromArgb(255, 68, 64, 58) : Windows.UI.Color.FromArgb(255, 212, 208, 201)));
-            bar.Opacity = listening ? 1 : 0.7;
+            bar.Opacity = listening ? 1 : 0;
         }
         AutomationProperties.SetName(_triggerButton, state.IsRunning ? "Stop dictation" : "Start dictation");
         ToolTipService.SetToolTip(_triggerButton, state.IsRunning ? "Stop dictation" : "Start dictation");
@@ -273,13 +255,16 @@ public sealed class FloatingMicWindow : Window
         }
     }
 
-    private void ResizeForCurrentDpi()
+    private void ResizeForCurrentDpi(string? modelName)
     {
         IntPtr windowHandle = WindowNative.GetWindowHandle(this);
         uint dpi = GetDpiForWindow(windowHandle);
         double scale = dpi == 0 ? 1 : dpi / DefaultDpi;
+        int subtitleCharacterCount = (modelName?.Length ?? "Local model".Length) + " · on this PC".Length;
+        double subtitleWidthDip = Math.Max(132, subtitleCharacterCount * 7.2);
+        double preferredWidthDip = Math.Max(MinimumWindowWidthDip, 150 + subtitleWidthDip);
         AppWindow.Resize(new SizeInt32(
-            checked((int)Math.Round(PreferredWindowWidthDip * scale)),
+            checked((int)Math.Round(preferredWidthDip * scale)),
             checked((int)Math.Round(PreferredWindowHeightDip * scale))));
     }
 
@@ -329,12 +314,63 @@ public sealed class FloatingMicWindow : Window
         TriggerRequested?.Invoke(this, EventArgs.Empty);
     }
 
-    private void DismissButton_Click(object sender, RoutedEventArgs e)
+    private static void ApplyRoundedWindowCorners(IntPtr windowHandle)
     {
-        Hide();
-        DismissRequested?.Invoke(this, EventArgs.Empty);
+        int preference = DwmRoundPreference;
+        _ = DwmSetWindowAttribute(
+            windowHandle,
+            DwmWindowCornerPreference,
+            ref preference,
+            Marshal.SizeOf<int>());
+
+        if (!GetWindowRect(windowHandle, out WindowRect bounds))
+        {
+            return;
+        }
+
+        int width = bounds.Right - bounds.Left;
+        int height = bounds.Bottom - bounds.Top;
+        IntPtr region = CreateRoundRectRgn(0, 0, width + 1, height + 1, height, height);
+        if (region != IntPtr.Zero && SetWindowRgn(windowHandle, region, true) == 0)
+        {
+            _ = DeleteObject(region);
+        }
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct WindowRect
+    {
+        public int Left;
+        public int Top;
+        public int Right;
+        public int Bottom;
     }
 
     [DllImport("user32.dll")]
     private static extern uint GetDpiForWindow(IntPtr hwnd);
+
+    [DllImport("user32.dll")]
+    private static extern bool GetWindowRect(IntPtr hwnd, out WindowRect bounds);
+
+    [DllImport("user32.dll")]
+    private static extern int SetWindowRgn(IntPtr hwnd, IntPtr region, bool redraw);
+
+    [DllImport("gdi32.dll")]
+    private static extern IntPtr CreateRoundRectRgn(
+        int left,
+        int top,
+        int right,
+        int bottom,
+        int ellipseWidth,
+        int ellipseHeight);
+
+    [DllImport("gdi32.dll")]
+    private static extern bool DeleteObject(IntPtr handle);
+
+    [DllImport("dwmapi.dll")]
+    private static extern int DwmSetWindowAttribute(
+        IntPtr hwnd,
+        int attribute,
+        ref int attributeValue,
+        int attributeSize);
 }
