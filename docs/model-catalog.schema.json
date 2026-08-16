@@ -31,7 +31,7 @@
         "displayName": { "type": "string", "minLength": 1 },
         "providerId": { "type": "string", "minLength": 1 },
         "localFileName": { "type": "string", "pattern": "^[^\\\\/]+$" },
-        "fileFormat": { "enum": ["Ggml", "Gguf"] },
+        "fileFormat": { "enum": ["Ggml", "Gguf", "OpenVinoIr"] },
         "languageHint": { "type": "string", "minLength": 1 },
         "sizeBytes": { "type": "integer", "minimum": 0 },
         "downloadUri": { "type": ["string", "null"], "format": "uri" },
@@ -48,7 +48,29 @@
           "minItems": 1,
           "items": { "enum": ["Auto", "Npu", "Gpu", "Cpu"] }
         },
-        "isRecommended": { "type": "boolean" }
+        "isRecommended": { "type": "boolean" },
+        "isBundle": { "type": "boolean" },
+        "artifacts": {
+          "type": ["array", "null"],
+          "items": { "$ref": "#/$defs/artifact" }
+        }
+      }
+    },
+    "artifact": {
+      "type": "object",
+      "required": ["relativePath", "downloadUri", "sizeBytes", "integrity"],
+      "properties": {
+        "relativePath": { "type": "string", "minLength": 1 },
+        "downloadUri": { "type": "string", "format": "uri" },
+        "sizeBytes": { "type": "integer", "minimum": 0 },
+        "integrity": {
+          "type": "object",
+          "required": ["algorithm", "expectedHash"],
+          "properties": {
+            "algorithm": { "enum": ["Sha1", "Sha256"] },
+            "expectedHash": { "type": "string", "pattern": "^[A-Fa-f0-9]+$" }
+          }
+        }
       }
     }
   }

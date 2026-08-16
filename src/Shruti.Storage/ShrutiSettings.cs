@@ -29,10 +29,10 @@ public sealed record ShrutiSettings
     public TriggerConfiguration TriggerConfiguration { get; init; } = new(
         EnableGlobalHotkey: false,
         EnablePushToTalk: true,
-        EnableFloatingButton: true,
+        EnableFloatingButton: false,
         EnableTrayMenu: true,
         HotkeyGesture: "Ctrl+Win+Space",
         PushToTalkKey: "Ctrl+Win+Space",
-        EnableFloatingWindowShortcut: true,
-        FloatingWindowShortcut: "Ctrl+Alt+M");
+        EnableFloatingWindowShortcut: false,
+        FloatingWindowShortcut: null);
 }

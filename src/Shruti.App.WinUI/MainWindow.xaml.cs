@@ -27,6 +27,7 @@ public sealed partial class MainWindow : Window
     private const double PreferredWindowWidthDip = 1080;
     private const double PreferredWindowHeightDip = 720;
     private const double DefaultDpi = 96;
+    private const double PreferredTitleBarHeightDip = 40;
     private const int WorkAreaMarginPixels = 48;
 
     private readonly DictationShellController _controller;
@@ -47,7 +48,6 @@ public sealed partial class MainWindow : Window
     private readonly IntPtr _windowHandle;
     private readonly List<Border> _waveformBars = [];
 
-    private FloatingMicWindow? _floatingMicWindow;
     private Storyboard? _micPulseStoryboard;
     private Task? _triggerDispatchTask;
     private bool _allowClose;
@@ -57,13 +57,12 @@ public sealed partial class MainWindow : Window
     private bool _isApplyingSettings;
     private bool _isApplyingModelSelection;
     private bool _isModelOperationRunning;
-    private bool _floatingMicDismissedForSession;
-    private bool _floatingMicShownForSession;
     private bool _isOnboardingModelOperation;
     private int _onboardingStep;
     private ComputeBackend _resolvedBackend = ComputeBackend.Cpu;
     private string _currentPage = "Home";
     private IReadOnlyList<InstalledModel> _installedModels = [];
+    private IReadOnlySet<ComputeBackend> _availableBackends = new HashSet<ComputeBackend>();
     private ShrutiSettings _settings = ShrutiSettings.Default;
 
     public MainWindow(
@@ -80,6 +79,7 @@ public sealed partial class MainWindow : Window
         IWindowsWindowVisibility windowVisibility)
     {
         InitializeComponent();
+        AppIcon.Apply(AppWindow);
 
         _controller = controller ?? throw new ArgumentNullException(nameof(controller));
         _audioCaptureService = audioCaptureService ?? throw new ArgumentNullException(nameof(audioCaptureService));
@@ -98,7 +98,6 @@ public sealed partial class MainWindow : Window
 
         _controller.StateChanged += Controller_StateChanged;
         _controller.AudioLevelChanged += Controller_AudioLevelChanged;
-        _triggerRouter.FloatingWindowToggleRequested += TriggerRouter_FloatingWindowToggleRequested;
         _windowMessageHost.MessageReceived += WindowMessageHost_MessageReceived;
         _trayIconService.CommandInvoked += TrayIconService_CommandInvoked;
         AppWindow.Closing += AppWindow_Closing;
@@ -208,7 +207,6 @@ public sealed partial class MainWindow : Window
 
         Root.RequestedTheme = GetSelectedTheme();
         UpdateAppTitleBarTheme();
-        _floatingMicWindow?.ApplyTheme(GetSelectedTheme());
         await PersistSettingsAsync();
     }
 
@@ -221,13 +219,6 @@ public sealed partial class MainWindow : Window
     {
         UpdateComputeButtons();
         await PersistSettingsAsync();
-    }
-
-    private void ThemeToggleButton_Click(object sender, RoutedEventArgs e)
-    {
-        SelectComboBoxItem(
-            ThemeComboBox,
-            Root.ActualTheme == ElementTheme.Dark ? ElementTheme.Light.ToString() : ElementTheme.Dark.ToString());
     }
 
     private void BackendButton_Click(object sender, RoutedEventArgs e)
@@ -329,12 +320,6 @@ public sealed partial class MainWindow : Window
 
     private async void TriggerConfigurationToggle_Toggled(object sender, RoutedEventArgs e)
     {
-        if (ReferenceEquals(sender, FloatingButtonCheckBox))
-        {
-            _floatingMicDismissedForSession = false;
-            _floatingMicShownForSession = FloatingButtonCheckBox.IsOn;
-        }
-
         await ApplyTriggerConfigurationAsync();
     }
 
@@ -360,8 +345,6 @@ public sealed partial class MainWindow : Window
         await EnsureSettingsLoadedAsync();
         await RefreshInstalledModelsAsync();
         await RefreshTranscriptionReadinessAsync();
-        UpdateFloatingMicWindow();
-
         if (!_audioDevicesLoaded)
         {
             await LoadAudioDevicesAsync();
@@ -389,7 +372,6 @@ public sealed partial class MainWindow : Window
     private void Root_ActualThemeChanged(FrameworkElement sender, object args)
     {
         UpdateAppTitleBarTheme();
-        UpdateThemeToggleIcon();
         UpdateComputeButtons();
         SetNavigationButtonState(HomeNavButton, string.Equals(_currentPage, "Home", StringComparison.OrdinalIgnoreCase));
         SetNavigationButtonState(ModelsNavButton, string.Equals(_currentPage, "Models", StringComparison.OrdinalIgnoreCase));
@@ -405,9 +387,23 @@ public sealed partial class MainWindow : Window
             return;
         }
 
-        AppWindow.TitleBar.ExtendsContentIntoTitleBar = true;
+        AppWindowTitleBar titleBar = AppWindow.TitleBar;
+        titleBar.ExtendsContentIntoTitleBar = true;
+        titleBar.PreferredHeightOption = TitleBarHeightOption.Standard;
         SetTitleBar(AppTitleBar);
+        UpdateAppTitleBarLayout();
         UpdateAppTitleBarTheme();
+    }
+
+    private void UpdateAppTitleBarLayout()
+    {
+        AppWindowTitleBar titleBar = AppWindow.TitleBar;
+        uint dpi = GetDpiForWindow(_windowHandle);
+        double scale = dpi == 0 ? 1 : dpi / DefaultDpi;
+
+        double rightInset = titleBar.RightInset > 0 ? titleBar.RightInset / scale : 140;
+        TitleBarRow.Height = new GridLength(PreferredTitleBarHeightDip);
+        CaptionButtonInsetColumn.Width = new GridLength(rightInset);
     }
 
     private void UpdateAppTitleBarTheme()
@@ -483,11 +479,6 @@ public sealed partial class MainWindow : Window
             AudioLevelBar.Value = Math.Clamp(level.Peak * 100, AudioLevelBar.Minimum, AudioLevelBar.Maximum);
             UpdateAudioWaveform(level.Peak);
         });
-    }
-
-    private void TriggerRouter_FloatingWindowToggleRequested(object? sender, EventArgs e)
-    {
-        DispatcherQueue.TryEnqueue(ToggleFloatingMicWindow);
     }
 
     private async Task LoadAudioDevicesAsync()
@@ -697,7 +688,6 @@ public sealed partial class MainWindow : Window
         DiagnosticsSnapshotText.Text = FormatDiagnosticsSnapshot(_controller.LastResult);
 
         _trayIconService.UpdateDictationState(state.IsRunning);
-        _floatingMicWindow?.UpdateState(state);
     }
 
     private string FormatPrimaryStatus(DictationShellState state)
@@ -1032,23 +1022,26 @@ public sealed partial class MainWindow : Window
             {
                 Content = "Download",
                 Tag = model.Id,
-                IsEnabled = model.DownloadUri is not null && !_isModelOperationRunning
+                IsEnabled = (model.DownloadUri is not null || model.IsBundle) && !_isModelOperationRunning
             };
-            ToolTipService.SetToolTip(downloadButton, model.DownloadUri is null
+            ToolTipService.SetToolTip(downloadButton, model.DownloadUri is null && !model.IsBundle
                 ? "This catalog entry does not have a download URL."
                 : $"Download and verify {model.DisplayName}.");
             downloadButton.Click += DownloadModelButton_Click;
             actions.Children.Add(downloadButton);
 
-            var importButton = new Button
+            if (!model.IsBundle)
             {
-                Content = "Import",
-                Tag = model.Id,
-                IsEnabled = !_isModelOperationRunning
-            };
-            ToolTipService.SetToolTip(importButton, $"Import a local file for {model.DisplayName} and verify it.");
-            importButton.Click += ImportModelButton_Click;
-            actions.Children.Add(importButton);
+                var importButton = new Button
+                {
+                    Content = "Import",
+                    Tag = model.Id,
+                    IsEnabled = !_isModelOperationRunning
+                };
+                ToolTipService.SetToolTip(importButton, $"Import a local file for {model.DisplayName} and verify it.");
+                importButton.Click += ImportModelButton_Click;
+                actions.Children.Add(importButton);
+            }
         }
         else if (!isSelected)
         {
@@ -1299,9 +1292,21 @@ public sealed partial class MainWindow : Window
             return;
         }
 
-        _settings = _settings with { SelectedModelId = modelId };
+        ModelCatalogEntry selectedModel = _transcriptionOptionsProvider.FindModel(modelId)!;
+        ComputeBackend backendPreference = _settings.BackendPreference;
+        if (backendPreference != ComputeBackend.Auto && !selectedModel.SupportedBackends.Contains(backendPreference))
+        {
+            backendPreference = ComputeBackend.Auto;
+        }
+
+        _settings = _settings with
+        {
+            SelectedModelId = modelId,
+            BackendPreference = backendPreference
+        };
         _transcriptionOptionsProvider.ApplySettings(_settings);
         SelectModelComboBoxItem(modelId);
+        SelectComboBoxItem(BackendPreferenceComboBox, backendPreference.ToString());
         await _settingsRepository.SaveAsync(_settings, CancellationToken.None);
         UpdateSelectedModelStatus();
         ModelSummaryText.Text = _transcriptionOptionsProvider.GetSelectedModelEntry(_settings).DisplayName;
@@ -1409,7 +1414,6 @@ public sealed partial class MainWindow : Window
                 ? "Hold shortcut"
                 : configuration.PushToTalkKey;
             UpdateView();
-            UpdateFloatingMicWindow();
             TriggerStatusText.Text = "Triggers are active.";
             if (persist)
             {
@@ -1428,24 +1432,21 @@ public sealed partial class MainWindow : Window
         return new TriggerConfiguration(
             EnableGlobalHotkey: GlobalHotkeyCheckBox.IsOn,
             EnablePushToTalk: PushToTalkCheckBox.IsOn,
-            EnableFloatingButton: FloatingButtonCheckBox.IsOn,
+            EnableFloatingButton: false,
             EnableTrayMenu: TrayMenuCheckBox.IsOn,
             HotkeyGesture: HotkeyGestureTextBox.Text,
             PushToTalkKey: PushToTalkKeyTextBox.Text,
-            EnableFloatingWindowShortcut: FloatingWindowShortcutCheckBox.IsOn,
-            FloatingWindowShortcut: FloatingWindowShortcutTextBox.Text);
+            EnableFloatingWindowShortcut: false,
+            FloatingWindowShortcut: null);
     }
 
     private void ApplyTriggerConfigurationToControls(TriggerConfiguration configuration)
     {
         GlobalHotkeyCheckBox.IsOn = configuration.EnableGlobalHotkey;
         PushToTalkCheckBox.IsOn = configuration.EnablePushToTalk;
-        FloatingButtonCheckBox.IsOn = configuration.EnableFloatingButton;
-        FloatingWindowShortcutCheckBox.IsOn = configuration.EnableFloatingWindowShortcut;
         TrayMenuCheckBox.IsOn = configuration.EnableTrayMenu;
         HotkeyGestureTextBox.Text = configuration.HotkeyGesture ?? string.Empty;
         PushToTalkKeyTextBox.Text = configuration.PushToTalkKey ?? string.Empty;
-        FloatingWindowShortcutTextBox.Text = configuration.FloatingWindowShortcut ?? string.Empty;
         HoldShortcutText.Text = string.IsNullOrWhiteSpace(configuration.PushToTalkKey)
             ? "Hold shortcut"
             : configuration.PushToTalkKey;
@@ -1495,7 +1496,6 @@ public sealed partial class MainWindow : Window
             }
 
             UpdateComputeButtons();
-            UpdateThemeToggleIcon();
             if (!_settings.HasCompletedOnboarding)
             {
                 ShowOnboarding();
@@ -1578,11 +1578,6 @@ public sealed partial class MainWindow : Window
         };
     }
 
-    private void UpdateThemeToggleIcon()
-    {
-        ThemeToggleIcon.Glyph = Root.ActualTheme == ElementTheme.Dark ? "\uE706" : "\uEC46";
-    }
-
     private void UpdateComputeButtons()
     {
         ComputeBackend selected = GetSelectedBackendPreference();
@@ -1603,6 +1598,15 @@ public sealed partial class MainWindow : Window
             bool isSelected = button.Tag is string tag &&
                 Enum.TryParse(tag, out ComputeBackend candidate) &&
                 candidate == selected;
+            if (button.Tag is string backendTag && Enum.TryParse(backendTag, out ComputeBackend backend))
+            {
+                button.IsEnabled = backend == ComputeBackend.Auto || _availableBackends.Contains(backend);
+                ToolTipService.SetToolTip(
+                    button,
+                    button.IsEnabled
+                        ? $"Run the selected model on {backend}."
+                        : $"{backend} is not available for the selected model on this PC.");
+            }
             button.Background = isSelected
                 ? GetBrush("ShrutiCardBrush")
                 : new SolidColorBrush(Windows.UI.Color.FromArgb(0, 0, 0, 0));
@@ -1687,6 +1691,7 @@ public sealed partial class MainWindow : Window
     {
         try
         {
+            await RefreshComputeAvailabilityAsync();
             TranscriptionModelDescriptor model = _transcriptionOptionsProvider.CreateModelDescriptor();
             TranscriptionReadinessResult readiness = await _transcriptionOptionsProvider
                 .EvaluateReadinessAsync(CancellationToken.None);
@@ -1713,6 +1718,14 @@ public sealed partial class MainWindow : Window
             SelectedModelStatusText.Text = "Model status unavailable.";
             UpdateActiveComputeBadge(_settings.BackendPreference);
         }
+    }
+
+    private async Task RefreshComputeAvailabilityAsync()
+    {
+        ModelCatalogEntry model = _transcriptionOptionsProvider.GetSelectedModelEntry(_settings);
+        _availableBackends = await _transcriptionOptionsProvider
+            .GetAvailableBackendsAsync(model, CancellationToken.None);
+        UpdateComputeButtons();
     }
 
     private static string FormatReadiness(TranscriptionReadinessResult readiness)
@@ -1803,58 +1816,6 @@ public sealed partial class MainWindow : Window
         {
             lines.Add($"{label}: {DiagnosticTextRedactor.Redact(value)}");
         }
-    }
-
-    private void UpdateFloatingMicWindow()
-    {
-        bool shouldShow = (_triggerService.Configuration.EnableFloatingButton || _floatingMicShownForSession) &&
-            !_floatingMicDismissedForSession;
-        if (!shouldShow)
-        {
-            HideFloatingMicWindow();
-            return;
-        }
-
-        _floatingMicWindow ??= CreateFloatingMicWindow();
-        _floatingMicWindow.Show(
-            _controller.State,
-            GetSelectedTheme(),
-            _transcriptionOptionsProvider.GetSelectedModelEntry(_settings).DisplayName);
-    }
-
-    private FloatingMicWindow CreateFloatingMicWindow()
-    {
-        var floatingMicWindow = new FloatingMicWindow(_windowVisibility);
-        floatingMicWindow.TriggerRequested += FloatingMicWindow_TriggerRequested;
-        floatingMicWindow.DismissRequested += FloatingMicWindow_DismissRequested;
-        return floatingMicWindow;
-    }
-
-    private async void FloatingMicWindow_TriggerRequested(object? sender, EventArgs e)
-    {
-        await RaiseTriggerAsync(DictationTriggerKind.FloatingButton, "floating-button");
-    }
-
-    private void FloatingMicWindow_DismissRequested(object? sender, EventArgs e)
-    {
-        _floatingMicDismissedForSession = true;
-        _floatingMicShownForSession = false;
-        HideFloatingMicWindow();
-    }
-
-    private void ToggleFloatingMicWindow()
-    {
-        if (_floatingMicWindow?.IsVisible == true)
-        {
-            _floatingMicDismissedForSession = true;
-            _floatingMicShownForSession = false;
-            HideFloatingMicWindow();
-            return;
-        }
-
-        _floatingMicDismissedForSession = false;
-        _floatingMicShownForSession = true;
-        UpdateFloatingMicWindow();
     }
 
     private async void TrayIconService_CommandInvoked(WindowsTrayCommand command)
@@ -1964,28 +1925,9 @@ public sealed partial class MainWindow : Window
     private void QuitApplication()
     {
         _allowClose = true;
-        CloseFloatingMicWindowForApplicationExit();
         DisposeNativeTriggers();
         Close();
         Application.Current.Exit();
-    }
-
-    private void HideFloatingMicWindow()
-    {
-        _floatingMicWindow?.Hide();
-    }
-
-    private void CloseFloatingMicWindowForApplicationExit()
-    {
-        if (_floatingMicWindow is null)
-        {
-            return;
-        }
-
-        _floatingMicWindow.TriggerRequested -= FloatingMicWindow_TriggerRequested;
-        _floatingMicWindow.DismissRequested -= FloatingMicWindow_DismissRequested;
-        _floatingMicWindow.CloseForApplicationExit();
-        _floatingMicWindow = null;
     }
 
     private void DisposeNativeTriggers()
@@ -1997,7 +1939,6 @@ public sealed partial class MainWindow : Window
 
         _isDisposed = true;
         _controller.AudioLevelChanged -= Controller_AudioLevelChanged;
-        _triggerRouter.FloatingWindowToggleRequested -= TriggerRouter_FloatingWindowToggleRequested;
         _triggerDispatchCancellation.Cancel();
         _targetFocusService.Dispose();
         _trayIconService.CommandInvoked -= TrayIconService_CommandInvoked;

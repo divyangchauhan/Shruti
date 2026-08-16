@@ -34,6 +34,7 @@
             <Style x:Key="NavButtonStyle" TargetType="Button">
                 <Setter Property="Height" Value="42" />
                 <Setter Property="Padding" Value="12,0" />
+                <Setter Property="HorizontalAlignment" Value="Stretch" />
                 <Setter Property="HorizontalContentAlignment" Value="Left" />
                 <Setter Property="Background" Value="Transparent" />
                 <Setter Property="Foreground" Value="{ThemeResource ShrutiTextSecondaryBrush}" />
@@ -79,7 +80,7 @@
         </Grid.Resources>
 
         <Grid.RowDefinitions>
-            <RowDefinition Height="44" />
+            <RowDefinition x:Name="TitleBarRow" Height="40" />
             <RowDefinition Height="*" />
         </Grid.RowDefinitions>
         <Grid.ColumnDefinitions>
@@ -90,33 +91,40 @@
         <Grid
             x:Name="AppTitleBar"
             Grid.ColumnSpan="2"
-            Padding="16,0,140,0"
+            Padding="16,0,0,0"
             Background="{ThemeResource ShrutiCardBrush}">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="*" />
-                <ColumnDefinition Width="Auto" />
+                <ColumnDefinition x:Name="CaptionButtonInsetColumn" Width="140" />
             </Grid.ColumnDefinitions>
-            <StackPanel Orientation="Horizontal" Spacing="10" VerticalAlignment="Center">
-                <Border Width="20" Height="20" Background="{ThemeResource ShrutiAccentVividBrush}" CornerRadius="5">
-                    <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center" Orientation="Horizontal" Spacing="1.5">
-                        <Border Width="1.6" Height="4" Background="White" CornerRadius="1" />
-                        <Border Width="1.6" Height="8" Background="White" CornerRadius="1" />
-                        <Border Width="1.6" Height="12" Background="White" CornerRadius="1" />
-                        <Border Width="1.6" Height="7" Background="White" CornerRadius="1" />
-                        <Border Width="1.6" Height="3" Background="White" CornerRadius="1" />
+            <Grid VerticalAlignment="Center">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+                <Border
+                    Width="16"
+                    Height="16"
+                    VerticalAlignment="Center"
+                    Background="{ThemeResource ShrutiAccentVividBrush}"
+                    CornerRadius="4">
+                    <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center" Orientation="Horizontal" Spacing="1.1">
+                        <Border Width="1.2" Height="3" Background="White" CornerRadius="1" />
+                        <Border Width="1.2" Height="6" Background="White" CornerRadius="1" />
+                        <Border Width="1.2" Height="9" Background="White" CornerRadius="1" />
+                        <Border Width="1.2" Height="5" Background="White" CornerRadius="1" />
+                        <Border Width="1.2" Height="2" Background="White" CornerRadius="1" />
                     </StackPanel>
                 </Border>
-                <TextBlock FontSize="14" FontWeight="SemiBold" Text="Shruti" />
-            </StackPanel>
-            <Button
-                x:Name="ThemeToggleButton"
-                Grid.Column="1"
-                AutomationProperties.Name="Toggle theme"
-                Style="{StaticResource QuietIconButtonStyle}"
-                ToolTipService.ToolTip="Toggle theme"
-                Click="ThemeToggleButton_Click">
-                <FontIcon x:Name="ThemeToggleIcon" FontFamily="Segoe Fluent Icons" FontSize="16" Glyph="&#xE706;" />
-            </Button>
+                <TextBlock
+                    Grid.Column="1"
+                    Margin="8,0,0,0"
+                    VerticalAlignment="Center"
+                    FontSize="12"
+                    FontWeight="SemiBold"
+                    LineHeight="16"
+                    Text="Shruti" />
+            </Grid>
         </Grid>
 
         <Border
@@ -485,9 +493,6 @@
                             <Border Height="1" Background="{ThemeResource ShrutiBorderSubtleBrush}" />
                             <StackPanel Padding="0,16" Spacing="10">
                                 <ToggleSwitch x:Name="PushToTalkCheckBox" Header="Hold-to-dictate shortcut" IsOn="True" Toggled="TriggerConfigurationToggle_Toggled" />
-                                <ToggleSwitch x:Name="FloatingButtonCheckBox" Header="Floating microphone control" IsOn="True" Toggled="TriggerConfigurationToggle_Toggled" />
-                                <ToggleSwitch x:Name="FloatingWindowShortcutCheckBox" Header="Floating-window shortcut" IsOn="True" Toggled="TriggerConfigurationToggle_Toggled" />
-                                <TextBox x:Name="FloatingWindowShortcutTextBox" Header="Toggle floating window shortcut" Text="Ctrl+Alt+M" LostFocus="TriggerConfigurationInput_LostFocus" />
                                 <ToggleSwitch x:Name="TrayMenuCheckBox" Header="Tray menu commands" IsOn="True" Toggled="TriggerConfigurationToggle_Toggled" />
                                 <ToggleSwitch x:Name="GlobalHotkeyCheckBox" Header="Single-press global trigger" IsOn="False" Toggled="TriggerConfigurationToggle_Toggled" />
                                 <TextBox x:Name="HotkeyGestureTextBox" Header="Single-press shortcut" Text="Ctrl+Win+Space" LostFocus="TriggerConfigurationInput_LostFocus" />

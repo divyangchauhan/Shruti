@@ -12,13 +12,16 @@ namespace Shruti.App.WinUI;
 
 public sealed class FloatingMicWindow : Window
 {
-    private const double MinimumWindowWidthDip = 312;
+    private const double MinimumWindowWidthDip = 356;
     private const double PreferredWindowHeightDip = 60;
     private const double DefaultDpi = 96;
     private const int DwmWindowCornerPreference = 33;
+    private const int DwmWindowBorderColor = 34;
     private const int DwmRoundPreference = 2;
+    private const int DwmColorNone = unchecked((int)0xFFFFFFFE);
 
     private readonly Button _triggerButton;
+    private readonly Button _dismissButton;
     private readonly FontIcon _triggerIcon;
     private readonly TextBlock _titleText;
     private readonly TextBlock _shortcutText;
@@ -58,6 +61,27 @@ public sealed class FloatingMicWindow : Window
         ToolTipService.SetToolTip(_triggerButton, "Start or stop dictation");
         _triggerButton.Click += TriggerButton_Click;
 
+        _dismissButton = new Button
+        {
+            Width = 32,
+            Height = 32,
+            Padding = new Thickness(0),
+            CornerRadius = new CornerRadius(16),
+            Background = new Microsoft.UI.Xaml.Media.SolidColorBrush(Windows.UI.Color.FromArgb(0, 0, 0, 0)),
+            BorderThickness = new Thickness(0),
+            IsTabStop = true,
+            UseSystemFocusVisuals = true,
+            Content = new FontIcon
+            {
+                FontFamily = new Microsoft.UI.Xaml.Media.FontFamily("Segoe Fluent Icons"),
+                Glyph = "\uE8BB",
+                FontSize = 12
+            }
+        };
+        AutomationProperties.SetName(_dismissButton, "Close floating dictation window");
+        ToolTipService.SetToolTip(_dismissButton, "Close");
+        _dismissButton.Click += DismissButton_Click;
+
         _titleText = new TextBlock
         {
             FontFamily = new Microsoft.UI.Xaml.Media.FontFamily("Segoe UI Variable Text, Segoe UI"),
@@ -79,6 +103,7 @@ public sealed class FloatingMicWindow : Window
         content.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
         content.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
         content.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        content.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
         content.Children.Add(_triggerButton);
 
         var waveform = new StackPanel
@@ -114,15 +139,19 @@ public sealed class FloatingMicWindow : Window
         Grid.SetColumn(text, 2);
         content.Children.Add(text);
 
+        Grid.SetColumn(_dismissButton, 3);
+        content.Children.Add(_dismissButton);
+
         _root = new Border
         {
-            Padding = new Thickness(12, 10, 18, 10),
+            Padding = new Thickness(12, 10, 12, 10),
             CornerRadius = new CornerRadius(30),
             BorderThickness = new Thickness(1),
             Child = content
         };
         Content = _root;
         _root.ActualThemeChanged += Root_ActualThemeChanged;
+        AppIcon.Apply(AppWindow);
         AppWindow.Closing += AppWindow_Closing;
         ConfigurePresenter();
     }
@@ -175,6 +204,7 @@ public sealed class FloatingMicWindow : Window
             : Windows.UI.Color.FromArgb(255, 30, 28, 25);
         _titleText.Foreground = new Microsoft.UI.Xaml.Media.SolidColorBrush(textColor);
         _shortcutText.Foreground = new Microsoft.UI.Xaml.Media.SolidColorBrush(textColor);
+        _dismissButton.Foreground = new Microsoft.UI.Xaml.Media.SolidColorBrush(textColor);
         ApplyTitleBarTheme(_isDark);
         if (_lastState is not null)
         {
@@ -262,7 +292,7 @@ public sealed class FloatingMicWindow : Window
         double scale = dpi == 0 ? 1 : dpi / DefaultDpi;
         int subtitleCharacterCount = (modelName?.Length ?? "Local model".Length) + " · on this PC".Length;
         double subtitleWidthDip = Math.Max(132, subtitleCharacterCount * 7.2);
-        double preferredWidthDip = Math.Max(MinimumWindowWidthDip, 150 + subtitleWidthDip);
+        double preferredWidthDip = Math.Max(MinimumWindowWidthDip, 192 + subtitleWidthDip);
         AppWindow.Resize(new SizeInt32(
             checked((int)Math.Round(preferredWidthDip * scale)),
             checked((int)Math.Round(PreferredWindowHeightDip * scale))));
@@ -314,6 +344,12 @@ public sealed class FloatingMicWindow : Window
         TriggerRequested?.Invoke(this, EventArgs.Empty);
     }
 
+    private void DismissButton_Click(object sender, RoutedEventArgs e)
+    {
+        Hide();
+        DismissRequested?.Invoke(this, EventArgs.Empty);
+    }
+
     private static void ApplyRoundedWindowCorners(IntPtr windowHandle)
     {
         int preference = DwmRoundPreference;
@@ -321,6 +357,13 @@ public sealed class FloatingMicWindow : Window
             windowHandle,
             DwmWindowCornerPreference,
             ref preference,
+            Marshal.SizeOf<int>());
+
+        int borderColor = DwmColorNone;
+        _ = DwmSetWindowAttribute(
+            windowHandle,
+            DwmWindowBorderColor,
+            ref borderColor,
             Marshal.SizeOf<int>());
 
         if (!GetWindowRect(windowHandle, out WindowRect bounds))

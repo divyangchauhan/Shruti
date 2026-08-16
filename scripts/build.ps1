@@ -6,6 +6,16 @@ param(
 $ErrorActionPreference = "Stop"
 $root = Split-Path -Parent $PSScriptRoot
 
+& "$PSScriptRoot\build-whispercpp.ps1" -Configuration $Configuration
+if ($LASTEXITCODE -ne 0) {
+    throw "The default CPU/GPU transcription runtime build failed with exit code $LASTEXITCODE."
+}
+
+& "$PSScriptRoot\build-openvino-genai.ps1" -Configuration $Configuration
+if ($LASTEXITCODE -ne 0) {
+    throw "The default CPU/GPU/NPU transcription runtime build failed with exit code $LASTEXITCODE."
+}
+
 function Invoke-DotnetCommand {
     param([string[]] $Arguments)
 

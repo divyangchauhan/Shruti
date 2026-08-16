@@ -3,7 +3,7 @@ param(
     [string] $Platform = "x64",
     [string] $Version = "0.1.0.0",
     [ValidateSet("None", "Vulkan", "CUDA")]
-    [string] $GpuBackend = "None",
+    [string] $GpuBackend = "Vulkan",
     [switch] $SkipNativeBuild,
     [string] $Publisher,
     [string] $CertificatePath,
@@ -25,6 +25,8 @@ $outputDirectory = Join-Path $root "artifacts\installer\output"
 $priConfigPath = Join-Path $root "artifacts\installer\priconfig.xml"
 $nativeBuildDirectory = Join-Path $root "artifacts\whispercpp-native"
 $nativeLibraryPath = Join-Path $nativeBuildDirectory "$Configuration\shruti_whisper.dll"
+$openVinoNativeDirectory = Join-Path $root "artifacts\openvino-genai\$Configuration"
+$openVinoGenAiLibraryPath = Join-Path $openVinoNativeDirectory "openvino_genai_c.dll"
 $packagePath = Join-Path $outputDirectory "Shruti-$Version-$Platform.msix"
 
 function Invoke-CheckedCommand {
@@ -267,10 +269,18 @@ if (-not $SkipNativeBuild) {
     if ($LASTEXITCODE -ne 0) {
         throw "scripts\build-whispercpp.ps1 failed with exit code $LASTEXITCODE."
     }
+
+    & (Join-Path $root "scripts\build-openvino-genai.ps1") -Configuration $Configuration
+    if ($LASTEXITCODE -ne 0) {
+        throw "scripts\build-openvino-genai.ps1 failed with exit code $LASTEXITCODE."
+    }
 }
 
 if (-not (Test-Path $nativeLibraryPath)) {
     throw "Native transcription library missing at $nativeLibraryPath. Run this script without -SkipNativeBuild."
+}
+if (-not (Test-Path $openVinoGenAiLibraryPath)) {
+    throw "OpenVINO GenAI runtime missing at $openVinoNativeDirectory. Run this script without -SkipNativeBuild."
 }
 
 Remove-Item $publishDirectory -Recurse -Force -ErrorAction SilentlyContinue
@@ -306,6 +316,10 @@ Get-ChildItem $appDirectory -Recurse -Filter "*.pdb" | Remove-Item -Force
 $packagedNativeLibrary = Join-Path $appDirectory "shruti_whisper.dll"
 if (-not (Test-Path $packagedNativeLibrary)) {
     throw "Published package layout does not include shruti_whisper.dll."
+}
+$packagedOpenVinoLibrary = Join-Path $appDirectory "openvino_genai_c.dll"
+if (-not (Test-Path $packagedOpenVinoLibrary)) {
+    throw "Published package layout does not include openvino_genai_c.dll."
 }
 
 $manifest = Get-Content $manifestTemplate -Raw
@@ -370,6 +384,7 @@ if ($LASTEXITCODE -ne 0) {
     PackagePath = $packagePath
     StageDirectory = $stageDirectory
     IncludesNativeLibrary = (Test-Path $packagedNativeLibrary)
+    IncludesNpuRuntime = (Test-Path $packagedOpenVinoLibrary)
     RuntimeMode = "SelfContained"
     Publisher = $effectivePublisher
     Signed = $isSigned

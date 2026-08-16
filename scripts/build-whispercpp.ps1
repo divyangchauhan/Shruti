@@ -3,7 +3,7 @@ param(
     [ValidateSet("Debug", "Release")]
     [string]$Configuration = "Release",
     [ValidateSet("None", "Vulkan", "CUDA")]
-    [string]$GpuBackend = "None",
+    [string]$GpuBackend = "Vulkan",
     [string]$BuildPath
 )
 

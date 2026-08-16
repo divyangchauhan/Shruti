@@ -12,13 +12,13 @@ public sealed class ModelCatalogTests : IDisposable
     private readonly string _rootPath = Path.Combine(Path.GetTempPath(), "Shruti.Tests", Guid.NewGuid().ToString("N"));
 
     [Fact]
-    public void RecommendedCatalog_ContainsThreeVerifiedWhisperCppModels()
+    public void RecommendedCatalog_ContainsVerifiedWhisperCppAndOpenVinoModels()
     {
         ModelCatalog catalog = RecommendedModelCatalog.Create();
 
         Assert.Equal(1, catalog.SchemaVersion);
-        Assert.Equal(3, catalog.Models.Count);
-        Assert.All(catalog.Models, model =>
+        Assert.Equal(4, catalog.Models.Count);
+        Assert.All(catalog.Models.Where(model => model.ProviderId == "whisper.cpp"), model =>
         {
             Assert.True(model.IsRecommended);
             Assert.Equal("whisper.cpp", model.ProviderId);
@@ -29,6 +29,20 @@ public sealed class ModelCatalogTests : IDisposable
             Assert.Contains(ComputeBackend.Gpu, model.SupportedBackends);
             Assert.DoesNotContain(ComputeBackend.Npu, model.SupportedBackends);
         });
+
+        ModelCatalogEntry openVino = catalog.GetRequiredModel("openvino-whisper-base-int8");
+        Assert.Equal("openvino-genai", openVino.ProviderId);
+        Assert.Equal(ModelFileFormat.OpenVinoIr, openVino.FileFormat);
+        Assert.True(openVino.IsBundle);
+        Assert.Equal(19, openVino.Artifacts?.Count);
+        Assert.All(openVino.Artifacts!, artifact =>
+        {
+            Assert.Equal("huggingface.co", artifact.DownloadUri.Host);
+            Assert.Equal(ModelHashAlgorithm.Sha256, artifact.Integrity.Algorithm);
+        });
+        Assert.Contains(ComputeBackend.Npu, openVino.SupportedBackends);
+        Assert.Contains(ComputeBackend.Gpu, openVino.SupportedBackends);
+        Assert.Contains(ComputeBackend.Cpu, openVino.SupportedBackends);
     }
 
     [Fact]
@@ -133,6 +147,44 @@ public sealed class ModelCatalogTests : IDisposable
         Assert.Equal(0, downloadClient.CallCount);
         Assert.Single(installed);
         Assert.True(installed[0].IsAvailable);
+    }
+
+    [Fact]
+    public async Task DownloadAsync_InstallsAndRemovesVerifiedModelBundle()
+    {
+        byte[] payload = "bundle artifact"u8.ToArray();
+        var downloadClient = new FakeModelDownloadClient(payload);
+        var manager = CreateManager(downloadClient);
+        ModelIntegrity integrity = new(
+            ModelHashAlgorithm.Sha256,
+            Convert.ToHexString(SHA256.HashData(payload)).ToLowerInvariant());
+        var entry = new ModelCatalogEntry(
+            "bundle-model",
+            "Bundle model",
+            "bundle-provider",
+            "bundle-model",
+            ModelFileFormat.OpenVinoIr,
+            "en",
+            payload.Length * 2,
+            DownloadUri: null,
+            Integrity: null,
+            [ComputeBackend.Npu],
+            Artifacts:
+            [
+                new ModelArtifact("encoder/model.bin", new Uri("https://models.example/encoder.bin"), payload.Length, integrity),
+                new ModelArtifact("decoder/model.bin", new Uri("https://models.example/decoder.bin"), payload.Length, integrity)
+            ]);
+
+        ModelInstallResult result = await manager.DownloadAsync(entry, progress: null, CancellationToken.None);
+        IReadOnlyList<InstalledModel> installed = await manager.ListInstalledAsync(CancellationToken.None);
+
+        Assert.Equal(ModelInstallStatus.Installed, result.Status);
+        Assert.Equal(2, downloadClient.CallCount);
+        Assert.Single(installed);
+        Assert.True(installed[0].IsAvailable);
+        Assert.True(File.Exists(Path.Combine(installed[0].LocalPath, "encoder", "model.bin")));
+        Assert.True(await manager.RemoveAsync(entry.Id, CancellationToken.None));
+        Assert.False(Directory.Exists(Path.Combine(_rootPath, entry.LocalFileName)));
     }
 
     [Fact]

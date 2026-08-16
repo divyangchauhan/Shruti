@@ -13,4 +13,14 @@ public sealed record ModelCatalogEntry(
     Uri? DownloadUri,
     ModelIntegrity? Integrity,
     IReadOnlyList<ComputeBackend> SupportedBackends,
-    bool IsRecommended = false);
+    bool IsRecommended = false,
+    IReadOnlyList<ModelArtifact>? Artifacts = null)
+{
+    public bool IsBundle => Artifacts is { Count: > 0 };
+}
+
+public sealed record ModelArtifact(
+    string RelativePath,
+    Uri DownloadUri,
+    long SizeBytes,
+    ModelIntegrity Integrity);

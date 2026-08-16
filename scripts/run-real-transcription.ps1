@@ -1,9 +1,14 @@
 [CmdletBinding()]
-param()
+param([switch]$Npu)
 
 $repositoryRoot = Split-Path -Parent $PSScriptRoot
 
-& "$PSScriptRoot\build-whispercpp.ps1" -Configuration Release
+if ($Npu) {
+    & "$PSScriptRoot\build-openvino-genai.ps1" -Configuration Release
+}
+else {
+    & "$PSScriptRoot\build-whispercpp.ps1" -Configuration Release
+}
 if ($LASTEXITCODE -ne 0) {
     exit $LASTEXITCODE
 }
@@ -14,4 +19,5 @@ if ($LASTEXITCODE -ne 0) {
     exit $LASTEXITCODE
 }
 
-dotnet "$repositoryRoot\tools\Shruti.RealIntegration\bin\x64\Release\net8.0\Shruti.RealIntegration.dll"
+$integrationArguments = if ($Npu) { @("--npu") } else { @() }
+dotnet "$repositoryRoot\tools\Shruti.RealIntegration\bin\x64\Release\net8.0\Shruti.RealIntegration.dll" @integrationArguments

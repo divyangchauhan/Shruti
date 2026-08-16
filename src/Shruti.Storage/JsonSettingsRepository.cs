@@ -1,4 +1,5 @@
 using System.Text.Json;
+using Shruti.Core.Triggers;
 
 namespace Shruti.Storage;
 
@@ -89,6 +90,9 @@ public sealed class JsonSettingsRepository : ISettingsRepository
             return ShrutiSettings.Default;
         }
 
+        TriggerConfiguration triggerConfiguration = settings.TriggerConfiguration ??
+            ShrutiSettings.Default.TriggerConfiguration;
+
         return new ShrutiSettings
         {
             AudioInputDeviceId = settings.AudioInputDeviceId,
@@ -109,7 +113,12 @@ public sealed class JsonSettingsRepository : ISettingsRepository
                 : ShrutiSettings.Default.BackendPreference,
             AllowSlowTranscription = settings.AllowSlowTranscription,
             HasCompletedOnboarding = settings.HasCompletedOnboarding,
-            TriggerConfiguration = settings.TriggerConfiguration ?? ShrutiSettings.Default.TriggerConfiguration
+            TriggerConfiguration = triggerConfiguration with
+            {
+                EnableFloatingButton = false,
+                EnableFloatingWindowShortcut = false,
+                FloatingWindowShortcut = null
+            }
         };
     }
 }

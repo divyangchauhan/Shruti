@@ -24,7 +24,7 @@ public sealed record InstalledModel(
     long SizeBytes,
     bool IntegrityVerified)
 {
-    public bool IsAvailable => IntegrityVerified && File.Exists(LocalPath);
+    public bool IsAvailable => IntegrityVerified && (File.Exists(LocalPath) || Directory.Exists(LocalPath));
 
     public TranscriptionModelDescriptor ToTranscriptionModelDescriptor()
     {
