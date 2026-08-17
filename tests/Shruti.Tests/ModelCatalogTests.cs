@@ -62,6 +62,47 @@ public sealed class ModelCatalogTests : IDisposable
     }
 
     [Fact]
+    public void BackendFilter_ShowsCompatibleModelsAndAlwaysKeepsActiveModelVisible()
+    {
+        ModelCatalog catalog = RecommendedModelCatalog.Create();
+        ModelCatalogEntry activeGpuModel = catalog.GetRequiredModel("whisper-small-en");
+        ModelCatalogEntry otherGpuModel = catalog.GetRequiredModel("whisper-tiny-en");
+        ModelCatalogEntry npuModel = catalog.GetRequiredModel("openvino-whisper-base-int8");
+        IReadOnlySet<ComputeBackend> gpuBackends = new HashSet<ComputeBackend>
+        {
+            ComputeBackend.Gpu,
+            ComputeBackend.Cpu
+        };
+        IReadOnlySet<ComputeBackend> npuBackends = new HashSet<ComputeBackend>
+        {
+            ComputeBackend.Npu,
+            ComputeBackend.Gpu,
+            ComputeBackend.Cpu
+        };
+
+        Assert.True(ModelCatalogFiltering.IsVisibleForBackend(
+            activeGpuModel,
+            activeGpuModel.Id,
+            ComputeBackend.Npu,
+            gpuBackends));
+        Assert.False(ModelCatalogFiltering.IsVisibleForBackend(
+            otherGpuModel,
+            activeGpuModel.Id,
+            ComputeBackend.Npu,
+            gpuBackends));
+        Assert.True(ModelCatalogFiltering.IsVisibleForBackend(
+            npuModel,
+            activeGpuModel.Id,
+            ComputeBackend.Npu,
+            npuBackends));
+        Assert.True(ModelCatalogFiltering.IsVisibleForBackend(
+            otherGpuModel,
+            activeGpuModel.Id,
+            ComputeBackend.Auto,
+            gpuBackends));
+    }
+
+    [Fact]
     public async Task IntegrityVerifier_SupportsSha1AndSha256()
     {
         Directory.CreateDirectory(_rootPath);

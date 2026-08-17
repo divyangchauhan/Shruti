@@ -62,7 +62,9 @@ public sealed partial class MainWindow : Window
     private ComputeBackend _resolvedBackend = ComputeBackend.Cpu;
     private string _currentPage = "Home";
     private IReadOnlyList<InstalledModel> _installedModels = [];
-    private IReadOnlySet<ComputeBackend> _availableBackends = new HashSet<ComputeBackend>();
+    private IReadOnlyDictionary<string, IReadOnlySet<ComputeBackend>> _availableBackendsByModel =
+        new Dictionary<string, IReadOnlySet<ComputeBackend>>(StringComparer.Ordinal);
+    private ComputeBackend _modelBackendFilter = ComputeBackend.Auto;
     private ShrutiSettings _settings = ShrutiSettings.Default;
 
     public MainWindow(
@@ -223,11 +225,25 @@ public sealed partial class MainWindow : Window
 
     private void BackendButton_Click(object sender, RoutedEventArgs e)
     {
-        if (sender is Button { Tag: string backend })
+        if (sender is not Button { Tag: string backend } button ||
+            !Enum.TryParse(backend, out ComputeBackend selectedBackend))
         {
-            SelectComboBoxItem(BackendPreferenceComboBox, backend);
-            UpdateComputeButtons();
+            return;
         }
+
+        if (ReferenceEquals(button, BackendNpuButton) ||
+            ReferenceEquals(button, BackendGpuButton) ||
+            ReferenceEquals(button, BackendCpuButton) ||
+            ReferenceEquals(button, BackendAutoButton))
+        {
+            _modelBackendFilter = selectedBackend;
+            UpdateComputeButtons();
+            RenderModelCatalog();
+            return;
+        }
+
+        SelectComboBoxItem(BackendPreferenceComboBox, backend);
+        UpdateComputeButtons();
     }
 
     private void ReplayWelcomeButton_Click(object sender, RoutedEventArgs e)
@@ -928,14 +944,32 @@ public sealed partial class MainWindow : Window
     {
         ModelListPanel.Children.Clear();
         int installedCount = _modelCatalog.Models.Count(model => FindInstalledModel(model.Id) is not null);
+        IReadOnlyList<ModelCatalogEntry> visibleModels = _modelCatalog.Models
+            .Where(model => ModelCatalogFiltering.IsVisibleForBackend(
+                model,
+                _settings.SelectedModelId,
+                _modelBackendFilter,
+                GetAvailableBackends(model)))
+            .ToArray();
         if (!_isModelOperationRunning)
         {
-            ModelsStatusText.Text = installedCount == 1
-                ? "1 model on this PC"
-                : $"{installedCount} models on this PC";
+            if (_modelBackendFilter == ComputeBackend.Auto)
+            {
+                ModelsStatusText.Text = installedCount == 1
+                    ? "1 model on this PC"
+                    : $"{installedCount} models on this PC";
+            }
+            else
+            {
+                int compatibleCount = visibleModels.Count(model =>
+                    GetAvailableBackends(model).Contains(_modelBackendFilter));
+                ModelsStatusText.Text = compatibleCount == 1
+                    ? $"1 model for {_modelBackendFilter.ToString().ToUpperInvariant()}"
+                    : $"{compatibleCount} models for {_modelBackendFilter.ToString().ToUpperInvariant()}";
+            }
         }
 
-        foreach (ModelCatalogEntry model in _modelCatalog.Models)
+        foreach (ModelCatalogEntry model in visibleModels)
         {
             ModelListPanel.Children.Add(CreateModelCard(model));
         }
@@ -946,9 +980,13 @@ public sealed partial class MainWindow : Window
         InstalledModel? installed = FindInstalledModel(model.Id);
         bool isInstalled = installed is not null;
         bool isSelected = string.Equals(_settings.SelectedModelId, model.Id, StringComparison.Ordinal);
-        ComputeBackend compute = isSelected && _settings.BackendPreference != ComputeBackend.Auto
-            ? _settings.BackendPreference
-            : model.SupportedBackends.FirstOrDefault(ComputeBackend.Cpu);
+        ComputeBackend compute = isSelected
+            ? _settings.BackendPreference == ComputeBackend.Auto
+                ? _resolvedBackend
+                : _settings.BackendPreference
+            : _modelBackendFilter != ComputeBackend.Auto && GetAvailableBackends(model).Contains(_modelBackendFilter)
+                ? _modelBackendFilter
+                : model.SupportedBackends.FirstOrDefault(ComputeBackend.Cpu);
 
         var card = new Border
         {
@@ -1294,7 +1332,12 @@ public sealed partial class MainWindow : Window
 
         ModelCatalogEntry selectedModel = _transcriptionOptionsProvider.FindModel(modelId)!;
         ComputeBackend backendPreference = _settings.BackendPreference;
-        if (backendPreference != ComputeBackend.Auto && !selectedModel.SupportedBackends.Contains(backendPreference))
+        IReadOnlySet<ComputeBackend> availableBackends = GetAvailableBackends(selectedModel);
+        if (_modelBackendFilter != ComputeBackend.Auto && availableBackends.Contains(_modelBackendFilter))
+        {
+            backendPreference = _modelBackendFilter;
+        }
+        else if (backendPreference != ComputeBackend.Auto && !availableBackends.Contains(backendPreference))
         {
             backendPreference = ComputeBackend.Auto;
         }
@@ -1583,15 +1626,23 @@ public sealed partial class MainWindow : Window
         ComputeBackend selected = GetSelectedBackendPreference();
         UpdateComputeButtonGroup(
             [BackendAutoButton, BackendNpuButton, BackendGpuButton, BackendCpuButton],
-            selected);
+            _modelBackendFilter,
+            GetCatalogAvailableBackends(),
+            filtersModels: true);
         UpdateComputeButtonGroup(
             [SettingsBackendNpuButton, SettingsBackendGpuButton, SettingsBackendCpuButton],
-            selected == ComputeBackend.Auto ? _resolvedBackend : selected);
+            selected == ComputeBackend.Auto ? _resolvedBackend : selected,
+            GetAvailableBackends(_transcriptionOptionsProvider.GetSelectedModelEntry(_settings)),
+            filtersModels: false);
 
         UpdateActiveComputeBadge(selected);
     }
 
-    private void UpdateComputeButtonGroup(IEnumerable<Button> buttons, ComputeBackend selected)
+    private void UpdateComputeButtonGroup(
+        IEnumerable<Button> buttons,
+        ComputeBackend selected,
+        IReadOnlySet<ComputeBackend> availableBackends,
+        bool filtersModels)
     {
         foreach (Button button in buttons)
         {
@@ -1600,12 +1651,16 @@ public sealed partial class MainWindow : Window
                 candidate == selected;
             if (button.Tag is string backendTag && Enum.TryParse(backendTag, out ComputeBackend backend))
             {
-                button.IsEnabled = backend == ComputeBackend.Auto || _availableBackends.Contains(backend);
+                button.IsEnabled = backend == ComputeBackend.Auto || availableBackends.Contains(backend);
                 ToolTipService.SetToolTip(
                     button,
                     button.IsEnabled
-                        ? $"Run the selected model on {backend}."
-                        : $"{backend} is not available for the selected model on this PC.");
+                        ? filtersModels
+                            ? $"Show models that can run on {backend}."
+                            : $"Run the active model on {backend}."
+                        : filtersModels
+                            ? $"No catalog model can run on {backend} on this PC."
+                            : $"{backend} is not available for the active model on this PC.");
             }
             button.Background = isSelected
                 ? GetBrush("ShrutiCardBrush")
@@ -1722,10 +1777,28 @@ public sealed partial class MainWindow : Window
 
     private async Task RefreshComputeAvailabilityAsync()
     {
-        ModelCatalogEntry model = _transcriptionOptionsProvider.GetSelectedModelEntry(_settings);
-        _availableBackends = await _transcriptionOptionsProvider
-            .GetAvailableBackendsAsync(model, CancellationToken.None);
+        var availability = new Dictionary<string, IReadOnlySet<ComputeBackend>>(StringComparer.Ordinal);
+        foreach (ModelCatalogEntry model in _modelCatalog.Models)
+        {
+            availability[model.Id] = await _transcriptionOptionsProvider
+                .GetAvailableBackendsAsync(model, CancellationToken.None);
+        }
+
+        _availableBackendsByModel = availability;
         UpdateComputeButtons();
+        RenderModelCatalog();
+    }
+
+    private IReadOnlySet<ComputeBackend> GetAvailableBackends(ModelCatalogEntry model)
+    {
+        return _availableBackendsByModel.TryGetValue(model.Id, out IReadOnlySet<ComputeBackend>? backends)
+            ? backends
+            : new HashSet<ComputeBackend>();
+    }
+
+    private IReadOnlySet<ComputeBackend> GetCatalogAvailableBackends()
+    {
+        return _availableBackendsByModel.Values.SelectMany(backends => backends).ToHashSet();
     }
 
     private static string FormatReadiness(TranscriptionReadinessResult readiness)
