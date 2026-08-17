@@ -1989,10 +1989,27 @@ public sealed partial class MainWindow : Window
 
     private void SetNavigationButtonState(Button button, bool isSelected)
     {
+        SolidColorBrush foreground = GetBrush(isSelected ? "ShrutiAccentBrush" : "ShrutiTextSecondaryBrush");
+        SolidColorBrush background = isSelected
+            ? GetBrush("ShrutiAccentSoftBrush")
+            : new SolidColorBrush(Windows.UI.Color.FromArgb(0, 0, 0, 0));
+
         button.FontWeight = isSelected ? Microsoft.UI.Text.FontWeights.SemiBold : Microsoft.UI.Text.FontWeights.Normal;
         button.Opacity = 1;
-        button.Background = isSelected ? GetBrush("ShrutiAccentSoftBrush") : new SolidColorBrush(Windows.UI.Color.FromArgb(0, 0, 0, 0));
-        button.Foreground = GetBrush(isSelected ? "ShrutiAccentBrush" : "ShrutiTextSecondaryBrush");
+        button.Background = background;
+        button.Foreground = foreground;
+
+        // The stock Button template supplies its own pointer-over and pressed colors.
+        // Override those resources per navigation state so hovering the selected item
+        // cannot replace its accent treatment with the default button foreground.
+        button.Resources["ButtonForegroundPointerOver"] = foreground;
+        button.Resources["ButtonForegroundPressed"] = foreground;
+        button.Resources["ButtonBackgroundPointerOver"] = isSelected
+            ? background
+            : GetBrush("ShrutiHoverBrush");
+        button.Resources["ButtonBackgroundPressed"] = isSelected
+            ? background
+            : GetBrush("ShrutiPressedBrush");
     }
 
     private void QuitApplication()
