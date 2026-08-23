@@ -2,8 +2,6 @@ param(
     [string] $Configuration = "Release",
     [string] $Platform = "x64",
     [string] $Version = "0.1.0.0",
-    [ValidateSet("None", "Vulkan", "CUDA")]
-    [string] $GpuBackend = "Vulkan",
     [switch] $SkipNativeBuild,
     [string] $Publisher,
     [string] $CertificatePath,
@@ -265,7 +263,7 @@ else {
 }
 
 if (-not $SkipNativeBuild) {
-    & (Join-Path $root "scripts\build-whispercpp.ps1") -Configuration $Configuration -GpuBackend $GpuBackend
+    & (Join-Path $root "scripts\build-whispercpp.ps1") -Configuration $Configuration
     if ($LASTEXITCODE -ne 0) {
         throw "scripts\build-whispercpp.ps1 failed with exit code $LASTEXITCODE."
     }

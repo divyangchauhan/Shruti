@@ -23,7 +23,7 @@ ModelInstallResult install = await modelManager.DownloadAsync(modelEntry, progre
 Console.WriteLine();
 if (!install.Succeeded || install.Model is null)
 {
-    throw new InvalidOperationException(install.Message ?? "The verified whisper.cpp model could not be installed.");
+    throw new InvalidOperationException(install.Message ?? "The verified transcription model could not be installed.");
 }
 
 string fixtureDirectory = Path.Combine(paths.RootPath, "Integration");
@@ -77,7 +77,7 @@ if (!useNpu && string.IsNullOrWhiteSpace(partial?.Text))
 
 if (!result.Text.Contains("ask not", StringComparison.OrdinalIgnoreCase))
 {
-    throw new InvalidOperationException("whisper.cpp did not produce the expected JFK transcript.");
+    throw new InvalidOperationException($"{provider.DisplayName} did not produce the expected JFK transcript.");
 }
 
 static async Task ReadEventsAsync(

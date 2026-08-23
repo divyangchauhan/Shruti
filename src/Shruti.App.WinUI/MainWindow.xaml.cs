@@ -242,6 +242,16 @@ public sealed partial class MainWindow : Window
             return;
         }
 
+        ModelCatalogEntry activeModel = _transcriptionOptionsProvider.GetSelectedModelEntry(_settings);
+        if (!GetAvailableBackends(activeModel).Contains(selectedBackend))
+        {
+            SelectedModelStatusText.Text =
+                $"{activeModel.DisplayName} cannot run on {selectedBackend.ToString().ToUpperInvariant()} on this PC. " +
+                "Choose a compatible model first.";
+            UpdateComputeButtons();
+            return;
+        }
+
         SelectComboBoxItem(BackendPreferenceComboBox, backend);
         UpdateComputeButtons();
     }
@@ -1200,8 +1210,10 @@ public sealed partial class MainWindow : Window
         if (TryGetModelFromSender(sender, out ModelCatalogEntry model) &&
             FindInstalledModel(model.Id) is not null)
         {
-            await SetSelectedModelAsync(model.Id);
-            ModelsStatusText.Text = $"{model.DisplayName} selected for dictation.";
+            if (await SetSelectedModelAsync(model.Id))
+            {
+                ModelsStatusText.Text = $"{model.DisplayName} selected for dictation.";
+            }
         }
     }
 
@@ -1277,8 +1289,10 @@ public sealed partial class MainWindow : Window
             if (result.Succeeded)
             {
                 await RefreshInstalledModelsAsync();
-                await SetSelectedModelAsync(model.Id, refreshModels: false);
-                finalStatusText = $"{model.DisplayName} installed and selected for dictation.";
+                bool selected = await SetSelectedModelAsync(model.Id, refreshModels: false);
+                finalStatusText = selected
+                    ? $"{model.DisplayName} installed and selected for dictation."
+                    : $"{model.DisplayName} installed, but it cannot run on the selected processor.";
             }
             else
             {
@@ -1323,23 +1337,38 @@ public sealed partial class MainWindow : Window
         });
     }
 
-    private async Task SetSelectedModelAsync(string modelId, bool refreshModels = true)
+    private async Task<bool> SetSelectedModelAsync(string modelId, bool refreshModels = true)
     {
-        if (_transcriptionOptionsProvider.FindModel(modelId) is null)
+        ModelCatalogEntry? selectedModel = _transcriptionOptionsProvider.FindModel(modelId);
+        if (selectedModel is null)
         {
-            return;
+            return false;
         }
 
-        ModelCatalogEntry selectedModel = _transcriptionOptionsProvider.FindModel(modelId)!;
-        ComputeBackend backendPreference = _settings.BackendPreference;
+        ComputeBackend requestedBackend = _modelBackendFilter != ComputeBackend.Auto
+            ? _modelBackendFilter
+            : _settings.BackendPreference;
         IReadOnlySet<ComputeBackend> availableBackends = GetAvailableBackends(selectedModel);
-        if (_modelBackendFilter != ComputeBackend.Auto && availableBackends.Contains(_modelBackendFilter))
+        ComputeBackend backendPreference = ModelCatalogFiltering.NormalizeBackendPreference(
+            selectedModel,
+            requestedBackend,
+            availableBackends);
+        if (_modelBackendFilter != ComputeBackend.Auto && backendPreference != _modelBackendFilter)
         {
-            backendPreference = _modelBackendFilter;
+            ModelsStatusText.Text =
+                $"{selectedModel.DisplayName} cannot run on {_modelBackendFilter.ToString().ToUpperInvariant()} on this PC.";
+            return false;
         }
-        else if (backendPreference != ComputeBackend.Auto && !availableBackends.Contains(backendPreference))
+
+        if (!await _transcriptionOptionsProvider.CanRunModelAsync(
+                selectedModel,
+                backendPreference,
+                CancellationToken.None))
         {
-            backendPreference = ComputeBackend.Auto;
+            ModelsStatusText.Text = backendPreference == ComputeBackend.Auto
+                ? $"{selectedModel.DisplayName} is not ready to run on this PC."
+                : $"{selectedModel.DisplayName} cannot run on {backendPreference.ToString().ToUpperInvariant()} on this PC.";
+            return false;
         }
 
         _settings = _settings with
@@ -1349,7 +1378,7 @@ public sealed partial class MainWindow : Window
         };
         _transcriptionOptionsProvider.ApplySettings(_settings);
         SelectModelComboBoxItem(modelId);
-        SelectComboBoxItem(BackendPreferenceComboBox, backendPreference.ToString());
+        SelectBackendPreferenceWithoutPersist(backendPreference);
         await _settingsRepository.SaveAsync(_settings, CancellationToken.None);
         UpdateSelectedModelStatus();
         ModelSummaryText.Text = _transcriptionOptionsProvider.GetSelectedModelEntry(_settings).DisplayName;
@@ -1359,6 +1388,8 @@ public sealed partial class MainWindow : Window
         {
             RenderModelCatalog();
         }
+
+        return true;
     }
 
     private void UpdateSelectedModelStatus()
@@ -1572,14 +1603,30 @@ public sealed partial class MainWindow : Window
         await _settingsGate.WaitAsync();
         try
         {
+            string selectedModelId = GetSelectedModelId();
+            ModelCatalogEntry selectedModel = _transcriptionOptionsProvider.FindModel(selectedModelId) ??
+                _transcriptionOptionsProvider.DefaultModel;
+            ComputeBackend requestedBackend = GetSelectedBackendPreference();
+            ComputeBackend backendPreference = ModelCatalogFiltering.NormalizeBackendPreference(
+                selectedModel,
+                requestedBackend,
+                GetAvailableBackends(selectedModel));
+            if (backendPreference != requestedBackend)
+            {
+                SelectBackendPreferenceWithoutPersist(backendPreference);
+                SelectedModelStatusText.Text =
+                    $"{selectedModel.DisplayName} cannot run on {requestedBackend.ToString().ToUpperInvariant()} on this PC. " +
+                    "The processor setting was reset to automatic.";
+            }
+
             _settings = new ShrutiSettings
             {
                 AudioInputDeviceId = _controller.AudioOptions.DeviceId,
-                SelectedModelId = GetSelectedModelId(),
+                SelectedModelId = selectedModelId,
                 InsertionMode = GetSelectedInsertionMode(),
                 ThemePreference = GetSelectedThemePreference(),
                 AudioRetentionPolicy = GetSelectedAudioRetentionPolicy(),
-                BackendPreference = GetSelectedBackendPreference(),
+                BackendPreference = backendPreference,
                 AllowSlowTranscription = AllowSlowTranscriptionCheckBox.IsChecked == true,
                 HasCompletedOnboarding = _settings.HasCompletedOnboarding,
                 TriggerConfiguration = GetTriggerConfigurationFromControls()
@@ -1595,6 +1642,20 @@ public sealed partial class MainWindow : Window
         finally
         {
             _settingsGate.Release();
+        }
+    }
+
+    private void SelectBackendPreferenceWithoutPersist(ComputeBackend backend)
+    {
+        bool wasApplyingSettings = _isApplyingSettings;
+        _isApplyingSettings = true;
+        try
+        {
+            SelectComboBoxItem(BackendPreferenceComboBox, backend.ToString());
+        }
+        finally
+        {
+            _isApplyingSettings = wasApplyingSettings;
         }
     }
 
@@ -1747,6 +1808,7 @@ public sealed partial class MainWindow : Window
         try
         {
             await RefreshComputeAvailabilityAsync();
+            await NormalizeActiveBackendPreferenceAsync();
             TranscriptionModelDescriptor model = _transcriptionOptionsProvider.CreateModelDescriptor();
             TranscriptionReadinessResult readiness = await _transcriptionOptionsProvider
                 .EvaluateReadinessAsync(CancellationToken.None);
@@ -1787,6 +1849,24 @@ public sealed partial class MainWindow : Window
         _availableBackendsByModel = availability;
         UpdateComputeButtons();
         RenderModelCatalog();
+    }
+
+    private async Task NormalizeActiveBackendPreferenceAsync()
+    {
+        ModelCatalogEntry activeModel = _transcriptionOptionsProvider.GetSelectedModelEntry(_settings);
+        ComputeBackend normalizedBackend = ModelCatalogFiltering.NormalizeBackendPreference(
+            activeModel,
+            _settings.BackendPreference,
+            GetAvailableBackends(activeModel));
+        if (normalizedBackend == _settings.BackendPreference)
+        {
+            return;
+        }
+
+        _settings = _settings with { BackendPreference = normalizedBackend };
+        _transcriptionOptionsProvider.ApplySettings(_settings);
+        SelectBackendPreferenceWithoutPersist(normalizedBackend);
+        await _settingsRepository.SaveAsync(_settings, CancellationToken.None);
     }
 
     private IReadOnlySet<ComputeBackend> GetAvailableBackends(ModelCatalogEntry model)

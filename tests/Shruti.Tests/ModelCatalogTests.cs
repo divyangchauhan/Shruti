@@ -103,6 +103,44 @@ public sealed class ModelCatalogTests : IDisposable
     }
 
     [Fact]
+    public void BackendPreference_NormalizesUnsupportedOrUnavailablePairToAuto()
+    {
+        ModelCatalog catalog = RecommendedModelCatalog.Create();
+        ModelCatalogEntry whisperModel = catalog.GetRequiredModel("whisper-tiny-en");
+        ModelCatalogEntry openVinoModel = catalog.GetRequiredModel("openvino-whisper-base-int8");
+        IReadOnlySet<ComputeBackend> whisperBackends = new HashSet<ComputeBackend>
+        {
+            ComputeBackend.Gpu,
+            ComputeBackend.Cpu
+        };
+        IReadOnlySet<ComputeBackend> openVinoBackends = new HashSet<ComputeBackend>
+        {
+            ComputeBackend.Npu,
+            ComputeBackend.Gpu,
+            ComputeBackend.Cpu
+        };
+
+        Assert.Equal(
+            ComputeBackend.Auto,
+            ModelCatalogFiltering.NormalizeBackendPreference(
+                whisperModel,
+                ComputeBackend.Npu,
+                whisperBackends));
+        Assert.Equal(
+            ComputeBackend.Npu,
+            ModelCatalogFiltering.NormalizeBackendPreference(
+                openVinoModel,
+                ComputeBackend.Npu,
+                openVinoBackends));
+        Assert.Equal(
+            ComputeBackend.Auto,
+            ModelCatalogFiltering.NormalizeBackendPreference(
+                openVinoModel,
+                ComputeBackend.Npu,
+                new HashSet<ComputeBackend> { ComputeBackend.Cpu }));
+    }
+
+    [Fact]
     public async Task IntegrityVerifier_SupportsSha1AndSha256()
     {
         Directory.CreateDirectory(_rootPath);

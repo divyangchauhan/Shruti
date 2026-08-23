@@ -66,6 +66,9 @@ if ($LASTEXITCODE -ne 0) {
     exit $LASTEXITCODE
 }
 
+if (Test-Path -LiteralPath $artifactPath) {
+    Remove-Item -LiteralPath $artifactPath -Recurse -Force
+}
 New-Item -ItemType Directory -Force -Path $artifactPath | Out-Null
 $openVinoRuntime = Join-Path $openVinoRoot "runtime\bin\intel64\$Configuration"
 Copy-Item (Join-Path $openVinoRuntime "*.dll") $artifactPath -Force
@@ -79,14 +82,26 @@ Get-ChildItem (Join-Path $openVinoRoot "runtime\3rdparty\tbb\bin") -Filter $tbbP
     Where-Object { $Configuration -eq "Debug" -or $_.Name -notlike "*_debug.dll" } |
     Copy-Item -Destination $artifactPath -Force
 
+$debugSuffix = if ($Configuration -eq "Debug") { "d" } else { "" }
 $genAiLibraries = @(
-    (Join-Path $genAiBuild "openvino_genai\openvino_genai.dll"),
-    (Join-Path $genAiBuild "openvino_genai\openvino_tokenizers.dll"),
-    (Join-Path $genAiBuild "src\c\$Configuration\openvino_genai_c.dll")
+    (Join-Path $genAiBuild "openvino_genai\openvino_genai$debugSuffix.dll"),
+    (Join-Path $genAiBuild "openvino_genai\openvino_tokenizers$debugSuffix.dll"),
+    (Join-Path $genAiBuild "src\c\$Configuration\openvino_genai_c$debugSuffix.dll")
 )
 $genAiLibraries | Copy-Item -Destination $artifactPath -Force
 
-foreach ($requiredLibrary in @("openvino_c.dll", "openvino_genai.dll", "openvino_genai_c.dll", "openvino_tokenizers.dll")) {
+if ($Configuration -eq "Debug") {
+    Copy-Item (Join-Path $artifactPath "openvino_cd.dll") (Join-Path $artifactPath "openvino_c.dll") -Force
+    Copy-Item (Join-Path $artifactPath "openvino_genai_cd.dll") (Join-Path $artifactPath "openvino_genai_c.dll") -Force
+}
+
+$requiredLibraries = @(
+    "openvino_c.dll",
+    "openvino_genai$debugSuffix.dll",
+    "openvino_genai_c.dll",
+    "openvino_tokenizers$debugSuffix.dll"
+)
+foreach ($requiredLibrary in $requiredLibraries) {
     if (-not (Test-Path (Join-Path $artifactPath $requiredLibrary))) {
         throw "OpenVINO GenAI native library missing: $requiredLibrary"
     }

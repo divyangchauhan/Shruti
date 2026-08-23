@@ -40,6 +40,13 @@ public sealed class TranscriptionOptionsProvider
     public void ApplySettings(ShrutiSettings settings)
     {
         ArgumentNullException.ThrowIfNull(settings);
+        ModelCatalogEntry selectedModel = GetSelectedModelEntry(settings);
+        if (settings.BackendPreference != ComputeBackend.Auto &&
+            !selectedModel.SupportedBackends.Contains(settings.BackendPreference))
+        {
+            settings = settings with { BackendPreference = ComputeBackend.Auto };
+        }
+
         lock (_settingsSync)
         {
             _settings = settings;
@@ -154,5 +161,17 @@ public sealed class TranscriptionOptionsProvider
             .Select(capability => capability.Backend)
             .Where(model.SupportedBackends.Contains)
             .ToHashSet();
+    }
+
+    public Task<bool> CanRunModelAsync(
+        ModelCatalogEntry model,
+        ComputeBackend backend,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(model);
+        ITranscriptionProvider? provider = _providerRegistry.FindById(model.ProviderId);
+        return provider is null
+            ? Task.FromResult(false)
+            : provider.CanRunModelAsync(CreateModelDescriptor(model), backend, cancellationToken);
     }
 }

@@ -19,5 +19,14 @@ if ($LASTEXITCODE -ne 0) {
     exit $LASTEXITCODE
 }
 
-$integrationArguments = if ($Npu) { @("--npu") } else { @() }
-dotnet "$repositoryRoot\tools\Shruti.RealIntegration\bin\x64\Release\net8.0\Shruti.RealIntegration.dll" @integrationArguments
+$integrationAssembly = "$repositoryRoot\tools\Shruti.RealIntegration\bin\x64\Release\net8.0\Shruti.RealIntegration.dll"
+if ($Npu) {
+    & dotnet $integrationAssembly --npu
+}
+else {
+    & dotnet $integrationAssembly
+}
+
+if ($LASTEXITCODE -ne 0) {
+    exit $LASTEXITCODE
+}
