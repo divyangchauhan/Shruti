@@ -11,6 +11,7 @@ public sealed class TranscriptionOptionsProvider
     private readonly ModelCatalogEntry _defaultModel;
     private readonly AppDataPaths _appDataPaths;
     private readonly TranscriptionReadinessService _readinessService;
+    private readonly ITranscriptionProviderRegistry _providerRegistry;
     private readonly string _providerVersion;
     private ShrutiSettings _settings = ShrutiSettings.Default;
 
@@ -19,12 +20,14 @@ public sealed class TranscriptionOptionsProvider
         ModelCatalogEntry defaultModel,
         AppDataPaths appDataPaths,
         TranscriptionReadinessService readinessService,
+        ITranscriptionProviderRegistry providerRegistry,
         string providerVersion)
     {
         _modelCatalog = modelCatalog ?? throw new ArgumentNullException(nameof(modelCatalog));
         _defaultModel = defaultModel ?? throw new ArgumentNullException(nameof(defaultModel));
         _appDataPaths = appDataPaths ?? throw new ArgumentNullException(nameof(appDataPaths));
         _readinessService = readinessService ?? throw new ArgumentNullException(nameof(readinessService));
+        _providerRegistry = providerRegistry ?? throw new ArgumentNullException(nameof(providerRegistry));
         _providerVersion = string.IsNullOrWhiteSpace(providerVersion)
             ? TranscriptionBenchmarkKey.UnknownProviderVersion
             : providerVersion;
@@ -37,6 +40,13 @@ public sealed class TranscriptionOptionsProvider
     public void ApplySettings(ShrutiSettings settings)
     {
         ArgumentNullException.ThrowIfNull(settings);
+        ModelCatalogEntry selectedModel = GetSelectedModelEntry(settings);
+        if (settings.BackendPreference != ComputeBackend.Auto &&
+            !selectedModel.SupportedBackends.Contains(settings.BackendPreference))
+        {
+            settings = settings with { BackendPreference = ComputeBackend.Auto };
+        }
+
         lock (_settingsSync)
         {
             _settings = settings;
@@ -131,5 +141,37 @@ public sealed class TranscriptionOptionsProvider
             model.LanguageHint,
             model.SizeBytes,
             model.SupportedBackends.ToHashSet());
+    }
+
+    public async Task<IReadOnlySet<ComputeBackend>> GetAvailableBackendsAsync(
+        ModelCatalogEntry model,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(model);
+        ITranscriptionProvider? provider = _providerRegistry.FindById(model.ProviderId);
+        if (provider is null)
+        {
+            return new HashSet<ComputeBackend>();
+        }
+
+        IReadOnlyList<EngineCapability> capabilities = await provider
+            .ProbeAsync(cancellationToken)
+            .ConfigureAwait(false);
+        return capabilities
+            .Select(capability => capability.Backend)
+            .Where(model.SupportedBackends.Contains)
+            .ToHashSet();
+    }
+
+    public Task<bool> CanRunModelAsync(
+        ModelCatalogEntry model,
+        ComputeBackend backend,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(model);
+        ITranscriptionProvider? provider = _providerRegistry.FindById(model.ProviderId);
+        return provider is null
+            ? Task.FromResult(false)
+            : provider.CanRunModelAsync(CreateModelDescriptor(model), backend, cancellationToken);
     }
 }

@@ -24,13 +24,15 @@ public sealed record ShrutiSettings
 
     public bool AllowSlowTranscription { get; init; }
 
+    public bool HasCompletedOnboarding { get; init; }
+
     public TriggerConfiguration TriggerConfiguration { get; init; } = new(
         EnableGlobalHotkey: false,
         EnablePushToTalk: true,
-        EnableFloatingButton: true,
+        EnableFloatingButton: false,
         EnableTrayMenu: true,
         HotkeyGesture: "Ctrl+Win+Space",
         PushToTalkKey: "Ctrl+Win+Space",
-        EnableFloatingWindowShortcut: true,
-        FloatingWindowShortcut: "Ctrl+Alt+M");
+        EnableFloatingWindowShortcut: false,
+        FloatingWindowShortcut: null);
 }

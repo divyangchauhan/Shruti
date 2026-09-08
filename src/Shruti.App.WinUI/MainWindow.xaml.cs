@@ -2,6 +2,9 @@ using Microsoft.UI.Windowing;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Automation;
 using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Media;
+using Microsoft.UI.Xaml.Media.Animation;
+using System.Runtime.InteropServices;
 using Shruti.Workflow.Dictation;
 using Shruti.Core;
 using Shruti.Core.Audio;
@@ -20,6 +23,13 @@ namespace Shruti.App.WinUI;
 
 public sealed partial class MainWindow : Window
 {
+    private const int WaveformBarCount = 28;
+    private const double PreferredWindowWidthDip = 1080;
+    private const double PreferredWindowHeightDip = 720;
+    private const double DefaultDpi = 96;
+    private const double PreferredTitleBarHeightDip = 40;
+    private const int WorkAreaMarginPixels = 48;
+
     private readonly DictationShellController _controller;
     private readonly IAudioCaptureService _audioCaptureService;
     private readonly ISettingsRepository _settingsRepository;
@@ -36,8 +46,9 @@ public sealed partial class MainWindow : Window
     private readonly CancellationTokenSource _triggerDispatchCancellation = new();
     private readonly SemaphoreSlim _settingsGate = new(1, 1);
     private readonly IntPtr _windowHandle;
+    private readonly List<Border> _waveformBars = [];
 
-    private FloatingMicWindow? _floatingMicWindow;
+    private Storyboard? _micPulseStoryboard;
     private Task? _triggerDispatchTask;
     private bool _allowClose;
     private bool _isDisposed;
@@ -46,9 +57,14 @@ public sealed partial class MainWindow : Window
     private bool _isApplyingSettings;
     private bool _isApplyingModelSelection;
     private bool _isModelOperationRunning;
-    private bool _floatingMicDismissedForSession;
-    private bool _floatingMicShownForSession;
+    private bool _isOnboardingModelOperation;
+    private int _onboardingStep;
+    private ComputeBackend _resolvedBackend = ComputeBackend.Cpu;
+    private string _currentPage = "Home";
     private IReadOnlyList<InstalledModel> _installedModels = [];
+    private IReadOnlyDictionary<string, IReadOnlySet<ComputeBackend>> _availableBackendsByModel =
+        new Dictionary<string, IReadOnlySet<ComputeBackend>>(StringComparer.Ordinal);
+    private ComputeBackend _modelBackendFilter = ComputeBackend.Auto;
     private ShrutiSettings _settings = ShrutiSettings.Default;
 
     public MainWindow(
@@ -65,6 +81,7 @@ public sealed partial class MainWindow : Window
         IWindowsWindowVisibility windowVisibility)
     {
         InitializeComponent();
+        AppIcon.Apply(AppWindow);
 
         _controller = controller ?? throw new ArgumentNullException(nameof(controller));
         _audioCaptureService = audioCaptureService ?? throw new ArgumentNullException(nameof(audioCaptureService));
@@ -83,15 +100,15 @@ public sealed partial class MainWindow : Window
 
         _controller.StateChanged += Controller_StateChanged;
         _controller.AudioLevelChanged += Controller_AudioLevelChanged;
-        _triggerRouter.FloatingWindowToggleRequested += TriggerRouter_FloatingWindowToggleRequested;
         _windowMessageHost.MessageReceived += WindowMessageHost_MessageReceived;
         _trayIconService.CommandInvoked += TrayIconService_CommandInvoked;
         AppWindow.Closing += AppWindow_Closing;
         Activated += MainWindow_Activated;
         Closed += MainWindow_Closed;
         Root.ActualThemeChanged += Root_ActualThemeChanged;
-        AppWindow.Resize(new SizeInt32(1020, 760));
+        ResizeForCurrentDisplay();
         ConfigureAppTitleBar();
+        InitializeWaveform();
 
         InsertionModeComboBox.SelectedIndex = 0;
         ThemeComboBox.SelectedIndex = 0;
@@ -107,6 +124,24 @@ public sealed partial class MainWindow : Window
     public void ShowFromExternalActivation()
     {
         ShowMainWindow();
+    }
+
+    private void ResizeForCurrentDisplay()
+    {
+        uint dpi = GetDpiForWindow(_windowHandle);
+        double dpiScale = dpi == 0 ? 1 : dpi / DefaultDpi;
+        double desiredWidth = PreferredWindowWidthDip * dpiScale;
+        double desiredHeight = PreferredWindowHeightDip * dpiScale;
+
+        DisplayArea displayArea = DisplayArea.GetFromWindowId(AppWindow.Id, DisplayAreaFallback.Primary);
+        RectInt32 workArea = displayArea.WorkArea;
+        double availableWidth = Math.Max(1, workArea.Width - WorkAreaMarginPixels);
+        double availableHeight = Math.Max(1, workArea.Height - WorkAreaMarginPixels);
+        double fitScale = Math.Min(1, Math.Min(availableWidth / desiredWidth, availableHeight / desiredHeight));
+
+        AppWindow.Resize(new SizeInt32(
+            checked((int)Math.Round(desiredWidth * fitScale)),
+            checked((int)Math.Round(desiredHeight * fitScale))));
     }
 
     private async void PrimaryDictationButton_Click(object sender, RoutedEventArgs e)
@@ -174,7 +209,6 @@ public sealed partial class MainWindow : Window
 
         Root.RequestedTheme = GetSelectedTheme();
         UpdateAppTitleBarTheme();
-        _floatingMicWindow?.ApplyTheme(GetSelectedTheme());
         await PersistSettingsAsync();
     }
 
@@ -185,7 +219,114 @@ public sealed partial class MainWindow : Window
 
     private async void BackendPreferenceComboBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
     {
+        UpdateComputeButtons();
         await PersistSettingsAsync();
+    }
+
+    private void BackendButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is not Button { Tag: string backend } button ||
+            !Enum.TryParse(backend, out ComputeBackend selectedBackend))
+        {
+            return;
+        }
+
+        if (ReferenceEquals(button, BackendNpuButton) ||
+            ReferenceEquals(button, BackendGpuButton) ||
+            ReferenceEquals(button, BackendCpuButton) ||
+            ReferenceEquals(button, BackendAutoButton))
+        {
+            _modelBackendFilter = selectedBackend;
+            UpdateComputeButtons();
+            RenderModelCatalog();
+            return;
+        }
+
+        ModelCatalogEntry activeModel = _transcriptionOptionsProvider.GetSelectedModelEntry(_settings);
+        if (!GetAvailableBackends(activeModel).Contains(selectedBackend))
+        {
+            SelectedModelStatusText.Text =
+                $"{activeModel.DisplayName} cannot run on {selectedBackend.ToString().ToUpperInvariant()} on this PC. " +
+                "Choose a compatible model first.";
+            UpdateComputeButtons();
+            return;
+        }
+
+        SelectComboBoxItem(BackendPreferenceComboBox, backend);
+        UpdateComputeButtons();
+    }
+
+    private void ReplayWelcomeButton_Click(object sender, RoutedEventArgs e)
+    {
+        _ = ReplayOnboardingAsync();
+    }
+
+    private void OnboardingNextButton_Click(object sender, RoutedEventArgs e)
+    {
+        SetOnboardingStep(Math.Min(4, _onboardingStep + 1));
+    }
+
+    private async void OnboardingMicrophoneButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (!_audioDevicesLoaded)
+        {
+            await LoadAudioDevicesAsync();
+        }
+
+        if (_audioDevicesLoaded)
+        {
+            OnboardingMicStatusText.Text = "Microphone ready";
+            SetOnboardingStep(2);
+        }
+        else
+        {
+            OnboardingMicStatusText.Text = DiagnosticFailureText.MicrophoneRecovery;
+        }
+    }
+
+    private async void OnboardingModelActionButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (_isOnboardingModelOperation)
+        {
+            return;
+        }
+
+        ModelCatalogEntry model = _transcriptionOptionsProvider.GetSelectedModelEntry(_settings);
+        if (FindInstalledModel(model.Id) is not null)
+        {
+            SetOnboardingStep(3);
+            return;
+        }
+
+        _isOnboardingModelOperation = true;
+        OnboardingModelActionButton.IsEnabled = false;
+        OnboardingModelProgressBar.Value = 0;
+        OnboardingModelProgressBar.Visibility = Visibility.Visible;
+        try
+        {
+            await RunModelInstallOperationAsync(
+                model,
+                $"Downloading {model.DisplayName}.",
+                progress => _modelManager.DownloadAsync(model, progress, CancellationToken.None));
+            if (FindInstalledModel(model.Id) is not null)
+            {
+                SetOnboardingStep(3);
+            }
+        }
+        finally
+        {
+            _isOnboardingModelOperation = false;
+            OnboardingModelActionButton.IsEnabled = true;
+            OnboardingModelProgressBar.Visibility = Visibility.Collapsed;
+            UpdateOnboardingModelState();
+        }
+    }
+
+    private async void OnboardingFinishButton_Click(object sender, RoutedEventArgs e)
+    {
+        _settings = _settings with { HasCompletedOnboarding = true };
+        await _settingsRepository.SaveAsync(_settings, CancellationToken.None);
+        OnboardingLayer.Visibility = Visibility.Collapsed;
     }
 
     private async void ModelSelectionComboBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
@@ -203,20 +344,20 @@ public sealed partial class MainWindow : Window
         await PersistSettingsAsync();
     }
 
-    private async void TriggerConfigurationCheckBox_Click(object sender, RoutedEventArgs e)
+    private async void TriggerConfigurationToggle_Toggled(object sender, RoutedEventArgs e)
     {
-        if (ReferenceEquals(sender, FloatingButtonCheckBox))
-        {
-            _floatingMicDismissedForSession = false;
-            _floatingMicShownForSession = FloatingButtonCheckBox.IsChecked == true;
-        }
-
         await ApplyTriggerConfigurationAsync();
     }
 
     private async void TriggerConfigurationInput_LostFocus(object sender, RoutedEventArgs e)
     {
         await ApplyTriggerConfigurationAsync();
+    }
+
+    private void ChangeHotkeyButton_Click(object sender, RoutedEventArgs e)
+    {
+        PushToTalkKeyTextBox.Focus(FocusState.Programmatic);
+        PushToTalkKeyTextBox.SelectAll();
     }
 
     private async void MainWindow_Activated(object sender, WindowActivatedEventArgs args)
@@ -230,8 +371,6 @@ public sealed partial class MainWindow : Window
         await EnsureSettingsLoadedAsync();
         await RefreshInstalledModelsAsync();
         await RefreshTranscriptionReadinessAsync();
-        UpdateFloatingMicWindow();
-
         if (!_audioDevicesLoaded)
         {
             await LoadAudioDevicesAsync();
@@ -259,6 +398,12 @@ public sealed partial class MainWindow : Window
     private void Root_ActualThemeChanged(FrameworkElement sender, object args)
     {
         UpdateAppTitleBarTheme();
+        UpdateComputeButtons();
+        SetNavigationButtonState(HomeNavButton, string.Equals(_currentPage, "Home", StringComparison.OrdinalIgnoreCase));
+        SetNavigationButtonState(ModelsNavButton, string.Equals(_currentPage, "Models", StringComparison.OrdinalIgnoreCase));
+        SetNavigationButtonState(SettingsNavButton, string.Equals(_currentPage, "Settings", StringComparison.OrdinalIgnoreCase));
+        RenderModelCatalog();
+        UpdateView();
     }
 
     private void ConfigureAppTitleBar()
@@ -268,9 +413,23 @@ public sealed partial class MainWindow : Window
             return;
         }
 
-        AppWindow.TitleBar.ExtendsContentIntoTitleBar = true;
+        AppWindowTitleBar titleBar = AppWindow.TitleBar;
+        titleBar.ExtendsContentIntoTitleBar = true;
+        titleBar.PreferredHeightOption = TitleBarHeightOption.Standard;
         SetTitleBar(AppTitleBar);
+        UpdateAppTitleBarLayout();
         UpdateAppTitleBarTheme();
+    }
+
+    private void UpdateAppTitleBarLayout()
+    {
+        AppWindowTitleBar titleBar = AppWindow.TitleBar;
+        uint dpi = GetDpiForWindow(_windowHandle);
+        double scale = dpi == 0 ? 1 : dpi / DefaultDpi;
+
+        double rightInset = titleBar.RightInset > 0 ? titleBar.RightInset / scale : 140;
+        TitleBarRow.Height = new GridLength(PreferredTitleBarHeightDip);
+        CaptionButtonInsetColumn.Width = new GridLength(rightInset);
     }
 
     private void UpdateAppTitleBarTheme()
@@ -282,20 +441,20 @@ public sealed partial class MainWindow : Window
 
         bool isDark = Root.ActualTheme == ElementTheme.Dark;
         Windows.UI.Color background = isDark
-            ? Windows.UI.Color.FromArgb(255, 17, 16, 14)
-            : Windows.UI.Color.FromArgb(255, 247, 245, 240);
+            ? Windows.UI.Color.FromArgb(255, 30, 28, 25)
+            : Windows.UI.Color.FromArgb(255, 255, 255, 255);
         Windows.UI.Color foreground = isDark
-            ? Windows.UI.Color.FromArgb(255, 250, 247, 239)
-            : Windows.UI.Color.FromArgb(255, 35, 33, 29);
+            ? Windows.UI.Color.FromArgb(255, 243, 241, 238)
+            : Windows.UI.Color.FromArgb(255, 30, 28, 25);
         Windows.UI.Color mutedForeground = isDark
-            ? Windows.UI.Color.FromArgb(255, 207, 199, 186)
-            : Windows.UI.Color.FromArgb(255, 98, 93, 84);
+            ? Windows.UI.Color.FromArgb(255, 169, 164, 155)
+            : Windows.UI.Color.FromArgb(255, 92, 88, 80);
         Windows.UI.Color hoverBackground = isDark
-            ? Windows.UI.Color.FromArgb(255, 35, 33, 29)
-            : Windows.UI.Color.FromArgb(255, 238, 234, 226);
+            ? Windows.UI.Color.FromArgb(255, 42, 39, 35)
+            : Windows.UI.Color.FromArgb(255, 243, 241, 238);
         Windows.UI.Color pressedBackground = isDark
-            ? Windows.UI.Color.FromArgb(255, 63, 58, 50)
-            : Windows.UI.Color.FromArgb(255, 216, 210, 199);
+            ? Windows.UI.Color.FromArgb(255, 52, 48, 43)
+            : Windows.UI.Color.FromArgb(255, 231, 228, 223);
 
         AppWindowTitleBar titleBar = AppWindow.TitleBar;
         titleBar.BackgroundColor = background;
@@ -342,12 +501,10 @@ public sealed partial class MainWindow : Window
     private void Controller_AudioLevelChanged(object? sender, AudioLevelFrame level)
     {
         DispatcherQueue.TryEnqueue(() =>
-            AudioLevelBar.Value = Math.Clamp(level.Peak * 100, AudioLevelBar.Minimum, AudioLevelBar.Maximum));
-    }
-
-    private void TriggerRouter_FloatingWindowToggleRequested(object? sender, EventArgs e)
-    {
-        DispatcherQueue.TryEnqueue(ToggleFloatingMicWindow);
+        {
+            AudioLevelBar.Value = Math.Clamp(level.Peak * 100, AudioLevelBar.Minimum, AudioLevelBar.Maximum);
+            UpdateAudioWaveform(level.Peak);
+        });
     }
 
     private async Task LoadAudioDevicesAsync()
@@ -489,7 +646,8 @@ public sealed partial class MainWindow : Window
         DictationShellState state = _controller.State;
 
         StateText.Text = FormatState(state.SessionState);
-        StatusText.Text = state.StatusText;
+        StatusText.Text = FormatPrimaryStatus(state);
+        StatusSubText.Text = FormatSecondaryStatus(state);
         TargetText.Text = state.TargetDescription;
         UserMessageText.Text = state.UserMessage;
         TranscriptPreviewBox.Text = state.TranscriptPreview;
@@ -502,18 +660,25 @@ public sealed partial class MainWindow : Window
 
         PrimaryButtonLabel.Text = state.IsRunning ? "Stop dictation" : "Start dictation";
         PrimaryButtonIcon.Glyph = state.IsRunning ? "\uE71A" : "\uE720";
+        ApplyMicrophoneVisualState(state);
         AutomationProperties.SetName(PrimaryDictationButton, PrimaryButtonLabel.Text);
         AutomationProperties.SetHelpText(PrimaryDictationButton, state.IsRunning
             ? "Stop recording and finalize the current dictation."
             : "Start recording from the selected microphone.");
         PrimaryDictationButton.IsEnabled = state.CanStart || state.CanStop;
         CancelButton.IsEnabled = state.CanCancel;
+        CancelButton.Visibility = state.CanCancel ? Visibility.Visible : Visibility.Collapsed;
         PauseButtonLabel.Text = state.IsPaused ? "Resume" : "Pause";
         AutomationProperties.SetName(PauseButton, state.IsPaused ? "Resume recording" : "Pause recording");
         PauseButton.IsEnabled = state.CanPause;
+        PauseButton.Visibility = state.IsRunning ? Visibility.Visible : Visibility.Collapsed;
+        MicrophoneReadinessPill.Visibility = state.IsRunning ? Visibility.Collapsed : Visibility.Visible;
         RetryButton.IsEnabled = state.CanRetry;
+        RetryButton.Visibility = state.CanRetry ? Visibility.Visible : Visibility.Collapsed;
         CopyButton.IsEnabled = state.CanCopy;
+        CopyButton.Visibility = state.CanCopy ? Visibility.Visible : Visibility.Collapsed;
         InsertPreviewButton.IsEnabled = state.CanInsertPreview;
+        InsertPreviewButton.Visibility = state.CanInsertPreview ? Visibility.Visible : Visibility.Collapsed;
         ReplaceSelectionCheckBox.IsEnabled = state.CanInsertPreview;
         ReplaceSelectionCheckBox.Visibility = state.CanInsertPreview
             ? Visibility.Visible
@@ -529,19 +694,197 @@ public sealed partial class MainWindow : Window
         if (!state.IsRunning)
         {
             AudioLevelBar.Value = 0;
+            UpdateAudioWaveform(0);
         }
 
         StatusPillText.Text = state.SessionState == DictationSessionState.Idle
             ? "Ready"
             : FormatState(state.SessionState);
+        ListeningNavDot.Visibility = state.IsRunning ? Visibility.Visible : Visibility.Collapsed;
+        bool hasRecent = !string.IsNullOrWhiteSpace(state.TranscriptPreview) ||
+            state.CanRetry ||
+            state.CanCopy ||
+            state.CanInsertPreview;
+        CurrentTranscriptCard.Visibility = hasRecent ? Visibility.Visible : Visibility.Collapsed;
+        EmptyRecentCard.Visibility = hasRecent ? Visibility.Collapsed : Visibility.Visible;
         AutomationProperties.SetName(StateText, $"State: {FormatState(state.SessionState)}");
-        AutomationProperties.SetName(StatusText, $"Status: {state.StatusText}");
+        AutomationProperties.SetName(StatusText, $"Status: {FormatPrimaryStatus(state)}");
         AutomationProperties.SetName(UserMessageText, state.UserMessage);
         AutomationProperties.SetName(TargetText, $"Target: {state.TargetDescription}");
         DiagnosticsSnapshotText.Text = FormatDiagnosticsSnapshot(_controller.LastResult);
 
         _trayIconService.UpdateDictationState(state.IsRunning);
-        _floatingMicWindow?.UpdateState(state);
+    }
+
+    private string FormatPrimaryStatus(DictationShellState state)
+    {
+        string shortcut = string.IsNullOrWhiteSpace(_triggerService.Configuration.PushToTalkKey)
+            ? "your shortcut"
+            : _triggerService.Configuration.PushToTalkKey;
+        return state.SessionState switch
+        {
+            DictationSessionState.Recording => "Listening…",
+            DictationSessionState.Paused => "Paused",
+            DictationSessionState.TranscribingFinalAudio => "Catching up…",
+            DictationSessionState.InsertingText => "Adding your words…",
+            DictationSessionState.PreparingTarget => "Getting ready…",
+            DictationSessionState.RequestingMicrophone => "Checking your microphone…",
+            DictationSessionState.Failed => "Something needs attention",
+            DictationSessionState.Cancelled => "Dictation cancelled",
+            _ => $"Hold {shortcut} to dictate anywhere"
+        };
+    }
+
+    private string FormatSecondaryStatus(DictationShellState state)
+    {
+        ModelCatalogEntry model = _transcriptionOptionsProvider.GetSelectedModelEntry(_settings);
+        string compute = (_settings.BackendPreference == ComputeBackend.Auto
+            ? "automatic compute"
+            : _settings.BackendPreference.ToString().ToUpperInvariant());
+        return state.SessionState switch
+        {
+            DictationSessionState.Recording => "Speak naturally — your audio stays on this PC",
+            DictationSessionState.Paused => "Resume when you're ready",
+            DictationSessionState.TranscribingFinalAudio => $"Transcribing with {model.DisplayName} · nothing leaves this PC",
+            DictationSessionState.InsertingText => "Returning your text to the app where you were typing",
+            DictationSessionState.Failed => state.UserMessage,
+            _ => $"{model.DisplayName} · on this PC · {compute}"
+        };
+    }
+
+    private void InitializeWaveform()
+    {
+        AudioWaveformPanel.Children.Clear();
+        _waveformBars.Clear();
+        for (int index = 0; index < WaveformBarCount; index++)
+        {
+            double idleHeight = 4 + ((index * 7) % 5);
+            var bar = new Border
+            {
+                Width = 3,
+                Height = idleHeight,
+                VerticalAlignment = VerticalAlignment.Center,
+                Background = GetBrush("ShrutiBorderStrongBrush"),
+                CornerRadius = new CornerRadius(2),
+                Opacity = 0
+            };
+            _waveformBars.Add(bar);
+            AudioWaveformPanel.Children.Add(bar);
+        }
+    }
+
+    private void UpdateAudioWaveform(double peak)
+    {
+        bool active = _controller.State.SessionState == DictationSessionState.Recording;
+        double normalizedPeak = Math.Clamp(peak, 0, 1);
+        for (int index = 0; index < _waveformBars.Count; index++)
+        {
+            double shape = 0.35 + (Math.Abs(Math.Sin(index * 1.73)) * 0.65);
+            _waveformBars[index].Height = active
+                ? Math.Max(4, 5 + (normalizedPeak * 23 * shape))
+                : 4 + ((index * 7) % 5);
+            _waveformBars[index].Background = GetBrush(
+                active ? "ShrutiAccentVividBrush" : "ShrutiBorderStrongBrush");
+            _waveformBars[index].Opacity = active ? 1 : 0;
+        }
+    }
+
+    private void ApplyMicrophoneVisualState(DictationShellState state)
+    {
+        string backgroundKey;
+        string foregroundKey;
+        string borderKey;
+        bool pulse = false;
+        switch (state.SessionState)
+        {
+            case DictationSessionState.Recording:
+                backgroundKey = "ShrutiAccentVividBrush";
+                foregroundKey = "ShrutiAccentForegroundBrush";
+                borderKey = "ShrutiAccentVividBrush";
+                pulse = true;
+                break;
+            case DictationSessionState.Paused:
+                backgroundKey = "ShrutiWarningSoftBrush";
+                foregroundKey = "ShrutiWarningBrush";
+                borderKey = "ShrutiWarningSoftBrush";
+                break;
+            case DictationSessionState.Failed:
+                backgroundKey = "ShrutiDangerSoftBrush";
+                foregroundKey = "ShrutiDangerBrush";
+                borderKey = "ShrutiDangerSoftBrush";
+                break;
+            case DictationSessionState.TranscribingFinalAudio:
+            case DictationSessionState.InsertingText:
+                backgroundKey = "ShrutiCardBrush";
+                foregroundKey = "ShrutiAccentBrush";
+                borderKey = "ShrutiBorderStrongBrush";
+                break;
+            default:
+                backgroundKey = "ShrutiCardBrush";
+                foregroundKey = "ShrutiTextSecondaryBrush";
+                borderKey = "ShrutiBorderStrongBrush";
+                break;
+        }
+
+        PrimaryDictationButton.Background = GetBrush(backgroundKey);
+        PrimaryDictationButton.Foreground = GetBrush(foregroundKey);
+        PrimaryDictationButton.BorderBrush = GetBrush(borderKey);
+        if (pulse)
+        {
+            StartMicPulse();
+        }
+        else
+        {
+            StopMicPulse();
+        }
+    }
+
+    private void StartMicPulse()
+    {
+        if (_micPulseStoryboard is not null)
+        {
+            return;
+        }
+
+        var duration = new Duration(TimeSpan.FromSeconds(1.6));
+        var scaleX = new DoubleAnimation { From = 1, To = 1.35, Duration = duration };
+        var scaleY = new DoubleAnimation { From = 1, To = 1.35, Duration = duration };
+        var opacity = new DoubleAnimation { From = 0.38, To = 0, Duration = duration };
+        Storyboard.SetTarget(scaleX, MicPulseScale);
+        Storyboard.SetTarget(scaleY, MicPulseScale);
+        Storyboard.SetTarget(opacity, MicPulseRing);
+        Storyboard.SetTargetProperty(scaleX, "ScaleX");
+        Storyboard.SetTargetProperty(scaleY, "ScaleY");
+        Storyboard.SetTargetProperty(opacity, "Opacity");
+        _micPulseStoryboard = new Storyboard { RepeatBehavior = RepeatBehavior.Forever };
+        _micPulseStoryboard.Children.Add(scaleX);
+        _micPulseStoryboard.Children.Add(scaleY);
+        _micPulseStoryboard.Children.Add(opacity);
+        _micPulseStoryboard.Begin();
+    }
+
+    private void StopMicPulse()
+    {
+        _micPulseStoryboard?.Stop();
+        _micPulseStoryboard = null;
+        MicPulseScale.ScaleX = 1;
+        MicPulseScale.ScaleY = 1;
+        MicPulseRing.Opacity = 0;
+    }
+
+    private SolidColorBrush GetBrush(string key)
+    {
+        ResourceDictionary applicationResources = Application.Current.Resources;
+        string themeKey = Root.ActualTheme == ElementTheme.Dark ? "Dark" : "Light";
+        if (applicationResources.ThemeDictionaries.TryGetValue(themeKey, out object? themeResources) &&
+            themeResources is ResourceDictionary themeDictionary &&
+            themeDictionary.TryGetValue(key, out object? themeValue) &&
+            themeValue is SolidColorBrush themeBrush)
+        {
+            return themeBrush;
+        }
+
+        return (SolidColorBrush)applicationResources[key];
     }
 
     private ElementTheme GetSelectedTheme()
@@ -598,6 +941,7 @@ public sealed partial class MainWindow : Window
             ModelsDirectoryText.Text = $"Storage: {_modelManager.ModelsDirectory}";
             RenderModelCatalog();
             UpdateSelectedModelStatus();
+            UpdateOnboardingModelState();
         }
         catch (Exception ex)
         {
@@ -610,12 +954,32 @@ public sealed partial class MainWindow : Window
     {
         ModelListPanel.Children.Clear();
         int installedCount = _modelCatalog.Models.Count(model => FindInstalledModel(model.Id) is not null);
+        IReadOnlyList<ModelCatalogEntry> visibleModels = _modelCatalog.Models
+            .Where(model => ModelCatalogFiltering.IsVisibleForBackend(
+                model,
+                _settings.SelectedModelId,
+                _modelBackendFilter,
+                GetAvailableBackends(model)))
+            .ToArray();
         if (!_isModelOperationRunning)
         {
-            ModelsStatusText.Text = $"{installedCount} of {_modelCatalog.Models.Count} recommended models installed.";
+            if (_modelBackendFilter == ComputeBackend.Auto)
+            {
+                ModelsStatusText.Text = installedCount == 1
+                    ? "1 model on this PC"
+                    : $"{installedCount} models on this PC";
+            }
+            else
+            {
+                int compatibleCount = visibleModels.Count(model =>
+                    GetAvailableBackends(model).Contains(_modelBackendFilter));
+                ModelsStatusText.Text = compatibleCount == 1
+                    ? $"1 model for {_modelBackendFilter.ToString().ToUpperInvariant()}"
+                    : $"{compatibleCount} models for {_modelBackendFilter.ToString().ToUpperInvariant()}";
+            }
         }
 
-        foreach (ModelCatalogEntry model in _modelCatalog.Models)
+        foreach (ModelCatalogEntry model in visibleModels)
         {
             ModelListPanel.Children.Add(CreateModelCard(model));
         }
@@ -626,35 +990,49 @@ public sealed partial class MainWindow : Window
         InstalledModel? installed = FindInstalledModel(model.Id);
         bool isInstalled = installed is not null;
         bool isSelected = string.Equals(_settings.SelectedModelId, model.Id, StringComparison.Ordinal);
+        ComputeBackend compute = isSelected
+            ? _settings.BackendPreference == ComputeBackend.Auto
+                ? _resolvedBackend
+                : _settings.BackendPreference
+            : _modelBackendFilter != ComputeBackend.Auto && GetAvailableBackends(model).Contains(_modelBackendFilter)
+                ? _modelBackendFilter
+                : model.SupportedBackends.FirstOrDefault(ComputeBackend.Cpu);
 
         var card = new Border
         {
             Style = (Style)Root.Resources["CardBorderStyle"],
-            Padding = new Thickness(18)
+            Padding = new Thickness(20, 16, 20, 16),
+            BorderBrush = GetBrush(isSelected ? "ShrutiAccentBrush" : "ShrutiBorderSubtleBrush")
         };
         var grid = new Grid { ColumnSpacing = 16 };
         grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
         grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
 
         var details = new StackPanel { Spacing = 5 };
-        details.Children.Add(new TextBlock
+        var titleRow = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8 };
+        titleRow.Children.Add(new TextBlock
         {
             Text = model.DisplayName,
-            FontSize = 17,
+            FontSize = 16,
             FontWeight = Microsoft.UI.Text.FontWeights.SemiBold
         });
+        if (isSelected)
+        {
+            titleRow.Children.Add(CreateBadge("Active", "ShrutiAccentBrush", "ShrutiAccentSoftBrush"));
+        }
+        else if (isInstalled)
+        {
+            titleRow.Children.Add(CreateBadge("✓ Installed", "ShrutiSuccessBrush", "ShrutiSuccessSoftBrush"));
+        }
+
+        (string computeForeground, string computeBackground) = GetComputeBrushKeys(compute);
+        titleRow.Children.Add(CreateBadge(compute.ToString().ToUpperInvariant(), computeForeground, computeBackground));
+        details.Children.Add(titleRow);
         details.Children.Add(new TextBlock
         {
             Text = FormatModelDetails(model),
             FontSize = 12,
-            Style = (Style)Root.Resources["MutedTextStyle"]
-        });
-        details.Children.Add(new TextBlock
-        {
-            Text = isInstalled
-                ? $"Installed and verified. File: {Path.GetFileName(installed!.LocalPath)}"
-                : "Not installed. Download or import the verified model before selecting it.",
-            FontSize = 12,
+            FontFamily = new FontFamily("Cascadia Code, Consolas"),
             Style = (Style)Root.Resources["MutedTextStyle"]
         });
         grid.Children.Add(details);
@@ -669,17 +1047,13 @@ public sealed partial class MainWindow : Window
 
         if (isSelected)
         {
-            actions.Children.Add(new TextBlock
-            {
-                Text = "Selected",
-                VerticalAlignment = VerticalAlignment.Center
-            });
+            actions.Children.Add(CreateBadge("In use", "ShrutiAccentBrush", "ShrutiAccentSoftBrush"));
         }
-        else
+        else if (!isInstalled)
         {
             var selectButton = new Button
             {
-                Content = "Select",
+                Content = "Set active",
                 Tag = model.Id,
                 IsEnabled = isInstalled && !_isModelOperationRunning
             };
@@ -690,43 +1064,98 @@ public sealed partial class MainWindow : Window
             actions.Children.Add(selectButton);
         }
 
-        var downloadButton = new Button
+        if (!isInstalled)
         {
-            Content = "Download",
-            Tag = model.Id,
-            IsEnabled = !isInstalled && model.DownloadUri is not null && !_isModelOperationRunning
-        };
-        ToolTipService.SetToolTip(downloadButton, model.DownloadUri is null
-            ? "This catalog entry does not have a download URL."
-            : $"Download and verify {model.DisplayName}.");
-        downloadButton.Click += DownloadModelButton_Click;
-        actions.Children.Add(downloadButton);
+            var downloadButton = new Button
+            {
+                Content = "Download",
+                Tag = model.Id,
+                IsEnabled = (model.DownloadUri is not null || model.IsBundle) && !_isModelOperationRunning
+            };
+            ToolTipService.SetToolTip(downloadButton, model.DownloadUri is null && !model.IsBundle
+                ? "This catalog entry does not have a download URL."
+                : $"Download and verify {model.DisplayName}.");
+            downloadButton.Click += DownloadModelButton_Click;
+            actions.Children.Add(downloadButton);
 
-        var importButton = new Button
+            if (!model.IsBundle)
+            {
+                var importButton = new Button
+                {
+                    Content = "Import",
+                    Tag = model.Id,
+                    IsEnabled = !_isModelOperationRunning
+                };
+                ToolTipService.SetToolTip(importButton, $"Import a local file for {model.DisplayName} and verify it.");
+                importButton.Click += ImportModelButton_Click;
+                actions.Children.Add(importButton);
+            }
+        }
+        else if (!isSelected)
         {
-            Content = "Import",
-            Tag = model.Id,
-            IsEnabled = !isInstalled && !_isModelOperationRunning
-        };
-        ToolTipService.SetToolTip(importButton, $"Import a local file for {model.DisplayName} and verify it.");
-        importButton.Click += ImportModelButton_Click;
-        actions.Children.Add(importButton);
+            var removeButton = new Button
+            {
+                Content = new FontIcon
+                {
+                    FontFamily = new FontFamily("Segoe Fluent Icons"),
+                    FontSize = 15,
+                    Glyph = "\uE74D"
+                },
+                Tag = model.Id,
+                IsEnabled = !_isModelOperationRunning,
+                Width = 32,
+                Height = 32,
+                Padding = new Thickness(0)
+            };
+            AutomationProperties.SetName(removeButton, $"Remove {model.DisplayName}");
+            ToolTipService.SetToolTip(removeButton, $"Remove {model.DisplayName} from local storage.");
+            removeButton.Click += RemoveModelButton_Click;
+            actions.Children.Add(removeButton);
 
-        var removeButton = new Button
-        {
-            Content = "Remove",
-            Tag = model.Id,
-            IsEnabled = isInstalled && !isSelected && !_isModelOperationRunning
-        };
-        ToolTipService.SetToolTip(removeButton, isSelected
-            ? "Select another installed model before removing this one."
-            : $"Remove {model.DisplayName} from local storage.");
-        removeButton.Click += RemoveModelButton_Click;
-        actions.Children.Add(removeButton);
+            var selectButton = new Button
+            {
+                Content = "Set active",
+                Tag = model.Id,
+                IsEnabled = !_isModelOperationRunning
+            };
+            ToolTipService.SetToolTip(selectButton, $"Use {model.DisplayName} for dictation.");
+            selectButton.Click += SelectModelButton_Click;
+            actions.Children.Add(selectButton);
+        }
 
         grid.Children.Add(actions);
         card.Child = grid;
         return card;
+    }
+
+    private Border CreateBadge(string text, string foregroundKey, string backgroundKey)
+    {
+        return new Border
+        {
+            Height = 22,
+            Padding = new Thickness(9, 0, 9, 0),
+            Background = GetBrush(backgroundKey),
+            CornerRadius = new CornerRadius(11),
+            Child = new TextBlock
+            {
+                Text = text,
+                FontSize = 12,
+                FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
+                Foreground = GetBrush(foregroundKey),
+                VerticalAlignment = VerticalAlignment.Center
+            }
+        };
+    }
+
+    private static (string Foreground, string Background) GetComputeBrushKeys(ComputeBackend backend)
+    {
+        return backend switch
+        {
+            ComputeBackend.Npu => ("ShrutiNpuBrush", "ShrutiNpuSoftBrush"),
+            ComputeBackend.Gpu => ("ShrutiGpuBrush", "ShrutiGpuSoftBrush"),
+            ComputeBackend.Cpu => ("ShrutiCpuBrush", "ShrutiCpuSoftBrush"),
+            _ => ("ShrutiTextSecondaryBrush", "ShrutiSunkenBrush")
+        };
     }
 
     private InstalledModel? FindInstalledModel(string modelId)
@@ -781,8 +1210,10 @@ public sealed partial class MainWindow : Window
         if (TryGetModelFromSender(sender, out ModelCatalogEntry model) &&
             FindInstalledModel(model.Id) is not null)
         {
-            await SetSelectedModelAsync(model.Id);
-            ModelsStatusText.Text = $"{model.DisplayName} selected for dictation.";
+            if (await SetSelectedModelAsync(model.Id))
+            {
+                ModelsStatusText.Text = $"{model.DisplayName} selected for dictation.";
+            }
         }
     }
 
@@ -858,8 +1289,10 @@ public sealed partial class MainWindow : Window
             if (result.Succeeded)
             {
                 await RefreshInstalledModelsAsync();
-                await SetSelectedModelAsync(model.Id, refreshModels: false);
-                finalStatusText = $"{model.DisplayName} installed and selected for dictation.";
+                bool selected = await SetSelectedModelAsync(model.Id, refreshModels: false);
+                finalStatusText = selected
+                    ? $"{model.DisplayName} installed and selected for dictation."
+                    : $"{model.DisplayName} installed, but it cannot run on the selected processor.";
             }
             else
             {
@@ -893,40 +1326,83 @@ public sealed partial class MainWindow : Window
             {
                 ModelDownloadProgressBar.IsIndeterminate = false;
                 ModelDownloadProgressBar.Value = Math.Clamp(fraction * 100, 0, 100);
+                OnboardingModelProgressBar.IsIndeterminate = false;
+                OnboardingModelProgressBar.Value = Math.Clamp(fraction * 100, 0, 100);
             }
             else
             {
                 ModelDownloadProgressBar.IsIndeterminate = true;
+                OnboardingModelProgressBar.IsIndeterminate = true;
             }
         });
     }
 
-    private async Task SetSelectedModelAsync(string modelId, bool refreshModels = true)
+    private async Task<bool> SetSelectedModelAsync(string modelId, bool refreshModels = true)
     {
-        if (_transcriptionOptionsProvider.FindModel(modelId) is null)
+        ModelCatalogEntry? selectedModel = _transcriptionOptionsProvider.FindModel(modelId);
+        if (selectedModel is null)
         {
-            return;
+            return false;
         }
 
-        _settings = _settings with { SelectedModelId = modelId };
+        ComputeBackend requestedBackend = _modelBackendFilter != ComputeBackend.Auto
+            ? _modelBackendFilter
+            : _settings.BackendPreference;
+        IReadOnlySet<ComputeBackend> availableBackends = GetAvailableBackends(selectedModel);
+        ComputeBackend backendPreference = ModelCatalogFiltering.NormalizeBackendPreference(
+            selectedModel,
+            requestedBackend,
+            availableBackends);
+        if (_modelBackendFilter != ComputeBackend.Auto && backendPreference != _modelBackendFilter)
+        {
+            ModelsStatusText.Text =
+                $"{selectedModel.DisplayName} cannot run on {_modelBackendFilter.ToString().ToUpperInvariant()} on this PC.";
+            return false;
+        }
+
+        if (!await _transcriptionOptionsProvider.CanRunModelAsync(
+                selectedModel,
+                backendPreference,
+                CancellationToken.None))
+        {
+            ModelsStatusText.Text = backendPreference == ComputeBackend.Auto
+                ? $"{selectedModel.DisplayName} is not ready to run on this PC."
+                : $"{selectedModel.DisplayName} cannot run on {backendPreference.ToString().ToUpperInvariant()} on this PC.";
+            return false;
+        }
+
+        _settings = _settings with
+        {
+            SelectedModelId = modelId,
+            BackendPreference = backendPreference
+        };
         _transcriptionOptionsProvider.ApplySettings(_settings);
         SelectModelComboBoxItem(modelId);
+        SelectBackendPreferenceWithoutPersist(backendPreference);
         await _settingsRepository.SaveAsync(_settings, CancellationToken.None);
         UpdateSelectedModelStatus();
+        ModelSummaryText.Text = _transcriptionOptionsProvider.GetSelectedModelEntry(_settings).DisplayName;
+        UpdateOnboardingModelState();
         await RefreshTranscriptionReadinessAsync();
         if (refreshModels)
         {
             RenderModelCatalog();
         }
+
+        return true;
     }
 
     private void UpdateSelectedModelStatus()
     {
         ModelCatalogEntry selected = _transcriptionOptionsProvider.GetSelectedModelEntry(_settings);
         InstalledModel? installed = FindInstalledModel(selected.Id);
+        SettingsActiveModelNameText.Text = "Active model";
+        string compute = _settings.BackendPreference == ComputeBackend.Auto
+            ? _resolvedBackend.ToString().ToUpperInvariant()
+            : _settings.BackendPreference.ToString().ToUpperInvariant();
         SelectedModelStatusText.Text = installed is null
-            ? $"{selected.DisplayName} is not installed. Download or import it from Models before dictation can use it."
-            : $"{selected.DisplayName} is installed and ready for readiness checks.";
+            ? $"{selected.DisplayName} · not installed"
+            : $"{selected.DisplayName} · {compute} · on this PC";
     }
 
     private static string FormatModelDetails(ModelCatalogEntry model)
@@ -936,7 +1412,7 @@ public sealed partial class MainWindow : Window
             model.SupportedBackends
                 .Where(backend => backend != ComputeBackend.Auto)
                 .DefaultIfEmpty(ComputeBackend.Cpu));
-        return $"{model.LanguageHint.ToUpperInvariant()} - {FormatBytes(model.SizeBytes)} - {model.FileFormat} - {backends}";
+        return $"{model.LanguageHint.ToUpperInvariant()} · {FormatBytes(model.SizeBytes)} · {model.FileFormat} · {backends}";
     }
 
     private static string FormatBytes(long bytes)
@@ -1011,7 +1487,7 @@ public sealed partial class MainWindow : Window
             HoldShortcutText.Text = string.IsNullOrWhiteSpace(configuration.PushToTalkKey)
                 ? "Hold shortcut"
                 : configuration.PushToTalkKey;
-            UpdateFloatingMicWindow();
+            UpdateView();
             TriggerStatusText.Text = "Triggers are active.";
             if (persist)
             {
@@ -1028,26 +1504,23 @@ public sealed partial class MainWindow : Window
     private TriggerConfiguration GetTriggerConfigurationFromControls()
     {
         return new TriggerConfiguration(
-            EnableGlobalHotkey: GlobalHotkeyCheckBox.IsChecked == true,
-            EnablePushToTalk: PushToTalkCheckBox.IsChecked == true,
-            EnableFloatingButton: FloatingButtonCheckBox.IsChecked == true,
-            EnableTrayMenu: TrayMenuCheckBox.IsChecked == true,
+            EnableGlobalHotkey: GlobalHotkeyCheckBox.IsOn,
+            EnablePushToTalk: PushToTalkCheckBox.IsOn,
+            EnableFloatingButton: false,
+            EnableTrayMenu: TrayMenuCheckBox.IsOn,
             HotkeyGesture: HotkeyGestureTextBox.Text,
             PushToTalkKey: PushToTalkKeyTextBox.Text,
-            EnableFloatingWindowShortcut: FloatingWindowShortcutCheckBox.IsChecked == true,
-            FloatingWindowShortcut: FloatingWindowShortcutTextBox.Text);
+            EnableFloatingWindowShortcut: false,
+            FloatingWindowShortcut: null);
     }
 
     private void ApplyTriggerConfigurationToControls(TriggerConfiguration configuration)
     {
-        GlobalHotkeyCheckBox.IsChecked = configuration.EnableGlobalHotkey;
-        PushToTalkCheckBox.IsChecked = configuration.EnablePushToTalk;
-        FloatingButtonCheckBox.IsChecked = configuration.EnableFloatingButton;
-        FloatingWindowShortcutCheckBox.IsChecked = configuration.EnableFloatingWindowShortcut;
-        TrayMenuCheckBox.IsChecked = configuration.EnableTrayMenu;
+        GlobalHotkeyCheckBox.IsOn = configuration.EnableGlobalHotkey;
+        PushToTalkCheckBox.IsOn = configuration.EnablePushToTalk;
+        TrayMenuCheckBox.IsOn = configuration.EnableTrayMenu;
         HotkeyGestureTextBox.Text = configuration.HotkeyGesture ?? string.Empty;
         PushToTalkKeyTextBox.Text = configuration.PushToTalkKey ?? string.Empty;
-        FloatingWindowShortcutTextBox.Text = configuration.FloatingWindowShortcut ?? string.Empty;
         HoldShortcutText.Text = string.IsNullOrWhiteSpace(configuration.PushToTalkKey)
             ? "Hold shortcut"
             : configuration.PushToTalkKey;
@@ -1095,6 +1568,12 @@ public sealed partial class MainWindow : Window
                 _isApplyingSettings = false;
                 _settingsLoaded = true;
             }
+
+            UpdateComputeButtons();
+            if (!_settings.HasCompletedOnboarding)
+            {
+                ShowOnboarding();
+            }
         }
         finally
         {
@@ -1111,6 +1590,7 @@ public sealed partial class MainWindow : Window
         SelectModelComboBoxItem(settings.SelectedModelId);
         AllowSlowTranscriptionCheckBox.IsChecked = settings.AllowSlowTranscription;
         ApplyTriggerConfigurationToControls(settings.TriggerConfiguration);
+        UpdateComputeButtons();
     }
 
     private async Task PersistSettingsAsync()
@@ -1123,15 +1603,32 @@ public sealed partial class MainWindow : Window
         await _settingsGate.WaitAsync();
         try
         {
+            string selectedModelId = GetSelectedModelId();
+            ModelCatalogEntry selectedModel = _transcriptionOptionsProvider.FindModel(selectedModelId) ??
+                _transcriptionOptionsProvider.DefaultModel;
+            ComputeBackend requestedBackend = GetSelectedBackendPreference();
+            ComputeBackend backendPreference = ModelCatalogFiltering.NormalizeBackendPreference(
+                selectedModel,
+                requestedBackend,
+                GetAvailableBackends(selectedModel));
+            if (backendPreference != requestedBackend)
+            {
+                SelectBackendPreferenceWithoutPersist(backendPreference);
+                SelectedModelStatusText.Text =
+                    $"{selectedModel.DisplayName} cannot run on {requestedBackend.ToString().ToUpperInvariant()} on this PC. " +
+                    "The processor setting was reset to automatic.";
+            }
+
             _settings = new ShrutiSettings
             {
                 AudioInputDeviceId = _controller.AudioOptions.DeviceId,
-                SelectedModelId = GetSelectedModelId(),
+                SelectedModelId = selectedModelId,
                 InsertionMode = GetSelectedInsertionMode(),
                 ThemePreference = GetSelectedThemePreference(),
                 AudioRetentionPolicy = GetSelectedAudioRetentionPolicy(),
-                BackendPreference = GetSelectedBackendPreference(),
+                BackendPreference = backendPreference,
                 AllowSlowTranscription = AllowSlowTranscriptionCheckBox.IsChecked == true,
+                HasCompletedOnboarding = _settings.HasCompletedOnboarding,
                 TriggerConfiguration = GetTriggerConfigurationFromControls()
             };
             _transcriptionOptionsProvider.ApplySettings(_settings);
@@ -1145,6 +1642,20 @@ public sealed partial class MainWindow : Window
         finally
         {
             _settingsGate.Release();
+        }
+    }
+
+    private void SelectBackendPreferenceWithoutPersist(ComputeBackend backend)
+    {
+        bool wasApplyingSettings = _isApplyingSettings;
+        _isApplyingSettings = true;
+        try
+        {
+            SelectComboBoxItem(BackendPreferenceComboBox, backend.ToString());
+        }
+        finally
+        {
+            _isApplyingSettings = wasApplyingSettings;
         }
     }
 
@@ -1171,24 +1682,149 @@ public sealed partial class MainWindow : Window
         };
     }
 
+    private void UpdateComputeButtons()
+    {
+        ComputeBackend selected = GetSelectedBackendPreference();
+        UpdateComputeButtonGroup(
+            [BackendAutoButton, BackendNpuButton, BackendGpuButton, BackendCpuButton],
+            _modelBackendFilter,
+            GetCatalogAvailableBackends(),
+            filtersModels: true);
+        UpdateComputeButtonGroup(
+            [SettingsBackendNpuButton, SettingsBackendGpuButton, SettingsBackendCpuButton],
+            selected == ComputeBackend.Auto ? _resolvedBackend : selected,
+            GetAvailableBackends(_transcriptionOptionsProvider.GetSelectedModelEntry(_settings)),
+            filtersModels: false);
+
+        UpdateActiveComputeBadge(selected);
+    }
+
+    private void UpdateComputeButtonGroup(
+        IEnumerable<Button> buttons,
+        ComputeBackend selected,
+        IReadOnlySet<ComputeBackend> availableBackends,
+        bool filtersModels)
+    {
+        foreach (Button button in buttons)
+        {
+            bool isSelected = button.Tag is string tag &&
+                Enum.TryParse(tag, out ComputeBackend candidate) &&
+                candidate == selected;
+            if (button.Tag is string backendTag && Enum.TryParse(backendTag, out ComputeBackend backend))
+            {
+                button.IsEnabled = backend == ComputeBackend.Auto || availableBackends.Contains(backend);
+                ToolTipService.SetToolTip(
+                    button,
+                    button.IsEnabled
+                        ? filtersModels
+                            ? $"Show models that can run on {backend}."
+                            : $"Run the active model on {backend}."
+                        : filtersModels
+                            ? $"No catalog model can run on {backend} on this PC."
+                            : $"{backend} is not available for the active model on this PC.");
+            }
+            button.Background = isSelected
+                ? GetBrush("ShrutiCardBrush")
+                : new SolidColorBrush(Windows.UI.Color.FromArgb(0, 0, 0, 0));
+            button.BorderBrush = isSelected
+                ? GetBrush("ShrutiBorderSubtleBrush")
+                : new SolidColorBrush(Windows.UI.Color.FromArgb(0, 0, 0, 0));
+            button.Foreground = GetBrush(isSelected ? "ShrutiTextPrimaryBrush" : "ShrutiTextSecondaryBrush");
+        }
+    }
+
+    private void UpdateActiveComputeBadge(ComputeBackend backend)
+    {
+        (string foreground, string background) = GetComputeBrushKeys(backend);
+        ActiveComputeBadgeText.Text = backend == ComputeBackend.Auto
+            ? "AUTO"
+            : backend.ToString().ToUpperInvariant();
+        ActiveComputeBadgeText.Foreground = GetBrush(foreground);
+        ActiveComputeBadgeBorder.Background = GetBrush(background);
+    }
+
+    private void ShowOnboarding()
+    {
+        OnboardingLayer.Visibility = Visibility.Visible;
+        SetOnboardingStep(0);
+    }
+
+    private async Task ReplayOnboardingAsync()
+    {
+        _settings = _settings with { HasCompletedOnboarding = false };
+        if (_settingsLoaded)
+        {
+            try
+            {
+                await _settingsRepository.SaveAsync(_settings, CancellationToken.None);
+            }
+            catch (Exception ex)
+            {
+                TriggerStatusText.Text = $"Welcome could not be reset: {DiagnosticTextRedactor.Redact(ex.Message)}";
+            }
+        }
+
+        ShowOnboarding();
+    }
+
+    private void SetOnboardingStep(int step)
+    {
+        _onboardingStep = Math.Clamp(step, 0, 4);
+        OnboardingWelcomeStep.Visibility = _onboardingStep == 0 ? Visibility.Visible : Visibility.Collapsed;
+        OnboardingMicrophoneStep.Visibility = _onboardingStep == 1 ? Visibility.Visible : Visibility.Collapsed;
+        OnboardingModelStep.Visibility = _onboardingStep == 2 ? Visibility.Visible : Visibility.Collapsed;
+        OnboardingHotkeyStep.Visibility = _onboardingStep == 3 ? Visibility.Visible : Visibility.Collapsed;
+        OnboardingDoneStep.Visibility = _onboardingStep == 4 ? Visibility.Visible : Visibility.Collapsed;
+
+        OnboardingMicStatusText.Text = _audioDevicesLoaded
+            ? "Microphone ready"
+            : "We will check your Windows microphone access.";
+        OnboardingHotkeyText.Text = string.IsNullOrWhiteSpace(_triggerService.Configuration.PushToTalkKey)
+            ? "Hold shortcut"
+            : _triggerService.Configuration.PushToTalkKey;
+        UpdateOnboardingModelState();
+
+        Border[] dots = [OnboardingDot0, OnboardingDot1, OnboardingDot2, OnboardingDot3, OnboardingDot4];
+        for (int index = 0; index < dots.Length; index++)
+        {
+            dots[index].Width = index == _onboardingStep ? 20 : 8;
+            dots[index].Background = GetBrush(
+                index <= _onboardingStep ? "ShrutiAccentBrush" : "ShrutiBorderStrongBrush");
+        }
+    }
+
+    private void UpdateOnboardingModelState()
+    {
+        ModelCatalogEntry model = _transcriptionOptionsProvider.GetSelectedModelEntry(_settings);
+        bool installed = FindInstalledModel(model.Id) is not null;
+        OnboardingModelNameText.Text = model.DisplayName;
+        OnboardingModelMetaText.Text = $"{FormatBytes(model.SizeBytes)} · {model.LanguageHint.ToUpperInvariant()} · on this PC";
+        OnboardingModelActionButton.Content = installed ? "Continue" : "Download";
+        OnboardingDoneText.Text = $"{model.DisplayName} is ready. Hold {(_triggerService.Configuration.PushToTalkKey ?? "your shortcut")} to dictate anywhere.";
+    }
+
     private async Task RefreshTranscriptionReadinessAsync()
     {
         try
         {
+            await RefreshComputeAvailabilityAsync();
+            await NormalizeActiveBackendPreferenceAsync();
             TranscriptionModelDescriptor model = _transcriptionOptionsProvider.CreateModelDescriptor();
             TranscriptionReadinessResult readiness = await _transcriptionOptionsProvider
                 .EvaluateReadinessAsync(CancellationToken.None);
             string backend = readiness.SelectedBackend?.ToString() ?? _settings.BackendPreference.ToString();
             string device = readiness.DeviceName ?? "No compatible device";
+            _resolvedBackend = readiness.SelectedBackend ??
+                (_settings.BackendPreference == ComputeBackend.Auto ? ComputeBackend.Cpu : _settings.BackendPreference);
 
             ModelSummaryText.Text = model.DisplayName;
-            BackendSummaryText.Text = readiness.CanProceed
-                ? $"{readiness.Provider?.DisplayName ?? model.ProviderId} / {backend}"
-                : "Unavailable";
+            BackendSummaryText.Text = "on this PC";
             ActiveBackendText.Text = readiness.CanProceed
                 ? $"{readiness.Provider?.DisplayName ?? model.ProviderId} / {backend} / {device}"
                 : $"{model.ProviderId} / {backend} / unavailable";
             BackendReadinessText.Text = FormatReadiness(readiness);
+            UpdateActiveComputeBadge(readiness.SelectedBackend ?? _settings.BackendPreference);
+            UpdateComputeButtons();
             UpdateSelectedModelStatus();
         }
         catch (Exception ex)
@@ -1197,7 +1833,52 @@ public sealed partial class MainWindow : Window
             ActiveBackendText.Text = "Unavailable";
             BackendReadinessText.Text = DiagnosticTextRedactor.Redact(ex.Message);
             SelectedModelStatusText.Text = "Model status unavailable.";
+            UpdateActiveComputeBadge(_settings.BackendPreference);
         }
+    }
+
+    private async Task RefreshComputeAvailabilityAsync()
+    {
+        var availability = new Dictionary<string, IReadOnlySet<ComputeBackend>>(StringComparer.Ordinal);
+        foreach (ModelCatalogEntry model in _modelCatalog.Models)
+        {
+            availability[model.Id] = await _transcriptionOptionsProvider
+                .GetAvailableBackendsAsync(model, CancellationToken.None);
+        }
+
+        _availableBackendsByModel = availability;
+        UpdateComputeButtons();
+        RenderModelCatalog();
+    }
+
+    private async Task NormalizeActiveBackendPreferenceAsync()
+    {
+        ModelCatalogEntry activeModel = _transcriptionOptionsProvider.GetSelectedModelEntry(_settings);
+        ComputeBackend normalizedBackend = ModelCatalogFiltering.NormalizeBackendPreference(
+            activeModel,
+            _settings.BackendPreference,
+            GetAvailableBackends(activeModel));
+        if (normalizedBackend == _settings.BackendPreference)
+        {
+            return;
+        }
+
+        _settings = _settings with { BackendPreference = normalizedBackend };
+        _transcriptionOptionsProvider.ApplySettings(_settings);
+        SelectBackendPreferenceWithoutPersist(normalizedBackend);
+        await _settingsRepository.SaveAsync(_settings, CancellationToken.None);
+    }
+
+    private IReadOnlySet<ComputeBackend> GetAvailableBackends(ModelCatalogEntry model)
+    {
+        return _availableBackendsByModel.TryGetValue(model.Id, out IReadOnlySet<ComputeBackend>? backends)
+            ? backends
+            : new HashSet<ComputeBackend>();
+    }
+
+    private IReadOnlySet<ComputeBackend> GetCatalogAvailableBackends()
+    {
+        return _availableBackendsByModel.Values.SelectMany(backends => backends).ToHashSet();
     }
 
     private static string FormatReadiness(TranscriptionReadinessResult readiness)
@@ -1290,58 +1971,6 @@ public sealed partial class MainWindow : Window
         }
     }
 
-    private void UpdateFloatingMicWindow()
-    {
-        bool shouldShow = (_triggerService.Configuration.EnableFloatingButton || _floatingMicShownForSession) &&
-            !_floatingMicDismissedForSession;
-        if (!shouldShow)
-        {
-            HideFloatingMicWindow();
-            return;
-        }
-
-        _floatingMicWindow ??= CreateFloatingMicWindow();
-        _floatingMicWindow.Show(
-            _controller.State,
-            GetSelectedTheme(),
-            _triggerService.Configuration.PushToTalkKey);
-    }
-
-    private FloatingMicWindow CreateFloatingMicWindow()
-    {
-        var floatingMicWindow = new FloatingMicWindow(_windowVisibility);
-        floatingMicWindow.TriggerRequested += FloatingMicWindow_TriggerRequested;
-        floatingMicWindow.DismissRequested += FloatingMicWindow_DismissRequested;
-        return floatingMicWindow;
-    }
-
-    private async void FloatingMicWindow_TriggerRequested(object? sender, EventArgs e)
-    {
-        await RaiseTriggerAsync(DictationTriggerKind.FloatingButton, "floating-button");
-    }
-
-    private void FloatingMicWindow_DismissRequested(object? sender, EventArgs e)
-    {
-        _floatingMicDismissedForSession = true;
-        _floatingMicShownForSession = false;
-        HideFloatingMicWindow();
-    }
-
-    private void ToggleFloatingMicWindow()
-    {
-        if (_floatingMicWindow?.IsVisible == true)
-        {
-            _floatingMicDismissedForSession = true;
-            _floatingMicShownForSession = false;
-            HideFloatingMicWindow();
-            return;
-        }
-
-        _floatingMicDismissedForSession = false;
-        _floatingMicShownForSession = true;
-        UpdateFloatingMicWindow();
-    }
-
     private async void TrayIconService_CommandInvoked(WindowsTrayCommand command)
     {
         switch (command)
@@ -1414,32 +2043,21 @@ public sealed partial class MainWindow : Window
     private void ShowPage(string page)
     {
         bool isHome = string.Equals(page, "Home", StringComparison.OrdinalIgnoreCase);
-        bool isHistory = string.Equals(page, "History", StringComparison.OrdinalIgnoreCase);
         bool isModels = string.Equals(page, "Models", StringComparison.OrdinalIgnoreCase);
         bool isSettings = string.Equals(page, "Settings", StringComparison.OrdinalIgnoreCase);
+        if (!isHome && !isModels && !isSettings)
+        {
+            isHome = true;
+            page = "Home";
+        }
+
+        _currentPage = page;
 
         HomePage.Visibility = isHome ? Visibility.Visible : Visibility.Collapsed;
-        HistoryPage.Visibility = isHistory ? Visibility.Visible : Visibility.Collapsed;
         ModelsPage.Visibility = isModels ? Visibility.Visible : Visibility.Collapsed;
         SettingsPanel.Visibility = isSettings ? Visibility.Visible : Visibility.Collapsed;
 
-        PageTitleText.Text = page switch
-        {
-            "History" => "Dictation history",
-            "Models" => "Models",
-            "Settings" => "Settings",
-            _ => "Ready to dictate"
-        };
-        PageSubtitleText.Text = page switch
-        {
-            "History" => "Review dictations when local history is connected.",
-            "Models" => "Inspect the local speech models Shruti can use.",
-            "Settings" => "Configure Shruti for the way you work.",
-            _ => "Hold your shortcut, speak naturally, and release to finish."
-        };
-
         SetNavigationButtonState(HomeNavButton, isHome);
-        SetNavigationButtonState(HistoryNavButton, isHistory);
         SetNavigationButtonState(ModelsNavButton, isModels);
         SetNavigationButtonState(SettingsNavButton, isSettings);
 
@@ -1449,37 +2067,37 @@ public sealed partial class MainWindow : Window
         }
     }
 
-    private static void SetNavigationButtonState(Button button, bool isSelected)
+    private void SetNavigationButtonState(Button button, bool isSelected)
     {
+        SolidColorBrush foreground = GetBrush(isSelected ? "ShrutiAccentBrush" : "ShrutiTextSecondaryBrush");
+        SolidColorBrush background = isSelected
+            ? GetBrush("ShrutiAccentSoftBrush")
+            : new SolidColorBrush(Windows.UI.Color.FromArgb(0, 0, 0, 0));
+
         button.FontWeight = isSelected ? Microsoft.UI.Text.FontWeights.SemiBold : Microsoft.UI.Text.FontWeights.Normal;
-        button.Opacity = isSelected ? 1 : 0.72;
+        button.Opacity = 1;
+        button.Background = background;
+        button.Foreground = foreground;
+
+        // The stock Button template supplies its own pointer-over and pressed colors.
+        // Override those resources per navigation state so hovering the selected item
+        // cannot replace its accent treatment with the default button foreground.
+        button.Resources["ButtonForegroundPointerOver"] = foreground;
+        button.Resources["ButtonForegroundPressed"] = foreground;
+        button.Resources["ButtonBackgroundPointerOver"] = isSelected
+            ? background
+            : GetBrush("ShrutiHoverBrush");
+        button.Resources["ButtonBackgroundPressed"] = isSelected
+            ? background
+            : GetBrush("ShrutiPressedBrush");
     }
 
     private void QuitApplication()
     {
         _allowClose = true;
-        CloseFloatingMicWindowForApplicationExit();
         DisposeNativeTriggers();
         Close();
         Application.Current.Exit();
-    }
-
-    private void HideFloatingMicWindow()
-    {
-        _floatingMicWindow?.Hide();
-    }
-
-    private void CloseFloatingMicWindowForApplicationExit()
-    {
-        if (_floatingMicWindow is null)
-        {
-            return;
-        }
-
-        _floatingMicWindow.TriggerRequested -= FloatingMicWindow_TriggerRequested;
-        _floatingMicWindow.DismissRequested -= FloatingMicWindow_DismissRequested;
-        _floatingMicWindow.CloseForApplicationExit();
-        _floatingMicWindow = null;
     }
 
     private void DisposeNativeTriggers()
@@ -1491,7 +2109,6 @@ public sealed partial class MainWindow : Window
 
         _isDisposed = true;
         _controller.AudioLevelChanged -= Controller_AudioLevelChanged;
-        _triggerRouter.FloatingWindowToggleRequested -= TriggerRouter_FloatingWindowToggleRequested;
         _triggerDispatchCancellation.Cancel();
         _targetFocusService.Dispose();
         _trayIconService.CommandInvoked -= TrayIconService_CommandInvoked;
@@ -1519,4 +2136,7 @@ public sealed partial class MainWindow : Window
             _ => state.ToString()
         };
     }
+
+    [DllImport("user32.dll")]
+    private static extern uint GetDpiForWindow(IntPtr hwnd);
 }

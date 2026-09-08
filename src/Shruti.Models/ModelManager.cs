@@ -46,7 +46,9 @@ public sealed class ModelManager : IModelManager
             cancellationToken.ThrowIfCancellationRequested();
 
             InstalledModel? model = await ReadMetadataAsync(metadataPath, cancellationToken).ConfigureAwait(false);
-            if (model is not null && IsWithinModelsDirectory(model.LocalPath) && File.Exists(model.LocalPath))
+            if (model is not null &&
+                IsWithinModelsDirectory(model.LocalPath) &&
+                (File.Exists(model.LocalPath) || Directory.Exists(model.LocalPath)))
             {
                 installed.Add(model);
             }
@@ -61,6 +63,11 @@ public sealed class ModelManager : IModelManager
         CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(entry);
+
+        if (entry.IsBundle)
+        {
+            return await DownloadBundleAsync(entry, progress, cancellationToken).ConfigureAwait(false);
+        }
 
         if (entry.DownloadUri is null || entry.Integrity is null)
         {
@@ -189,6 +196,10 @@ public sealed class ModelManager : IModelManager
         {
             File.Delete(installed.LocalPath);
         }
+        else if (Directory.Exists(installed.LocalPath))
+        {
+            Directory.Delete(installed.LocalPath, recursive: true);
+        }
 
         DeleteIfExists(metadataPath);
         return true;
@@ -226,6 +237,138 @@ public sealed class ModelManager : IModelManager
         return new ModelInstallResult(ModelInstallStatus.AlreadyInstalled, installed);
     }
 
+    private async Task<ModelInstallResult> DownloadBundleAsync(
+        ModelCatalogEntry entry,
+        IProgress<ModelDownloadProgress>? progress,
+        CancellationToken cancellationToken)
+    {
+        IReadOnlyList<ModelArtifact> artifacts = entry.Artifacts!;
+        if (artifacts.Count == 0)
+        {
+            return new ModelInstallResult(ModelInstallStatus.Failed, Message: "A model bundle requires artifacts.");
+        }
+
+        try
+        {
+            string destinationPath = GetDestinationPath(entry);
+            Directory.CreateDirectory(ModelsDirectory);
+
+            if (Directory.Exists(destinationPath) &&
+                await VerifyBundleAsync(destinationPath, artifacts, cancellationToken).ConfigureAwait(false))
+            {
+                InstalledModel? existingMetadata = await ReadMetadataAsync(
+                        GetMetadataPath(entry.Id),
+                        cancellationToken)
+                    .ConfigureAwait(false);
+                InstalledModel installed = existingMetadata ?? CreateInstalledModel(
+                    entry,
+                    destinationPath,
+                    ModelInstallSource.Download,
+                    artifacts.Sum(artifact => artifact.SizeBytes));
+                if (existingMetadata is null)
+                {
+                    await WriteMetadataAsync(installed, cancellationToken).ConfigureAwait(false);
+                }
+
+                return new ModelInstallResult(ModelInstallStatus.AlreadyInstalled, installed);
+            }
+
+            string partialPath = CreatePartialPath(destinationPath);
+            Directory.CreateDirectory(partialPath);
+            long completedBytes = 0;
+            long totalBytes = artifacts.Sum(artifact => artifact.SizeBytes);
+            try
+            {
+                foreach (ModelArtifact artifact in artifacts)
+                {
+                    cancellationToken.ThrowIfCancellationRequested();
+                    string artifactPath = GetArtifactPath(partialPath, artifact.RelativePath);
+                    string? parentDirectory = Path.GetDirectoryName(artifactPath);
+                    if (!string.IsNullOrEmpty(parentDirectory))
+                    {
+                        Directory.CreateDirectory(parentDirectory);
+                    }
+
+                    long completedBeforeArtifact = completedBytes;
+                    IProgress<ModelDownloadProgress>? artifactProgress = progress is null
+                        ? null
+                        : new DelegatingProgress<ModelDownloadProgress>(value => progress.Report(
+                            new ModelDownloadProgress(completedBeforeArtifact + value.BytesReceived, totalBytes)));
+                    await _downloadClient.DownloadAsync(
+                            artifact.DownloadUri,
+                            artifactPath,
+                            artifactProgress,
+                            cancellationToken)
+                        .ConfigureAwait(false);
+
+                    ModelIntegrityVerification verification = await _integrityVerifier
+                        .VerifyAsync(artifactPath, artifact.Integrity, cancellationToken)
+                        .ConfigureAwait(false);
+                    if (!verification.IsMatch)
+                    {
+                        return new ModelInstallResult(
+                            ModelInstallStatus.IntegrityFailed,
+                            Message: $"The {artifact.Integrity.Algorithm} hash did not match for '{artifact.RelativePath}'.");
+                    }
+
+                    completedBytes += artifact.SizeBytes;
+                    progress?.Report(new ModelDownloadProgress(completedBytes, totalBytes));
+                }
+
+                if (Directory.Exists(destinationPath))
+                {
+                    Directory.Delete(destinationPath, recursive: true);
+                }
+
+                Directory.Move(partialPath, destinationPath);
+                InstalledModel installed = CreateInstalledModel(
+                    entry,
+                    destinationPath,
+                    ModelInstallSource.Download,
+                    completedBytes);
+                await WriteMetadataAsync(installed, cancellationToken).ConfigureAwait(false);
+                return new ModelInstallResult(ModelInstallStatus.Installed, installed);
+            }
+            finally
+            {
+                DeleteDirectoryIfExists(partialPath);
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (Exception exception)
+        {
+            return new ModelInstallResult(ModelInstallStatus.Failed, Message: exception.Message, Error: exception);
+        }
+    }
+
+    private async Task<bool> VerifyBundleAsync(
+        string bundlePath,
+        IReadOnlyList<ModelArtifact> artifacts,
+        CancellationToken cancellationToken)
+    {
+        foreach (ModelArtifact artifact in artifacts)
+        {
+            string artifactPath = GetArtifactPath(bundlePath, artifact.RelativePath);
+            if (!File.Exists(artifactPath))
+            {
+                return false;
+            }
+
+            ModelIntegrityVerification verification = await _integrityVerifier
+                .VerifyAsync(artifactPath, artifact.Integrity, cancellationToken)
+                .ConfigureAwait(false);
+            if (!verification.IsMatch)
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
     private async Task<ModelInstallResult> CompleteInstallAsync(
         ModelCatalogEntry entry,
         string partialPath,
@@ -252,14 +395,15 @@ public sealed class ModelManager : IModelManager
     private InstalledModel CreateInstalledModel(
         ModelCatalogEntry entry,
         string destinationPath,
-        ModelInstallSource source)
+        ModelInstallSource source,
+        long? sizeBytes = null)
     {
         return new InstalledModel(
             entry,
             destinationPath,
             source,
             DateTimeOffset.UtcNow,
-            new FileInfo(destinationPath).Length,
+            sizeBytes ?? new FileInfo(destinationPath).Length,
             IntegrityVerified: true);
     }
 
@@ -280,6 +424,21 @@ public sealed class ModelManager : IModelManager
         }
 
         return destinationPath;
+    }
+
+    private string GetArtifactPath(string bundlePath, string relativePath)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(relativePath);
+        string fullPath = Path.GetFullPath(Path.Combine(bundlePath, relativePath));
+        string relativeToBundle = Path.GetRelativePath(bundlePath, fullPath);
+        if (relativeToBundle.Equals("..", StringComparison.Ordinal) ||
+            relativeToBundle.StartsWith($"..{Path.DirectorySeparatorChar}", StringComparison.Ordinal) ||
+            Path.IsPathRooted(relativeToBundle))
+        {
+            throw new ArgumentException("Model artifact paths must remain within the model bundle.", nameof(relativePath));
+        }
+
+        return fullPath;
     }
 
     private string GetMetadataPath(string modelId)
@@ -356,5 +515,18 @@ public sealed class ModelManager : IModelManager
         {
             File.Delete(path);
         }
+    }
+
+    private static void DeleteDirectoryIfExists(string path)
+    {
+        if (Directory.Exists(path))
+        {
+            Directory.Delete(path, recursive: true);
+        }
+    }
+
+    private sealed class DelegatingProgress<T>(Action<T> report) : IProgress<T>
+    {
+        public void Report(T value) => report(value);
     }
 }

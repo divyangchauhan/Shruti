@@ -261,7 +261,7 @@ Acceptance criteria:
 - [x] Configure optional trusted-certificate code signing and signature verification.
 - [~] Verify install/update/uninstall; guarded lifecycle tooling is ready, signed clean-machine execution remains.
 - [~] Ensure app updates preserve models, settings, transcripts, and retained recordings; lifecycle hashing is ready, signed clean-machine execution remains.
-- [ ] Add installer/bootstrapper if MSIX alone is insufficient.
+- [x] Confirm MSIX alone is sufficient for the initial Windows release; no bootstrapper is required.
 - [ ] Prepare `winget` manifest after installer stabilizes.
 - [ ] Add release notes template.
 
@@ -408,5 +408,5 @@ Acceptance criteria:
 - [ ] Define minimum supported Windows version.
 - [ ] Define minimum supported CPU/RAM profile for MVP.
 - [ ] Decide whether the first `whisper.cpp` provider ships CPU-only or includes an accelerated option.
-- [ ] Decide whether MSIX alone is enough or a bootstrapper is required from day one.
+- [x] Use MSIX alone from day one; reconsider a bootstrapper only if a future external prerequisite requires it.
 - [ ] Decide whether elevated-target insertion is worth a future UIAccess helper, including code signing, secure install location, installer changes, and user trust/security review.

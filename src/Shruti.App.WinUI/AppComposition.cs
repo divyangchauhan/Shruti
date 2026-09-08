@@ -7,6 +7,7 @@ using Shruti.Platform.Windows;
 using Shruti.Storage;
 using Shruti.Transcription.Abstractions;
 using Shruti.Transcription.WhisperCpp;
+using Shruti.Transcription.OpenVino;
 
 namespace Shruti.App.WinUI;
 
@@ -21,8 +22,9 @@ public sealed class AppComposition
     private readonly HttpClient modelHttpClient = new();
     private readonly IModelManager modelManager;
     private readonly ModelCatalogEntry defaultModel;
-    private readonly WhisperCppTranscriptionProvider transcriptionProvider = new(
+    private readonly WhisperCppTranscriptionProvider whisperCppProvider = new(
         new WhisperCppTranscriptionEngine(new WhisperCppNativeApi()));
+    private readonly OpenVinoTranscriptionProvider openVinoProvider = new();
     private readonly TranscriptionOptionsProvider transcriptionOptionsProvider;
     private readonly WindowsTargetFocusService targetFocusService;
     private readonly ITextInsertionService textInsertionService;
@@ -36,14 +38,16 @@ public sealed class AppComposition
             new ModelIntegrityVerifier());
         targetFocusService = platformModule.CreateTargetFocusService();
         textInsertionService = platformModule.CreateTextInsertionService();
-        ITranscriptionProviderRegistry transcriptionProviderRegistry = new TranscriptionProviderRegistry([transcriptionProvider]);
+        ITranscriptionProviderRegistry transcriptionProviderRegistry = new TranscriptionProviderRegistry(
+            [whisperCppProvider, openVinoProvider]);
         var benchmarkCache = new JsonTranscriptionBenchmarkCache(appDataPaths);
         transcriptionOptionsProvider = new TranscriptionOptionsProvider(
             modelCatalog,
             defaultModel,
             appDataPaths,
             new TranscriptionReadinessService(transcriptionProviderRegistry, benchmarkCache),
-            typeof(WhisperCppTranscriptionProvider).Assembly.GetName().Version?.ToString() ??
+            transcriptionProviderRegistry,
+            typeof(AppComposition).Assembly.GetName().Version?.ToString() ??
                 TranscriptionBenchmarkKey.UnknownProviderVersion);
     }
 
@@ -54,7 +58,8 @@ public sealed class AppComposition
             targetFocusService,
             audioCaptureService,
             textInsertionService,
-            transcriptionProvider);
+            new RoutingTranscriptionProvider(
+                new TranscriptionProviderRegistry([whisperCppProvider, openVinoProvider])));
         var controller = new DictationShellController(
             coordinator,
             audioCaptureService,

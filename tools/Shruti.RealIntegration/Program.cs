@@ -2,8 +2,10 @@ using Shruti.Models;
 using Shruti.Storage;
 using Shruti.Transcription.Abstractions;
 using Shruti.Transcription.WhisperCpp;
+using Shruti.Transcription.OpenVino;
 
 const string jfkAudioUrl = "https://raw.githubusercontent.com/ggml-org/whisper.cpp/5ed76e9a079962f1c85cfce44edd325c27ef1f97/samples/jfk.wav";
+bool useNpu = args.Contains("--npu", StringComparer.OrdinalIgnoreCase);
 
 var paths = AppDataPaths.CreateDefault();
 paths.EnsureCreated();
@@ -13,14 +15,15 @@ var modelManager = new ModelManager(
     paths.ModelsDirectory,
     new HttpModelDownloadClient(httpClient),
     new ModelIntegrityVerifier());
-ModelCatalogEntry modelEntry = RecommendedModelCatalog.Create().GetRequiredModel("whisper-tiny-en");
+ModelCatalogEntry modelEntry = RecommendedModelCatalog.Create().GetRequiredModel(
+    useNpu ? "openvino-whisper-base-int8" : "whisper-tiny-en");
 var progress = new ModelDownloadProgressReporter();
 
 ModelInstallResult install = await modelManager.DownloadAsync(modelEntry, progress, CancellationToken.None);
 Console.WriteLine();
 if (!install.Succeeded || install.Model is null)
 {
-    throw new InvalidOperationException(install.Message ?? "The verified whisper.cpp model could not be installed.");
+    throw new InvalidOperationException(install.Message ?? "The verified transcription model could not be installed.");
 }
 
 string fixtureDirectory = Path.Combine(paths.RootPath, "Integration");
@@ -34,20 +37,26 @@ if (!File.Exists(fixturePath))
 }
 
 byte[] pcmAudio = ReadPcm16Mono16KhzWave(fixturePath);
-var provider = new WhisperCppTranscriptionProvider(
-    new WhisperCppTranscriptionEngine(new WhisperCppNativeApi()));
+ITranscriptionProvider provider = useNpu
+    ? new OpenVinoTranscriptionProvider()
+    : new WhisperCppTranscriptionProvider(new WhisperCppTranscriptionEngine(new WhisperCppNativeApi()));
 var options = new TranscriptionSessionOptions(
     install.Model.ToTranscriptionModelDescriptor(),
-    ComputeBackend.Cpu,
+    useNpu ? ComputeBackend.Npu : ComputeBackend.Cpu,
     "en",
     TranscriptionMode.Balanced);
+IReadOnlyList<EngineCapability> capabilities = await provider.ProbeAsync(CancellationToken.None);
+Console.WriteLine($"Available devices: {string.Join(", ", capabilities.Select(capability => capability.Backend))}");
+Console.WriteLine($"Requested backend: {options.Backend}");
 
 await using ITranscriptionSession session = await provider.CreateSessionAsync(options, CancellationToken.None);
 var partialTranscript = new TaskCompletionSource<TranscriptEvent>(TaskCreationOptions.RunContinuationsAsynchronously);
 Task eventReader = ReadEventsAsync(session.Events, partialTranscript);
 int initialAudioLength = Math.Min(pcmAudio.Length, 16_000 * sizeof(short) * 3);
 await session.PushAudioAsync(pcmAudio.AsMemory(0, initialAudioLength), CancellationToken.None);
-TranscriptEvent partial = await partialTranscript.Task.WaitAsync(TimeSpan.FromMinutes(2));
+TranscriptEvent? partial = useNpu
+    ? null
+    : await partialTranscript.Task.WaitAsync(TimeSpan.FromMinutes(2));
 if (initialAudioLength < pcmAudio.Length)
 {
     await session.PushAudioAsync(pcmAudio.AsMemory(initialAudioLength), CancellationToken.None);
@@ -56,16 +65,19 @@ if (initialAudioLength < pcmAudio.Length)
 TranscriptResult result = await session.CompleteAsync(CancellationToken.None);
 await eventReader;
 
-Console.WriteLine($"Live: {partial.Text}");
+if (partial is not null)
+{
+    Console.WriteLine($"Live: {partial.Text}");
+}
 Console.WriteLine(result.Text);
-if (string.IsNullOrWhiteSpace(partial.Text))
+if (!useNpu && string.IsNullOrWhiteSpace(partial?.Text))
 {
     throw new InvalidOperationException("whisper.cpp did not emit a live partial transcript.");
 }
 
 if (!result.Text.Contains("ask not", StringComparison.OrdinalIgnoreCase))
 {
-    throw new InvalidOperationException("whisper.cpp did not produce the expected JFK transcript.");
+    throw new InvalidOperationException($"{provider.DisplayName} did not produce the expected JFK transcript.");
 }
 
 static async Task ReadEventsAsync(

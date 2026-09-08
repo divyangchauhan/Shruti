@@ -31,12 +31,12 @@ public sealed class WindowsGlobalTriggerService : IGlobalTriggerService, IDispos
     public TriggerConfiguration Configuration { get; private set; } = new(
         EnableGlobalHotkey: false,
         EnablePushToTalk: true,
-        EnableFloatingButton: true,
+        EnableFloatingButton: false,
         EnableTrayMenu: true,
         HotkeyGesture: "Ctrl+Win+Space",
         PushToTalkKey: "Ctrl+Win+Space",
-        EnableFloatingWindowShortcut: true,
-        FloatingWindowShortcut: "Ctrl+Alt+M");
+        EnableFloatingWindowShortcut: false,
+        FloatingWindowShortcut: null);
 
     public IAsyncEnumerable<DictationTriggerEvent> Events => _events.Reader.ReadAllAsync();
 

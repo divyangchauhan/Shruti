@@ -18,10 +18,10 @@ public sealed class JsonSettingsRepositoryTests : IDisposable
 
         Assert.False(configuration.EnableGlobalHotkey);
         Assert.True(configuration.EnablePushToTalk);
-        Assert.True(configuration.EnableFloatingButton);
-        Assert.True(configuration.EnableFloatingWindowShortcut);
+        Assert.False(configuration.EnableFloatingButton);
+        Assert.False(configuration.EnableFloatingWindowShortcut);
         Assert.Equal("Ctrl+Win+Space", configuration.PushToTalkKey);
-        Assert.Equal("Ctrl+Alt+M", configuration.FloatingWindowShortcut);
+        Assert.Null(configuration.FloatingWindowShortcut);
     }
 
     [Fact]
@@ -55,6 +55,7 @@ public sealed class JsonSettingsRepositoryTests : IDisposable
             AudioRetentionPolicy = AudioRetentionPolicy.Keep,
             BackendPreference = ComputeBackend.Cpu,
             AllowSlowTranscription = true,
+            HasCompletedOnboarding = true,
             TriggerConfiguration = new TriggerConfiguration(
                 EnableGlobalHotkey: true,
                 EnablePushToTalk: false,
@@ -124,7 +125,7 @@ public sealed class JsonSettingsRepositoryTests : IDisposable
     }
 
     [Fact]
-    public async Task LoadAsync_AddsFloatingWindowShortcutDefaultsToExistingSettings()
+    public async Task LoadAsync_DisablesFloatingWindowForExistingSettings()
     {
         var paths = new AppDataPaths(_rootPath);
         paths.EnsureCreated();
@@ -145,8 +146,9 @@ public sealed class JsonSettingsRepositoryTests : IDisposable
 
         ShrutiSettings settings = await new JsonSettingsRepository(paths).LoadAsync(CancellationToken.None);
 
-        Assert.True(settings.TriggerConfiguration.EnableFloatingWindowShortcut);
-        Assert.Equal("Ctrl+Alt+M", settings.TriggerConfiguration.FloatingWindowShortcut);
+        Assert.False(settings.TriggerConfiguration.EnableFloatingButton);
+        Assert.False(settings.TriggerConfiguration.EnableFloatingWindowShortcut);
+        Assert.Null(settings.TriggerConfiguration.FloatingWindowShortcut);
     }
 
     [Fact]

@@ -2,8 +2,6 @@ param(
     [string] $Configuration = "Release",
     [string] $Platform = "x64",
     [string] $Version = "0.1.0.0",
-    [ValidateSet("None", "Vulkan", "CUDA")]
-    [string] $GpuBackend = "None",
     [switch] $SkipNativeBuild,
     [string] $Publisher,
     [string] $CertificatePath,
@@ -25,6 +23,8 @@ $outputDirectory = Join-Path $root "artifacts\installer\output"
 $priConfigPath = Join-Path $root "artifacts\installer\priconfig.xml"
 $nativeBuildDirectory = Join-Path $root "artifacts\whispercpp-native"
 $nativeLibraryPath = Join-Path $nativeBuildDirectory "$Configuration\shruti_whisper.dll"
+$openVinoNativeDirectory = Join-Path $root "artifacts\openvino-genai\$Configuration"
+$openVinoGenAiLibraryPath = Join-Path $openVinoNativeDirectory "openvino_genai_c.dll"
 $packagePath = Join-Path $outputDirectory "Shruti-$Version-$Platform.msix"
 
 function Invoke-CheckedCommand {
@@ -189,23 +189,42 @@ function New-PackageLogo {
     Add-Type -AssemblyName System.Drawing
     $bitmap = [System.Drawing.Bitmap]::new($Width, $Height)
     $graphics = [System.Drawing.Graphics]::FromImage($bitmap)
-    $brush = [System.Drawing.SolidBrush]::new([System.Drawing.Color]::FromArgb(17, 24, 39))
-    $accentBrush = [System.Drawing.SolidBrush]::new([System.Drawing.Color]::FromArgb(94, 234, 212))
-    $fontSize = [Math]::Max(18, [Math]::Floor([Math]::Min($Width, $Height) * 0.48))
-    $font = [System.Drawing.Font]::new("Segoe UI", $fontSize, [System.Drawing.FontStyle]::Bold, [System.Drawing.GraphicsUnit]::Pixel)
+    $accentBrush = [System.Drawing.SolidBrush]::new([System.Drawing.Color]::FromArgb(222, 110, 30))
+    $waveBrush = [System.Drawing.SolidBrush]::new([System.Drawing.Color]::White)
+    $glyphSize = [Math]::Min($Width, $Height) * 0.82
+    $glyphX = ($Width - $glyphSize) / 2
+    $glyphY = ($Height - $glyphSize) / 2
+    $cornerRadius = $glyphSize * 0.22
+    $cornerDiameter = $cornerRadius * 2
+    $glyphPath = [System.Drawing.Drawing2D.GraphicsPath]::new()
     try {
         $graphics.Clear([System.Drawing.Color]::Transparent)
-        $graphics.FillRectangle($brush, 0, 0, $Width, $Height)
-        $format = [System.Drawing.StringFormat]::new()
-        $format.Alignment = [System.Drawing.StringAlignment]::Center
-        $format.LineAlignment = [System.Drawing.StringAlignment]::Center
-        $graphics.DrawString("S", $font, $accentBrush, [System.Drawing.RectangleF]::new(0, 0, $Width, $Height), $format)
+        $graphics.SmoothingMode = [System.Drawing.Drawing2D.SmoothingMode]::AntiAlias
+        $glyphPath.AddArc($glyphX, $glyphY, $cornerDiameter, $cornerDiameter, 180, 90)
+        $glyphPath.AddArc($glyphX + $glyphSize - $cornerDiameter, $glyphY, $cornerDiameter, $cornerDiameter, 270, 90)
+        $glyphPath.AddArc($glyphX + $glyphSize - $cornerDiameter, $glyphY + $glyphSize - $cornerDiameter, $cornerDiameter, $cornerDiameter, 0, 90)
+        $glyphPath.AddArc($glyphX, $glyphY + $glyphSize - $cornerDiameter, $cornerDiameter, $cornerDiameter, 90, 90)
+        $glyphPath.CloseFigure()
+        $graphics.FillPath($accentBrush, $glyphPath)
+
+        $barWidth = [Math]::Max(1.5, $glyphSize * 0.065)
+        $barGap = $glyphSize * 0.075
+        $barHeights = @(0.25, 0.48, 0.70, 0.43, 0.22)
+        $waveWidth = ($barWidth * $barHeights.Count) + ($barGap * ($barHeights.Count - 1))
+        $waveX = ($Width - $waveWidth) / 2
+        for ($index = 0; $index -lt $barHeights.Count; $index++) {
+            $barHeight = $glyphSize * $barHeights[$index]
+            $barX = $waveX + ($index * ($barWidth + $barGap))
+            $barY = ($Height - $barHeight) / 2
+            $graphics.FillRectangle($waveBrush, $barX, $barY, $barWidth, $barHeight)
+        }
+
         $bitmap.Save($Path, [System.Drawing.Imaging.ImageFormat]::Png)
     }
     finally {
-        $font.Dispose()
+        $glyphPath.Dispose()
+        $waveBrush.Dispose()
         $accentBrush.Dispose()
-        $brush.Dispose()
         $graphics.Dispose()
         $bitmap.Dispose()
     }
@@ -244,14 +263,22 @@ else {
 }
 
 if (-not $SkipNativeBuild) {
-    & (Join-Path $root "scripts\build-whispercpp.ps1") -Configuration $Configuration -GpuBackend $GpuBackend
+    & (Join-Path $root "scripts\build-whispercpp.ps1") -Configuration $Configuration
     if ($LASTEXITCODE -ne 0) {
         throw "scripts\build-whispercpp.ps1 failed with exit code $LASTEXITCODE."
+    }
+
+    & (Join-Path $root "scripts\build-openvino-genai.ps1") -Configuration $Configuration
+    if ($LASTEXITCODE -ne 0) {
+        throw "scripts\build-openvino-genai.ps1 failed with exit code $LASTEXITCODE."
     }
 }
 
 if (-not (Test-Path $nativeLibraryPath)) {
     throw "Native transcription library missing at $nativeLibraryPath. Run this script without -SkipNativeBuild."
+}
+if (-not (Test-Path $openVinoGenAiLibraryPath)) {
+    throw "OpenVINO GenAI runtime missing at $openVinoNativeDirectory. Run this script without -SkipNativeBuild."
 }
 
 Remove-Item $publishDirectory -Recurse -Force -ErrorAction SilentlyContinue
@@ -287,6 +314,10 @@ Get-ChildItem $appDirectory -Recurse -Filter "*.pdb" | Remove-Item -Force
 $packagedNativeLibrary = Join-Path $appDirectory "shruti_whisper.dll"
 if (-not (Test-Path $packagedNativeLibrary)) {
     throw "Published package layout does not include shruti_whisper.dll."
+}
+$packagedOpenVinoLibrary = Join-Path $appDirectory "openvino_genai_c.dll"
+if (-not (Test-Path $packagedOpenVinoLibrary)) {
+    throw "Published package layout does not include openvino_genai_c.dll."
 }
 
 $manifest = Get-Content $manifestTemplate -Raw
@@ -351,6 +382,7 @@ if ($LASTEXITCODE -ne 0) {
     PackagePath = $packagePath
     StageDirectory = $stageDirectory
     IncludesNativeLibrary = (Test-Path $packagedNativeLibrary)
+    IncludesNpuRuntime = (Test-Path $packagedOpenVinoLibrary)
     RuntimeMode = "SelfContained"
     Publisher = $effectivePublisher
     Signed = $isSigned

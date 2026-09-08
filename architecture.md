@@ -14,7 +14,7 @@ Shruti is a Windows-first native dictation app. The primary workflow is:
 4. Shruti transcribes locally.
 5. Shruti immediately inserts the finalized text back into the previously focused app.
 
-The Windows MVP uses WinUI 3 with Windows App SDK for the native UI and starts with `whisper.cpp` for local transcription. The architecture must keep the transcription engine replaceable so later providers can use ONNX Runtime, Windows ML, DirectML, vendor NPU SDKs, or different ASR models without rewriting the dictation workflow.
+The Windows MVP uses WinUI 3 with Windows App SDK for the native UI, `whisper.cpp` for GGML transcription, and OpenVINO GenAI for runtime-selected CPU, GPU, and Intel NPU transcription. Provider routing keeps the dictation workflow independent of either engine.
 
 ## Architecture Principles
 
@@ -42,18 +42,17 @@ The Windows MVP uses WinUI 3 with Windows App SDK for the native UI and starts w
 ### MVP Transcription
 
 - First provider: `whisper.cpp` compiled as a local native library.
-- Model format: provider-specific. The initial `whisper.cpp` catalog uses verified GGML `.bin` models; the catalog also supports GGUF entries for future providers.
-- Initial execution backend: CPU-only `whisper.cpp`; accelerated backends remain a later provider/readiness concern.
-- Initial compute target: CPU path that is reliable on supported Windows machines.
-- Optional acceleration in the `whisper.cpp` provider can be added only after benchmarking and packaging are stable.
+- Model format: provider-specific. The `whisper.cpp` catalog uses verified GGML `.bin` models; OpenVINO uses a verified multi-file INT8 IR model bundle.
+- Execution backends: Vulkan-enabled `whisper.cpp` provides CPU/GPU execution, while OpenVINO GenAI probes CPU, GPU, and Intel NPU devices at runtime.
+- Compute controls are gated by both the selected model and devices reported by its provider.
 - Provider contract must expose capabilities and measured real-time factor instead of assuming a model/backend is fast enough.
 
-### Future Transcription Providers
+### Additional Transcription Providers
 
 - ONNX Runtime provider for Whisper-family and non-Whisper ASR models.
 - Windows ML provider if it gives better access to Windows-managed acceleration.
 - DirectML or vendor execution providers where practical.
-- NPU-specific providers are expected to be fragmented; isolate them as provider implementations, not as core app assumptions.
+- Additional NPU vendors remain provider-specific; do not make Intel OpenVINO behavior a core workflow assumption.
 
 ## Proposed Solution Layout
 
@@ -76,6 +75,8 @@ src/
     C# adapter around native whisper.cpp bindings
   Shruti.Transcription.WhisperCpp.Native/
     C/C++ shim and bundled whisper.cpp build artifacts
+  Shruti.Transcription.OpenVino/
+    OpenVINO GenAI adapter for CPU, GPU, and Intel NPU devices
   Shruti.Models/
     Model catalog, download, verification, import/remove
   Shruti.Storage/
@@ -183,18 +184,27 @@ The native binding should be intentionally small. Prefer a C ABI shim over bindi
 
 The `scripts/run-real-transcription.ps1` integration path builds the shim, installs the verified default model in local app data, and transcribes a pinned speech fixture through the managed provider.
 
+### `Shruti.Transcription.OpenVino`
+
+Owns the OpenVINO GenAI adapter:
+
+- Probes OpenVINO devices at runtime and maps them to CPU, GPU, and NPU capabilities.
+- Loads the official OpenVINO Whisper Base INT8 IR model bundle.
+- Uses the OpenVINO GenAI C API for final transcription and caches the compiled pipeline.
+- Uses the static Whisper pipeline required by Intel NPU execution.
+
 ### `Shruti.Models`
 
 Owns model lifecycle:
 
 - Recommended model catalog.
-- First-run download flow for 2-3 supported models.
+- First-run download flow for supported single-file and bundled models.
 - Hash verification.
 - Local import/remove.
 - Model compatibility filtering by provider, language, size, and backend.
 - Disk usage reporting.
 
-The catalog records the model file format and hash algorithm so verified GGML, GGUF, and future provider assets can coexist without assuming a single artifact format.
+The catalog records the model file format and per-artifact hash so verified GGML, GGUF, and OpenVINO IR assets can coexist without assuming a single-file model.
 
 The catalog should include enough metadata to prevent users from selecting models that cannot run acceptably on their machine.
 

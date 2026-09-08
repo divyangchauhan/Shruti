@@ -61,37 +61,42 @@ The real integration command builds the release native shim, downloads the verif
 .\scripts\run-real-transcription.ps1
 ```
 
+To exercise the installed NPU with the OpenVINO INT8 model:
+
+```powershell
+.\scripts\run-real-transcription.ps1 -Npu
+```
+
 Model files and integration data are stored under `%LOCALAPPDATA%\Shruti` and are intentionally excluded from Git.
 
 ## Run The Windows App
 
-Build the debug native shim first, then start the WinUI project:
+Build the native runtimes, then start the WinUI project:
 
 ```powershell
-.\scripts\build-whispercpp.ps1 -Configuration Debug
+.\scripts\build.ps1 -Configuration Debug
 dotnet run --project src\Shruti.App.WinUI\Shruti.App.WinUI.csproj --configuration Debug -p:Platform=x64
 ```
 
-The default native shim is CPU-only. To build a GPU-enabled `whisper.cpp` shim, pass a concrete backend:
+The default build includes CPU, Vulkan GPU, and OpenVINO CPU/GPU/NPU runtimes. The app probes the current machine and disables a compute choice when the selected model or hardware cannot use it. No feature flag is required for the normal build.
+
+The Vulkan SDK, including `glslc`, is required to produce the default GPU-enabled `whisper.cpp` runtime. The build uses a short GPU build directory to avoid Windows path-length failures in the upstream Vulkan shader generator, then stages `shruti_whisper.dll` for the app and package scripts.
+
+For an explicit native-only rebuild:
 
 ```powershell
-.\scripts\build-whispercpp.ps1 -Configuration Debug -GpuBackend Vulkan
-# or, on machines with the CUDA toolkit configured:
-.\scripts\build-whispercpp.ps1 -Configuration Debug -GpuBackend CUDA
+.\scripts\build-whispercpp.ps1 -Configuration Debug
+.\scripts\build-openvino-genai.ps1 -Configuration Debug
 ```
 
-Vulkan builds require the Vulkan SDK, including `glslc`. The build script uses a short GPU build directory to avoid Windows path-length failures in the upstream Vulkan shader generator, then copies `shruti_whisper.dll` back into `artifacts\whispercpp-native\<Configuration>` for the app and package scripts.
-
-GPU is exposed in the app only when the native shim was built with a GPU backend and `whisper.cpp` reports a GPU device. NPU is not implemented by the current `whisper.cpp` GGML provider; selecting NPU reports unsupported until a separate NPU-capable provider is added.
-
-The app expects the recommended `ggml-tiny.en.bin` model in `%LOCALAPPDATA%\Shruti\Models`. Run the local transcription smoke test once to download it, or install/import a verified model through the model workflow.
+The model screen offers the GGML English models for CPU/GPU and the official OpenVINO Whisper Base INT8 model for CPU/GPU/NPU. Downloads are SHA-verified and stored under `%LOCALAPPDATA%\Shruti\Models`.
 
 ## Repository Layout
 
 - `src/Shruti.App.WinUI`: WinUI 3 application shell, tray integration, settings, and floating microphone control.
 - `src/Shruti.Core`: dictation workflow, state machine, and platform-independent service contracts.
 - `src/Shruti.Audio.Windows` and `src/Shruti.Platform.Windows`: WASAPI capture, triggers, focus restoration, insertion, and Windows integration.
-- `src/Shruti.Transcription.*`: provider abstractions plus the `whisper.cpp` managed adapter and native C ABI shim.
+- `src/Shruti.Transcription.*`: provider abstractions plus `whisper.cpp` and OpenVINO GenAI adapters.
 - `src/Shruti.Models` and `src/Shruti.Storage`: local model lifecycle, settings, and persistence.
 - `tests/Shruti.Tests`: unit and integration-style tests.
 - `tools/Shruti.RealIntegration`: real local `whisper.cpp` smoke test.

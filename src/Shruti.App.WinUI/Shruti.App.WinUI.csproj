@@ -5,6 +5,7 @@
         <TargetPlatformMinVersion>10.0.19041.0</TargetPlatformMinVersion>
         <RootNamespace>Shruti.App.WinUI</RootNamespace>
         <ApplicationManifest>app.manifest</ApplicationManifest>
+        <ApplicationIcon>Assets\Shruti.ico</ApplicationIcon>
         <UseWinUI>true</UseWinUI>
         <WindowsPackageType>None</WindowsPackageType>
     </PropertyGroup>
@@ -14,11 +15,19 @@
     </ItemGroup>
 
     <ItemGroup>
+        <Content Include="Assets\Shruti.ico">
+            <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+            <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+        </Content>
+    </ItemGroup>
+
+    <ItemGroup>
         <ProjectReference Include="..\Shruti.Core\Shruti.Core.csproj" />
         <ProjectReference Include="..\Shruti.Audio.Windows\Shruti.Audio.Windows.csproj" />
         <ProjectReference Include="..\Shruti.Platform.Windows\Shruti.Platform.Windows.csproj" />
         <ProjectReference Include="..\Shruti.Transcription.Abstractions\Shruti.Transcription.Abstractions.csproj" />
         <ProjectReference Include="..\Shruti.Transcription.WhisperCpp\Shruti.Transcription.WhisperCpp.csproj" />
+        <ProjectReference Include="..\Shruti.Transcription.OpenVino\Shruti.Transcription.OpenVino.csproj" />
         <ProjectReference Include="..\Shruti.Models\Shruti.Models.csproj" />
         <ProjectReference Include="..\Shruti.Storage\Shruti.Storage.csproj" />
         <ProjectReference Include="..\Shruti.Workflow\Shruti.Workflow.csproj" />

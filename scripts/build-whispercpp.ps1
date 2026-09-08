@@ -2,18 +2,12 @@
 param(
     [ValidateSet("Debug", "Release")]
     [string]$Configuration = "Release",
-    [ValidateSet("None", "Vulkan", "CUDA")]
-    [string]$GpuBackend = "None",
     [string]$BuildPath
 )
 
 $repositoryRoot = Split-Path -Parent $PSScriptRoot
 
 function Add-VulkanSdkToPath {
-    if ($GpuBackend -ne "Vulkan") {
-        return
-    }
-
     $vulkanSdk = $env:VULKAN_SDK
     if ([string]::IsNullOrWhiteSpace($vulkanSdk)) {
         $vulkanSdk = [Environment]::GetEnvironmentVariable("VULKAN_SDK", "Machine")
@@ -36,12 +30,11 @@ function Add-VulkanSdkToPath {
     }
 }
 
-function Get-DefaultGpuBuildPath {
-    $suffix = $GpuBackend.ToLowerInvariant()
+function Get-DefaultNativeBuildPath {
     $driveRoot = [System.IO.Path]::GetPathRoot($repositoryRoot)
     $candidates = @(
-        (Join-Path $driveRoot "shruti-native-$suffix"),
-        (Join-Path ([System.IO.Path]::GetTempPath()) "s-$suffix")
+        (Join-Path $driveRoot "shruti-native-vulkan"),
+        (Join-Path ([System.IO.Path]::GetTempPath()) "s-vulkan")
     )
 
     foreach ($candidate in $candidates) {
@@ -75,13 +68,13 @@ else {
 $sourcePath = Join-Path $repositoryRoot "src\Shruti.Transcription.WhisperCpp.Native"
 $artifactBuildPath = Join-Path $repositoryRoot "artifacts\whispercpp-native"
 if ([string]::IsNullOrWhiteSpace($BuildPath)) {
-    $buildPath = if ($GpuBackend -eq "None") { $artifactBuildPath } else { Get-DefaultGpuBuildPath }
+    $buildPath = Get-DefaultNativeBuildPath
 }
 else {
     $buildPath = $BuildPath
 }
 
-& $cmakePath -S $sourcePath -B $buildPath -G "Visual Studio 17 2022" -A x64 "-DSHRUTI_WHISPER_GPU_BACKEND=$GpuBackend"
+& $cmakePath -S $sourcePath -B $buildPath -G "Visual Studio 17 2022" -A x64
 if ($LASTEXITCODE -ne 0) {
     exit $LASTEXITCODE
 }

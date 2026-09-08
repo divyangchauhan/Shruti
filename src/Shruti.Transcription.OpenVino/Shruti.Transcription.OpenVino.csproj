@@ -1,0 +1,23 @@
+<Project Sdk="Microsoft.NET.Sdk">
+    <PropertyGroup>
+        <TargetFramework>net8.0</TargetFramework>
+        <RootNamespace>Shruti.Transcription.OpenVino</RootNamespace>
+        <OpenVinoNativeDirectory>$(MSBuildThisFileDirectory)..\..\artifacts\openvino-genai\$(Configuration)</OpenVinoNativeDirectory>
+    </PropertyGroup>
+
+    <ItemGroup>
+        <ProjectReference Include="..\Shruti.Transcription.Abstractions\Shruti.Transcription.Abstractions.csproj" />
+        <Content Include="$(OpenVinoNativeDirectory)\*.dll"
+                 Link="%(Filename)%(Extension)"
+                 CopyToOutputDirectory="PreserveNewest"
+                 Condition="Exists('$(OpenVinoNativeDirectory)')" />
+        <Content Include="$(OpenVinoNativeDirectory)\plugins.xml"
+                 Link="plugins.xml"
+                 CopyToOutputDirectory="PreserveNewest"
+                 Condition="Exists('$(OpenVinoNativeDirectory)\plugins.xml')" />
+        <Content Include="$(OpenVinoNativeDirectory)\cache.json"
+                 Link="cache.json"
+                 CopyToOutputDirectory="PreserveNewest"
+                 Condition="Exists('$(OpenVinoNativeDirectory)\cache.json')" />
+    </ItemGroup>
+</Project>
