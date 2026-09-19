@@ -140,10 +140,10 @@ public sealed class TranscriptionReadinessService
         }
 
         return candidates
-            .OrderBy(candidate => candidate.Benchmark?.RealtimeFactor ??
+            .OrderBy(candidate => BackendRank(candidate.Capability.Backend))
+            .ThenBy(candidate => candidate.Benchmark?.RealtimeFactor ??
                 candidate.Capability.MeasuredRealtimeFactor ??
                 double.MaxValue)
-            .ThenBy(candidate => BackendRank(candidate.Capability.Backend))
             .First();
     }
 
@@ -151,8 +151,8 @@ public sealed class TranscriptionReadinessService
     {
         return backend switch
         {
-            ComputeBackend.Npu => 0,
-            ComputeBackend.Gpu => 1,
+            ComputeBackend.Gpu => 0,
+            ComputeBackend.Npu => 1,
             ComputeBackend.Cpu => 2,
             _ => 3
         };

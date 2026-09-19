@@ -6,5 +6,6 @@ public enum DictationRunOutcome
     PreviewRequired,
     CopyOnly,
     Cancelled,
-    Failed
+    Failed,
+    NoSpeech
 }

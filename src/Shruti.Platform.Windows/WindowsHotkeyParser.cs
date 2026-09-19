@@ -4,6 +4,22 @@ namespace Shruti.Platform.Windows;
 
 public static class WindowsHotkeyParser
 {
+    public static bool TryParseHoldShortcut(string? gesture, out WindowsHotkey? hotkey, out string? error)
+    {
+        if (TryParse(gesture, out hotkey, out error)) return true;
+        string[] parts = (gesture ?? string.Empty).Split('+', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries);
+        uint modifiers = 0;
+        foreach (string part in parts)
+        {
+            if (!TryGetModifier(part, out uint modifier, out _) || (modifiers & modifier) != 0) return false;
+            modifiers |= modifier;
+        }
+        if (parts.Length < 2) return false;
+        hotkey = new WindowsHotkey(modifiers, 0, CreateCanonicalGesture(modifiers, string.Empty).TrimEnd('+'));
+        error = null;
+        return true;
+    }
+
     public const uint AltModifier = 0x0001;
     public const uint ControlModifier = 0x0002;
     public const uint ShiftModifier = 0x0004;
@@ -139,6 +155,17 @@ public static class WindowsHotkeyParser
 
 public static class WindowsVirtualKey
 {
+    public static bool TryFormat(uint key, out string? name)
+    {
+        name = key switch
+        {
+            >= 0x30 and <= 0x39 or >= 0x41 and <= 0x5A => ((char)key).ToString(),
+            >= 0x70 and <= 0x87 => $"F{key - 0x70 + 1}",
+            _ => NamedKeys.Values.FirstOrDefault(value => value.Key == key).Canonical
+        };
+        return name is not null;
+    }
+
     private static readonly IReadOnlyDictionary<string, (uint Key, string Canonical)> NamedKeys =
         new Dictionary<string, (uint Key, string Canonical)>(StringComparer.OrdinalIgnoreCase)
         {

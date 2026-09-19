@@ -50,7 +50,7 @@ public sealed class DictationCoordinatorTests
     }
 
     [Fact]
-    public async Task TranscriptProgress_ForwardsLivePartialTextBeforeTheFinalResult()
+    public async Task TranscriptProgress_ForwardsOnlyFinalText()
     {
         var services = TestServices.Create();
         var transcriptProgress = new RecordingProgress<TranscriptEvent>();
@@ -61,10 +61,8 @@ public sealed class DictationCoordinatorTests
         var result = await services.Coordinator.RunOnceAsync(request, CancellationToken.None);
 
         Assert.Equal(DictationRunOutcome.Inserted, result.Outcome);
-        Assert.Contains(
-            transcriptProgress.Values,
-            transcriptEvent => transcriptEvent.Kind == TranscriptEventKind.PartialText &&
-                transcriptEvent.Text == "hello from shruti partial");
+        Assert.DoesNotContain(transcriptProgress.Values,
+            transcriptEvent => transcriptEvent.Kind == TranscriptEventKind.PartialText);
         Assert.Contains(
             transcriptProgress.Values,
             transcriptEvent => transcriptEvent.Kind == TranscriptEventKind.Completed &&

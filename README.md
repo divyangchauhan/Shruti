@@ -11,21 +11,21 @@ The first implementation uses WinUI 3, WASAPI microphone capture, and `whisper.c
 Shruti is under active development and is not packaged for end users yet. The Windows development build currently supports:
 
 - Microphone capture with an audio level meter.
-- Local `whisper.cpp` transcription with live partial text and a final transcript.
+- Local `whisper.cpp` transcription after recording finishes.
 - Auto-insert, preview-before-insert, and copy-only dictation modes.
 - Direct text insertion with clipboard fallback when direct insertion is unavailable.
-- A default `Ctrl+Win+Space` hold-to-dictate shortcut, tray control, and optional floating microphone control. Press `Ctrl+Alt+M` to show or hide the floating control for the current session. Closing the main window keeps Shruti running in the Windows notification area; launching Shruti again restores the running instance instead of opening a duplicate. Right-click the tray icon and choose **Exit Shruti** to stop the process. `Ctrl+Win+Space` overlaps Windows' input-language shortcut, so the text injector clears active shortcut modifiers before sending the final transcript.
+- A default `Ctrl+Win+Space` hold-to-dictate shortcut, tray control, and a fixed floating dictation pill at the bottom center of the screen. Use Settings to show or hide the pill. It cannot be dragged. Closing the main window keeps Shruti running in the Windows notification area; launching Shruti again restores the running instance instead of opening a duplicate. Right-click the tray icon and choose **Exit Shruti** to stop the process. `Ctrl+Win+Space` overlaps Windows' input-language shortcut, so the text injector clears active shortcut modifiers before sending the final transcript.
 - Local model download, verification, import, and removal primitives.
 - System, light, and dark theme preferences.
 
-The final transcript is the only text inserted into another application. Live text is preview-only.
+Text is shown or inserted only after transcription finishes. Empty results and non-speech markers such as `[BLANK_AUDIO]` insert nothing and leave the clipboard unchanged.
 
 ## How It Works
 
 1. Start dictation from the app, a configured trigger, the tray, or the floating microphone control.
 2. Shruti captures the current foreground target before recording.
 3. Audio is normalized to 16 kHz mono PCM and transcribed locally.
-4. Shruti shows live partial text while recording.
+4. The floating pill shows audio levels while recording, then animated dots during processing.
 5. On stop, Shruti finalizes the transcript and inserts it, opens a preview, or copies it according to the selected mode.
 
 If the maximum recording duration is reached, Shruti stops capture and finalizes the audio already recorded instead of discarding the dictation.
@@ -55,7 +55,7 @@ dotnet test tests\Shruti.Tests\Shruti.Tests.csproj --configuration Debug -p:Plat
 
 ## Run A Local Transcription Smoke Test
 
-The real integration command builds the release native shim, downloads the verified tiny English model and a pinned speech fixture on first run, then checks live and final local transcription:
+The real integration command builds the release native shim, downloads the verified tiny English model and a pinned speech fixture on first run, then checks the final local transcript:
 
 ```powershell
 .\scripts\run-real-transcription.ps1

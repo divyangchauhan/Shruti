@@ -219,6 +219,9 @@ public sealed class DictationCoordinator
         Action<DictationSessionState, string> transition,
         CancellationToken cancellationToken)
     {
+        if (TranscriptText.IsEmptyOrNonSpeech(transcript.Text))
+            return CompleteWithoutSpeech(target, statusHistory, transition);
+
         if (request.InsertionMode == DictationInsertionMode.PreviewFirst)
         {
             transition(DictationSessionState.Complete, "Preview required");
@@ -259,6 +262,9 @@ public sealed class DictationCoordinator
         Action<DictationSessionState, string> transition,
         CancellationToken cancellationToken)
     {
+        if (TranscriptText.IsEmptyOrNonSpeech(transcript.Text))
+            return CompleteWithoutSpeech(target, statusHistory, transition);
+
         if (target is null)
         {
             transition(DictationSessionState.Complete, "Preview required");
@@ -329,6 +335,16 @@ public sealed class DictationCoordinator
             Message: insertionResult.Message ?? "Text insertion did not complete.");
     }
 
+    private static DictationRunResult CompleteWithoutSpeech(
+        FocusTarget? target,
+        IReadOnlyList<DictationStatus> statusHistory,
+        Action<DictationSessionState, string> transition)
+    {
+        transition(DictationSessionState.Complete, "No speech detected");
+        return new DictationRunResult(DictationRunOutcome.NoSpeech, statusHistory, target,
+            TranscriptResult.FromText(string.Empty), Message: "No speech detected. Nothing was inserted.");
+    }
+
     private static bool CanAutoInsert(
         TextInsertionCapability capability,
         TextInsertionOptions options)
@@ -377,7 +393,8 @@ public sealed class DictationCoordinator
     {
         await foreach (TranscriptEvent transcriptEvent in events.ConfigureAwait(false))
         {
-            progress.Report(transcriptEvent);
+            if (transcriptEvent.Kind != TranscriptEventKind.PartialText)
+                progress.Report(transcriptEvent);
         }
     }
 }

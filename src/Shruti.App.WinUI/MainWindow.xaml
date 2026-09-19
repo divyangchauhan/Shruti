@@ -398,16 +398,18 @@
                     <TextBlock Margin="0,24,0,10" Style="{StaticResource SectionLabelStyle}" Text="Dictation" />
                     <Border Padding="24,4" Style="{StaticResource CardBorderStyle}">
                         <StackPanel>
-                            <Grid Padding="0,15" ColumnSpacing="14">
-                                <Grid.ColumnDefinitions><ColumnDefinition Width="36" /><ColumnDefinition Width="*" /><ColumnDefinition Width="260" /></Grid.ColumnDefinitions>
+                            <Grid Padding="0,18" ColumnSpacing="14" RowSpacing="14">
+                                <Grid.ColumnDefinitions><ColumnDefinition Width="36" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
+                                <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
                                 <Border Width="36" Height="36" Background="{ThemeResource ShrutiPageBrush}" CornerRadius="10">
                                     <FontIcon HorizontalAlignment="Center" VerticalAlignment="Center" FontFamily="Segoe Fluent Icons" FontSize="16" Foreground="{ThemeResource ShrutiTextSecondaryBrush}" Glyph="&#xE92E;" />
                                 </Border>
-                                <StackPanel Grid.Column="1" VerticalAlignment="Center" Spacing="3"><TextBlock FontWeight="SemiBold" Text="Dictation hotkey" /><TextBlock Style="{StaticResource CaptionTextStyle}" Text="Hold this anywhere in Windows while you speak." /></StackPanel>
-                                <StackPanel Grid.Column="2" HorizontalAlignment="Right" Orientation="Horizontal" Spacing="8">
-                                    <TextBox x:Name="PushToTalkKeyTextBox" Width="140" Height="32" Text="Ctrl+Win+Space" LostFocus="TriggerConfigurationInput_LostFocus" />
-                                    <Button Height="32" Padding="8,0" Background="Transparent" BorderThickness="0" Foreground="{ThemeResource ShrutiAccentBrush}" Content="Change" Click="ChangeHotkeyButton_Click" />
-                                </StackPanel>
+                                <StackPanel Grid.Column="1" VerticalAlignment="Center" Spacing="3"><TextBlock FontWeight="SemiBold" Text="Hold to dictate" /><TextBlock Style="{StaticResource CaptionTextStyle}" TextWrapping="Wrap" Text="Hold your shortcut while you speak. Release it to finish." /></StackPanel>
+                                <Grid Grid.Row="1" Grid.Column="1" ColumnSpacing="16">
+                                    <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                                    <StackPanel x:Name="PushToTalkShortcutKeys" VerticalAlignment="Center" Orientation="Horizontal" Spacing="4" />
+                                    <Button x:Name="ChangeHoldShortcutButton" Grid.Column="1" Height="32" Padding="12,0" Content="Change" AutomationProperties.Name="Change hold-to-dictate shortcut" Click="ChangeHotkeyButton_Click" />
+                                </Grid>
                             </Grid>
                             <Border Height="1" Background="{ThemeResource ShrutiBorderSubtleBrush}" />
                             <Grid Padding="0,15" ColumnSpacing="14">
@@ -493,9 +495,18 @@
                             <Border Height="1" Background="{ThemeResource ShrutiBorderSubtleBrush}" />
                             <StackPanel Padding="0,16" Spacing="10">
                                 <ToggleSwitch x:Name="PushToTalkCheckBox" Header="Hold-to-dictate shortcut" IsOn="True" Toggled="TriggerConfigurationToggle_Toggled" />
+                                <ToggleSwitch x:Name="FloatingBarCheckBox" Header="Show floating dictation bar" IsOn="True" Toggled="FloatingBarCheckBox_Toggled" />
+                                <TextBlock Style="{StaticResource CaptionTextStyle}" TextWrapping="Wrap" Text="Fixed at the bottom center of the screen, above the taskbar." />
                                 <ToggleSwitch x:Name="TrayMenuCheckBox" Header="Tray menu commands" IsOn="True" Toggled="TriggerConfigurationToggle_Toggled" />
                                 <ToggleSwitch x:Name="GlobalHotkeyCheckBox" Header="Single-press global trigger" IsOn="False" Toggled="TriggerConfigurationToggle_Toggled" />
-                                <TextBox x:Name="HotkeyGestureTextBox" Header="Single-press shortcut" Text="Ctrl+Win+Space" LostFocus="TriggerConfigurationInput_LostFocus" />
+                                <Grid ColumnSpacing="12">
+                                    <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                                    <StackPanel Spacing="8">
+                                        <TextBlock Text="Single-press shortcut" />
+                                        <StackPanel x:Name="GlobalShortcutKeys" Orientation="Horizontal" Spacing="4" />
+                                    </StackPanel>
+                                    <Button Grid.Column="1" Content="Change" VerticalAlignment="Center" AutomationProperties.Name="Change single-press shortcut" Click="ChangeSinglePressHotkeyButton_Click" />
+                                </Grid>
                                 <CheckBox x:Name="AllowSlowTranscriptionCheckBox" Content="Allow slower-than-real-time transcription" Click="AllowSlowTranscriptionCheckBox_Click" />
                                 <TextBlock x:Name="TriggerStatusText" Style="{StaticResource CaptionTextStyle}" Text="Triggers are active." />
                             </StackPanel>

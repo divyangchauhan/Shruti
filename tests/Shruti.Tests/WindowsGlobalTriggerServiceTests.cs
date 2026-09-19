@@ -7,6 +7,23 @@ namespace Shruti.Tests;
 public sealed class WindowsGlobalTriggerServiceTests
 {
     [Fact]
+    public async Task PushToTalk_AcceptsModifierOnlyChordWithoutRegisterHotkey()
+    {
+        var hook = new FakePushToTalkHook();
+        var registration = new FakeHotkeyRegistration();
+        using var service = new WindowsGlobalTriggerService(registration, hook);
+        await service.ConfigureAsync(CreateConfiguration() with
+        {
+            EnableGlobalHotkey = false,
+            EnableFloatingWindowShortcut = false,
+            PushToTalkKey = "Win+Control"
+        }, CancellationToken.None);
+        service.AttachWindow((IntPtr)42);
+        Assert.Equal(new WindowsHotkey(10, 0, "Ctrl+Win"), hook.Hotkey);
+        Assert.Null(registration.GetHotkey(WindowsGlobalTriggerService.GlobalHotkeyId));
+    }
+
+    [Fact]
     public async Task GlobalHotkey_RegistersAndPublishesEvent()
     {
         var registration = new FakeHotkeyRegistration();
@@ -130,6 +147,53 @@ public sealed class WindowsGlobalTriggerServiceTests
         Assert.Contains("reserved", exception.Message, StringComparison.OrdinalIgnoreCase);
         Assert.Equal(2, registration.RegisterCount);
         Assert.Equal("Ctrl+Alt+Space", service.Configuration.HotkeyGesture);
+    }
+
+    [Fact]
+    public async Task RecordingShortcut_SuspendsAndRestoresAllKeyboardTriggers()
+    {
+        var registration = new FakeHotkeyRegistration();
+        var hook = new FakePushToTalkHook();
+        using var service = new WindowsGlobalTriggerService(registration, hook);
+        TriggerConfiguration original = CreateConfiguration();
+        await service.ConfigureAsync(original, CancellationToken.None);
+        service.AttachWindow((IntPtr)42);
+
+        await service.ConfigureAsync(original with
+        {
+            EnableGlobalHotkey = false,
+            EnablePushToTalk = false,
+            EnableFloatingWindowShortcut = false
+        }, CancellationToken.None);
+
+        Assert.False(hook.IsEnabled);
+        Assert.Null(registration.GetHotkey(WindowsGlobalTriggerService.GlobalHotkeyId));
+        Assert.Null(registration.GetHotkey(WindowsGlobalTriggerService.FloatingWindowHotkeyId));
+
+        await service.ConfigureAsync(original, CancellationToken.None);
+        Assert.True(hook.IsEnabled);
+        Assert.Equal(original, service.Configuration);
+        Assert.Equal(original.HotkeyGesture, registration.GetHotkey(WindowsGlobalTriggerService.GlobalHotkeyId)?.Gesture);
+    }
+
+    [Fact]
+    public async Task CapturedShortcut_RejectsConflictWithOtherEnabledTrigger()
+    {
+        var recorder = new WindowsShortcutRecorder(true);
+        recorder.Update(0xA2, true);
+        recorder.Update(0xA4, true);
+        recorder.Update(0x20, true);
+        recorder.Update(0x20, false);
+        recorder.Update(0xA4, false);
+        recorder.Update(0xA2, false);
+        using var service = new WindowsGlobalTriggerService(new FakeHotkeyRegistration(), new FakePushToTalkHook());
+        TriggerConfiguration original = CreateConfiguration();
+        await service.ConfigureAsync(original, CancellationToken.None);
+
+        await Assert.ThrowsAsync<ArgumentException>(() => service.ConfigureAsync(
+            original with { PushToTalkKey = recorder.Gesture }, CancellationToken.None));
+
+        Assert.Equal(original, service.Configuration);
     }
 
     [Fact]

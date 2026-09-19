@@ -239,7 +239,7 @@ public sealed class WhisperCppTranscriptionProvider : ITranscriptionProvider, IA
             ProviderDisplayName: "whisper.cpp",
             Backend: backend,
             DeviceName: deviceName,
-            SupportsStreaming: true,
+            SupportsStreaming: false,
             SupportsTimestamps: true,
             SupportsLanguageDetection: false,
             MeasuredRealtimeFactor: null,
@@ -322,130 +322,90 @@ public sealed class WhisperCppTranscriptionProvider : ITranscriptionProvider, IA
         private readonly IWhisperCppInferenceSession _inferenceSession;
         private readonly TranscriptionSessionOptions _options;
         private readonly Func<Task> _releaseInferenceSessionAsync;
-        private readonly StreamingTranscriptionOptions _streamingOptions;
         private readonly MemoryStream _pcmAudio = new();
         private readonly Channel<TranscriptEvent> _events = Channel.CreateUnbounded<TranscriptEvent>();
-        private readonly CancellationTokenSource _partialTranscriptionCancellation = new();
+        private readonly CancellationTokenSource _cancellation = new();
         private readonly object _sync = new();
-        private Task? _partialTranscriptionTask;
-        private Task? _resourceDisposalTask;
-        private int _lastPartialEndSampleCount;
-        private int _nextPartialSampleCount;
-        private bool _partialTranscriptionInProgress;
+        private Task<TranscriptResult>? _completionTask;
+        private Task? _disposalTask;
         private bool _completed;
         private bool _cancelled;
         private bool _maximumAudioDurationReached;
 
-        public WhisperCppTranscriptionSession(
-            IWhisperCppInferenceSession inferenceSession,
-            TranscriptionSessionOptions options,
-            Func<Task> releaseInferenceSessionAsync)
+        public WhisperCppTranscriptionSession(IWhisperCppInferenceSession inferenceSession,
+            TranscriptionSessionOptions options, Func<Task> releaseInferenceSessionAsync)
         {
-            _inferenceSession = inferenceSession ?? throw new ArgumentNullException(nameof(inferenceSession));
+            _inferenceSession = inferenceSession;
             _options = options;
-            _releaseInferenceSessionAsync = releaseInferenceSessionAsync ??
-                throw new ArgumentNullException(nameof(releaseInferenceSessionAsync));
-            _streamingOptions = options.EffectiveStreamingOptions;
-            ValidateStreamingOptions(_streamingOptions);
-
-            if (_options.EffectiveMaximumAudioDuration <= TimeSpan.Zero)
-            {
+            _releaseInferenceSessionAsync = releaseInferenceSessionAsync;
+            if (options.EffectiveMaximumAudioDuration <= TimeSpan.Zero)
                 throw new ArgumentOutOfRangeException(nameof(options), "Maximum audio duration must be positive.");
-            }
         }
 
         public AudioFormat RequiredInputFormat => AudioFormat.Speech16KhzMono;
-
         public IAsyncEnumerable<TranscriptEvent> Events => _events.Reader.ReadAllAsync();
 
-        public ValueTask<TranscriptionAudioPushResult> PushAudioAsync(
-            ReadOnlyMemory<byte> pcmAudio,
+        public ValueTask<TranscriptionAudioPushResult> PushAudioAsync(ReadOnlyMemory<byte> pcmAudio,
             CancellationToken cancellationToken)
         {
             cancellationToken.ThrowIfCancellationRequested();
-
             if (pcmAudio.Length % sizeof(short) != 0)
-            {
                 throw new ArgumentException("PCM16 audio must contain complete samples.", nameof(pcmAudio));
-            }
-
-            TranscriptionAudioPushResult result;
             lock (_sync)
             {
                 ThrowIfUnavailable();
-                long maximumAudioBytes = GetMaximumAudioByteLength();
-                int acceptedAudioByteCount = checked((int)Math.Min(
-                    pcmAudio.Length,
-                    Math.Max(0, maximumAudioBytes - _pcmAudio.Length)));
-                if (acceptedAudioByteCount > 0)
-                {
-                    _pcmAudio.Write(pcmAudio.Span[..acceptedAudioByteCount]);
-                }
-
-                if (_pcmAudio.Length >= maximumAudioBytes && !_maximumAudioDurationReached)
+                long maximumBytes = checked((long)Math.Ceiling(_options.EffectiveMaximumAudioDuration.TotalSeconds *
+                    RequiredInputFormat.SampleRateHz) * sizeof(short));
+                int accepted = checked((int)Math.Min(pcmAudio.Length, Math.Max(0, maximumBytes - _pcmAudio.Length)));
+                _pcmAudio.Write(pcmAudio.Span[..accepted]);
+                if (_pcmAudio.Length >= maximumBytes && !_maximumAudioDurationReached)
                 {
                     _maximumAudioDurationReached = true;
-                    _events.Writer.TryWrite(new TranscriptEvent(
-                        TranscriptEventKind.Warning,
+                    _events.Writer.TryWrite(new TranscriptEvent(TranscriptEventKind.Warning,
                         Message: $"Recording limit of {_options.EffectiveMaximumAudioDuration.TotalMinutes:0.#} minutes reached; finalizing captured audio."));
                 }
-
-                result = _maximumAudioDurationReached
-                    ? TranscriptionAudioPushResult.FinalizeAtMaximumDuration
-                    : TranscriptionAudioPushResult.Continue;
+                return ValueTask.FromResult(_maximumAudioDurationReached
+                    ? TranscriptionAudioPushResult.FinalizeAtMaximumDuration : TranscriptionAudioPushResult.Continue);
             }
-
-            SchedulePartialTranscriptionIfRequired();
-            return ValueTask.FromResult(result);
         }
 
-        public async Task<TranscriptResult> CompleteAsync(CancellationToken cancellationToken)
+        public Task<TranscriptResult> CompleteAsync(CancellationToken cancellationToken)
         {
             cancellationToken.ThrowIfCancellationRequested();
-
-            Task? partialTranscriptionTask;
             lock (_sync)
             {
                 ThrowIfUnavailable();
-
-                if (_pcmAudio.Length == 0)
-                {
-                    throw new InvalidOperationException("whisper.cpp cannot transcribe an empty audio buffer.");
-                }
-
                 _completed = true;
-                partialTranscriptionTask = _partialTranscriptionTask;
+                var audio = new float[_pcmAudio.Length / sizeof(short)];
+                ReadOnlySpan<byte> bytes = _pcmAudio.GetBuffer().AsSpan(0, checked((int)_pcmAudio.Length));
+                for (int i = 0; i < audio.Length; i++)
+                    audio[i] = BinaryPrimitives.ReadInt16LittleEndian(bytes.Slice(i * sizeof(short), sizeof(short))) / AudioFormat.Pcm16SampleScale;
+                _completionTask = CompleteCoreAsync(audio, cancellationToken);
+                return _completionTask;
             }
+        }
 
+        private async Task<TranscriptResult> CompleteCoreAsync(float[] audio, CancellationToken cancellationToken)
+        {
+            using var linked = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, _cancellation.Token);
             try
             {
-                if (partialTranscriptionTask is not null)
-                {
-                    await partialTranscriptionTask.WaitAsync(cancellationToken).ConfigureAwait(false);
-                }
-
-                float[] audio = CopyBufferedAudioAsFloat();
-                WhisperCppTranscriptionResult nativeResult = await _inferenceSession.TranscribeAsync(
-                        audio,
-                        cancellationToken)
-                    .ConfigureAwait(false);
-
-                IReadOnlyList<TranscriptSegment> segments = nativeResult.Segments
-                    .Select((segment, index) => new TranscriptSegment(index, segment.Start, segment.End, segment.Text))
+                WhisperCppTranscriptionResult native = audio.Length == 0
+                    ? new WhisperCppTranscriptionResult([])
+                    : await _inferenceSession.TranscribeAsync(audio, linked.Token).ConfigureAwait(false);
+                linked.Token.ThrowIfCancellationRequested();
+                TranscriptSegment[] segments = native.Segments
+                    .Where(segment => !TranscriptText.IsEmptyOrNonSpeech(segment.Text))
+                    .Select((segment, index) => new TranscriptSegment(index, segment.Start, segment.End, segment.Text.Trim()))
                     .ToArray();
+                var result = new TranscriptResult(string.Join(" ", segments.Select(segment => segment.Text)), segments);
                 foreach (TranscriptSegment segment in segments)
-                {
                     _events.Writer.TryWrite(new TranscriptEvent(TranscriptEventKind.SegmentFinalized, Segment: segment));
-                }
-
-                var result = new TranscriptResult(nativeResult.Text, segments);
                 _events.Writer.TryWrite(new TranscriptEvent(TranscriptEventKind.Completed, Text: result.Text));
                 _events.Writer.TryComplete();
                 return result;
             }
-            catch (OperationCanceledException) when (
-                cancellationToken.IsCancellationRequested ||
-                _partialTranscriptionCancellation.IsCancellationRequested)
+            catch (OperationCanceledException)
             {
                 _events.Writer.TryComplete();
                 throw;
@@ -462,225 +422,42 @@ public sealed class WhisperCppTranscriptionProvider : ITranscriptionProvider, IA
         {
             lock (_sync)
             {
-                if (!_cancelled)
-                {
-                    _cancelled = true;
-                    _partialTranscriptionCancellation.Cancel();
-                    _events.Writer.TryComplete();
-                }
+                _cancelled = true;
+                _cancellation.Cancel();
+                _events.Writer.TryComplete();
             }
-
             return Task.CompletedTask;
         }
 
         public ValueTask DisposeAsync()
         {
-            Task resourceDisposalTask;
             lock (_sync)
             {
+                if (_disposalTask is not null) return new ValueTask(_disposalTask);
                 _cancelled = true;
-                _partialTranscriptionCancellation.Cancel();
+                _cancellation.Cancel();
                 _events.Writer.TryComplete();
-
-                if (_resourceDisposalTask is null)
-                {
-                    Task? partialTranscriptionTask = _partialTranscriptionTask;
-                    _pcmAudio.Dispose();
-                    _resourceDisposalTask = DisposeResourcesAsync(partialTranscriptionTask);
-                }
-
-                resourceDisposalTask = _resourceDisposalTask;
-            }
-
-            return new ValueTask(resourceDisposalTask);
-        }
-
-        private void SchedulePartialTranscriptionIfRequired()
-        {
-            if (!_streamingOptions.EnablePartialTranscription)
-            {
-                return;
-            }
-
-            lock (_sync)
-            {
-                if (_cancelled || _completed || _partialTranscriptionInProgress)
-                {
-                    return;
-                }
-
-                int sampleCount = checked((int)(_pcmAudio.Length / sizeof(short)));
-                if (sampleCount < GetMinimumPartialSampleCount() || sampleCount < _nextPartialSampleCount)
-                {
-                    return;
-                }
-
-                int partialStartSampleCount = GetPartialStartSampleCount(sampleCount);
-                byte[] audioSnapshot = CopyPartialAudioSnapshot(partialStartSampleCount, sampleCount);
-                _partialTranscriptionInProgress = true;
-                _lastPartialEndSampleCount = sampleCount;
-                _nextPartialSampleCount = checked(sampleCount + GetPartialUpdateSampleCount());
-                _partialTranscriptionTask = Task.Run(() => TranscribePartialAsync(audioSnapshot));
+                _pcmAudio.Dispose();
+                _disposalTask = DisposeResourcesAsync();
+                return new ValueTask(_disposalTask);
             }
         }
 
-        private async Task TranscribePartialAsync(byte[] audioSnapshot)
+        private async Task DisposeResourcesAsync()
         {
-            try
+            if (_completionTask is not null)
             {
-                WhisperCppTranscriptionResult partialResult = await _inferenceSession.TranscribeAsync(
-                        ConvertPcm16ToFloat(audioSnapshot),
-                        _partialTranscriptionCancellation.Token)
-                    .ConfigureAwait(false);
-
-                if (!string.IsNullOrWhiteSpace(partialResult.Text) && CanPublishPartialText())
-                {
-                    _events.Writer.TryWrite(new TranscriptEvent(TranscriptEventKind.PartialText, Text: partialResult.Text));
-                }
+                try { await _completionTask.ConfigureAwait(false); }
+                catch { /* Completion already reports its result to the caller. */ }
             }
-            catch (OperationCanceledException) when (_partialTranscriptionCancellation.IsCancellationRequested)
-            {
-                // A cancellation must not emit a partial transcript or a warning.
-            }
-            catch (Exception exception)
-            {
-                if (CanPublishPartialText())
-                {
-                    _events.Writer.TryWrite(new TranscriptEvent(
-                        TranscriptEventKind.Warning,
-                        Message: "A live transcription update failed; final transcription will continue.",
-                        Error: exception));
-                }
-            }
-            finally
-            {
-                lock (_sync)
-                {
-                    _partialTranscriptionInProgress = false;
-                }
-
-                SchedulePartialTranscriptionIfRequired();
-            }
-        }
-
-        private float[] CopyBufferedAudioAsFloat()
-        {
-            lock (_sync)
-            {
-                int audioLength = checked((int)_pcmAudio.Length);
-                return ConvertPcm16ToFloat(_pcmAudio.GetBuffer().AsSpan(0, audioLength));
-            }
-        }
-
-        private async Task DisposeResourcesAsync(Task? partialTranscriptionTask)
-        {
-            try
-            {
-                if (partialTranscriptionTask is not null)
-                {
-                    await partialTranscriptionTask.ConfigureAwait(false);
-                }
-            }
-            finally
-            {
-                _partialTranscriptionCancellation.Dispose();
-                await _releaseInferenceSessionAsync().ConfigureAwait(false);
-            }
-        }
-
-        private byte[] CopyPartialAudioSnapshot(int startSampleCount, int endSampleCount)
-        {
-            int startByteOffset = checked(startSampleCount * sizeof(short));
-            int endByteOffset = checked(endSampleCount * sizeof(short));
-            return _pcmAudio.GetBuffer().AsSpan(startByteOffset, endByteOffset - startByteOffset).ToArray();
-        }
-
-        private int GetPartialStartSampleCount(int endSampleCount)
-        {
-            int overlapSampleCount = GetSampleCountForDuration(_streamingOptions.EffectivePartialAudioOverlap);
-            int maximumPartialSampleCount = GetSampleCountForDuration(
-                _streamingOptions.EffectiveMaximumPartialAudioDuration);
-            int startSampleCount = Math.Max(0, _lastPartialEndSampleCount - overlapSampleCount);
-            return Math.Max(startSampleCount, endSampleCount - maximumPartialSampleCount);
-        }
-
-        private bool CanPublishPartialText()
-        {
-            lock (_sync)
-            {
-                return !_cancelled && !_completed;
-            }
-        }
-
-        private int GetMinimumPartialSampleCount()
-        {
-            return GetSampleCountForDuration(_streamingOptions.EffectiveMinimumAudioDuration);
-        }
-
-        private int GetPartialUpdateSampleCount()
-        {
-            return GetSampleCountForDuration(_streamingOptions.EffectiveUpdateInterval);
-        }
-
-        private long GetMaximumAudioByteLength()
-        {
-            return checked((long)GetSampleCountForDuration(_options.EffectiveMaximumAudioDuration) * sizeof(short));
-        }
-
-        private static int GetSampleCountForDuration(TimeSpan duration)
-        {
-            return checked((int)Math.Ceiling(duration.TotalSeconds * AudioFormat.Speech16KhzMono.SampleRateHz));
-        }
-
-        private static void ValidateStreamingOptions(StreamingTranscriptionOptions options)
-        {
-            if (options.EffectiveMinimumAudioDuration <= TimeSpan.Zero)
-            {
-                throw new ArgumentOutOfRangeException(nameof(options), "Minimum audio duration must be positive.");
-            }
-
-            if (options.EffectiveUpdateInterval <= TimeSpan.Zero)
-            {
-                throw new ArgumentOutOfRangeException(nameof(options), "Partial update interval must be positive.");
-            }
-
-            if (options.EffectiveMaximumPartialAudioDuration <= TimeSpan.Zero)
-            {
-                throw new ArgumentOutOfRangeException(nameof(options), "Maximum partial audio duration must be positive.");
-            }
-
-            if (options.EffectivePartialAudioOverlap < TimeSpan.Zero ||
-                options.EffectivePartialAudioOverlap >= options.EffectiveMaximumPartialAudioDuration)
-            {
-                throw new ArgumentOutOfRangeException(
-                    nameof(options),
-                    "Partial audio overlap must be non-negative and shorter than the maximum partial audio duration.");
-            }
+            _cancellation.Dispose();
+            await _releaseInferenceSessionAsync().ConfigureAwait(false);
         }
 
         private void ThrowIfUnavailable()
         {
-            if (_cancelled)
-            {
-                throw new OperationCanceledException("The whisper.cpp transcription session was cancelled.");
-            }
-
-            if (_completed)
-            {
-                throw new InvalidOperationException("The whisper.cpp transcription session has already completed.");
-            }
-        }
-
-        private static float[] ConvertPcm16ToFloat(ReadOnlySpan<byte> pcmAudio)
-        {
-            var samples = new float[pcmAudio.Length / sizeof(short)];
-            for (int index = 0; index < samples.Length; index++)
-            {
-                short sample = BinaryPrimitives.ReadInt16LittleEndian(pcmAudio.Slice(index * sizeof(short), sizeof(short)));
-                samples[index] = sample / AudioFormat.Pcm16SampleScale;
-            }
-
-            return samples;
+            if (_cancelled) throw new OperationCanceledException("The whisper.cpp transcription session was cancelled.");
+            if (_completed) throw new InvalidOperationException("The whisper.cpp transcription session has already completed.");
         }
     }
 }

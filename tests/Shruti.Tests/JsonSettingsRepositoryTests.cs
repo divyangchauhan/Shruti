@@ -9,6 +9,15 @@ namespace Shruti.Tests;
 
 public sealed class JsonSettingsRepositoryTests : IDisposable
 {
+    [Fact]
+    public async Task FloatingBarVisibility_DefaultsOnAndPersistsOptOut()
+    {
+        var repository = new JsonSettingsRepository(new AppDataPaths(_rootPath));
+        Assert.True((await repository.LoadAsync(CancellationToken.None)).ShowFloatingBar);
+        await repository.SaveAsync(ShrutiSettings.Default with { ShowFloatingBar = false }, CancellationToken.None);
+        Assert.False((await repository.LoadAsync(CancellationToken.None)).ShowFloatingBar);
+    }
+
     private readonly string _rootPath = Path.Combine(Path.GetTempPath(), "Shruti.Tests", Guid.NewGuid().ToString("N"));
 
     [Fact]
@@ -18,7 +27,7 @@ public sealed class JsonSettingsRepositoryTests : IDisposable
 
         Assert.False(configuration.EnableGlobalHotkey);
         Assert.True(configuration.EnablePushToTalk);
-        Assert.False(configuration.EnableFloatingButton);
+        Assert.True(configuration.EnableFloatingButton);
         Assert.False(configuration.EnableFloatingWindowShortcut);
         Assert.Equal("Ctrl+Win+Space", configuration.PushToTalkKey);
         Assert.Null(configuration.FloatingWindowShortcut);
@@ -125,7 +134,7 @@ public sealed class JsonSettingsRepositoryTests : IDisposable
     }
 
     [Fact]
-    public async Task LoadAsync_DisablesFloatingWindowForExistingSettings()
+    public async Task LoadAsync_PreservesFloatingWindowForExistingSettings()
     {
         var paths = new AppDataPaths(_rootPath);
         paths.EnsureCreated();
@@ -146,7 +155,7 @@ public sealed class JsonSettingsRepositoryTests : IDisposable
 
         ShrutiSettings settings = await new JsonSettingsRepository(paths).LoadAsync(CancellationToken.None);
 
-        Assert.False(settings.TriggerConfiguration.EnableFloatingButton);
+        Assert.True(settings.TriggerConfiguration.EnableFloatingButton);
         Assert.False(settings.TriggerConfiguration.EnableFloatingWindowShortcut);
         Assert.Null(settings.TriggerConfiguration.FloatingWindowShortcut);
     }

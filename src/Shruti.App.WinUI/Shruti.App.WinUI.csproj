@@ -32,4 +32,13 @@
         <ProjectReference Include="..\Shruti.Storage\Shruti.Storage.csproj" />
         <ProjectReference Include="..\Shruti.Workflow\Shruti.Workflow.csproj" />
     </ItemGroup>
+    <!-- The WinUI resource index is generated during build but is not included
+         in dotnet publish automatically. Standalone startup needs it beside the exe. -->
+    <Target Name="PublishWinUIResourceIndex" AfterTargets="Publish">
+        <Error Condition="!Exists('$(TargetDir)$(AssemblyName).pri')"
+               Text="The WinUI resource index is missing from $(TargetDir)." />
+        <Copy SourceFiles="$(TargetDir)$(AssemblyName).pri"
+              DestinationFolder="$(PublishDir)"
+              SkipUnchangedFiles="true" />
+    </Target>
 </Project>

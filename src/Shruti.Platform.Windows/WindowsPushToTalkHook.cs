@@ -21,6 +21,7 @@ public sealed class WindowsPushToTalkHook : IWindowsPushToTalkHook
     private readonly object _releaseSync = new();
     private IntPtr _hookHandle;
     private WindowsHotkey? _hotkey;
+    private WindowsModifierChord? _modifierChord;
     private CancellationTokenSource? _releasePollingCancellation;
     private bool _isPressed;
     private bool _isMainKeySuppressed;
@@ -47,10 +48,14 @@ public sealed class WindowsPushToTalkHook : IWindowsPushToTalkHook
 
         if (!Equals(_hotkey, hotkey))
         {
+            CancelReleasePolling();
             _isPressed = false;
             _isMainKeySuppressed = false;
             _hotkey = hotkey;
+            _modifierChord = hotkey.VirtualKey == 0 ? new WindowsModifierChord(hotkey.Modifiers) : null;
         }
+        if (_hookHandle == IntPtr.Zero)
+            _modifierChord = hotkey.VirtualKey == 0 ? new WindowsModifierChord(hotkey.Modifiers) : null;
         if (_hookHandle != IntPtr.Zero)
         {
             return;
@@ -88,7 +93,21 @@ public sealed class WindowsPushToTalkHook : IWindowsPushToTalkHook
             var keyboardData = Marshal.PtrToStructure<NativeMethods.KbdLlHookStruct>(keyboardDataPointer);
             uint message = unchecked((uint)windowMessage.ToInt64());
             WindowsHotkey? hotkey = _hotkey;
-            if (hotkey is not null && keyboardData.VirtualKey == hotkey.VirtualKey)
+            if (hotkey is not null && _modifierChord is not null && (keyboardData.Flags & 0x10) == 0 &&
+                message is KeyDown or SystemKeyDown or KeyUp or SystemKeyUp)
+            {
+                bool wasPressed = _modifierChord.IsPressed;
+                suppressKey = _modifierChord.Update(keyboardData.VirtualKey, message is KeyDown or SystemKeyDown);
+                if (!wasPressed && _modifierChord.IsPressed)
+                {
+                    // Mark Win/Alt as used so releasing a modifier delivered before
+                    // the chord was complete cannot open Start or activate a menu.
+                    if ((hotkey.Modifiers & (WindowsHotkeyParser.WindowsModifier | WindowsHotkeyParser.AltModifier)) != 0)
+                        MaskModifierMenu();
+                }
+                RaiseKeyStateChanged(_modifierChord.IsPressed);
+            }
+            else if (hotkey is not null && keyboardData.VirtualKey == hotkey.VirtualKey)
             {
                 if ((message is KeyDown or SystemKeyDown) && AreModifiersPressed(hotkey.Modifiers))
                 {
@@ -127,6 +146,16 @@ public sealed class WindowsPushToTalkHook : IWindowsPushToTalkHook
             (!HasModifier(modifiers, WindowsHotkeyParser.AltModifier) || IsKeyPressed(AltVirtualKey)) &&
             (!HasModifier(modifiers, WindowsHotkeyParser.WindowsModifier) ||
                 IsKeyPressed(LeftWindowsVirtualKey) || IsKeyPressed(RightWindowsVirtualKey));
+    }
+
+    private static void MaskModifierMenu()
+    {
+        NativeMethods.Input[] inputs =
+        [
+            new() { Type = 1, VirtualKey = 0xE8 },
+            new() { Type = 1, VirtualKey = 0xE8, Flags = 2 }
+        ];
+        NativeMethods.SendInput((uint)inputs.Length, inputs, Marshal.SizeOf<NativeMethods.Input>());
     }
 
     private static bool IsHotkeyKeyStillPressed(WindowsHotkey hotkey)
@@ -217,6 +246,7 @@ public sealed class WindowsPushToTalkHook : IWindowsPushToTalkHook
     private void UninstallHook()
     {
         CancelReleasePolling();
+        _modifierChord = null;
         if (_hookHandle == IntPtr.Zero)
         {
             _isPressed = false;
@@ -242,6 +272,17 @@ public sealed class WindowsPushToTalkHook : IWindowsPushToTalkHook
 
     private static class NativeMethods
     {
+        [StructLayout(LayoutKind.Explicit, Size = 40)]
+        public struct Input
+        {
+            [FieldOffset(0)] public uint Type;
+            [FieldOffset(8)] public ushort VirtualKey;
+            [FieldOffset(12)] public uint Flags;
+        }
+
+        [DllImport("user32.dll", SetLastError = true)]
+        public static extern uint SendInput(uint count, Input[] inputs, int size);
+
         public delegate IntPtr LowLevelKeyboardProc(int code, IntPtr windowMessage, IntPtr keyboardDataPointer);
 
         [StructLayout(LayoutKind.Sequential)]

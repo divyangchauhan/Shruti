@@ -470,8 +470,8 @@ public sealed class DictationShellController
 
     private void ApplyTranscriptEvent(TranscriptEvent transcriptEvent)
     {
-        if (transcriptEvent.Kind is not TranscriptEventKind.PartialText and not TranscriptEventKind.Completed ||
-            string.IsNullOrWhiteSpace(transcriptEvent.Text))
+        if (transcriptEvent.Kind != TranscriptEventKind.Completed ||
+            TranscriptText.IsEmptyOrNonSpeech(transcriptEvent.Text))
         {
             return;
         }
@@ -495,6 +495,7 @@ public sealed class DictationShellController
             DictationRunOutcome.PreviewRequired => result.Message ?? "Preview is ready before insertion.",
             DictationRunOutcome.CopyOnly => "Copied transcript for copy-only mode.",
             DictationRunOutcome.Cancelled => "Cancelled. Nothing was inserted.",
+            DictationRunOutcome.NoSpeech => "No speech detected. Nothing was inserted.",
             DictationRunOutcome.Failed => result.Message ?? "Dictation failed.",
             _ => result.Message ?? "Dictation finished."
         };
@@ -512,7 +513,7 @@ public sealed class DictationShellController
             CanCancel: false,
             CanPause: false,
             IsPaused: false,
-            CanRetry: result.Outcome is not DictationRunOutcome.Cancelled,
+            CanRetry: result.Outcome is not (DictationRunOutcome.Cancelled or DictationRunOutcome.NoSpeech),
             CanCopy: !string.IsNullOrWhiteSpace(transcript),
             LastOutcome: result.Outcome,
             ErrorText: result.Error?.Message,

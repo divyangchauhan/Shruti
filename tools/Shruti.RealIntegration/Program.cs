@@ -6,6 +6,11 @@ using Shruti.Transcription.OpenVino;
 
 const string jfkAudioUrl = "https://raw.githubusercontent.com/ggml-org/whisper.cpp/5ed76e9a079962f1c85cfce44edd325c27ef1f97/samples/jfk.wav";
 bool useNpu = args.Contains("--npu", StringComparer.OrdinalIgnoreCase);
+bool useGpu = args.Contains("--gpu", StringComparer.OrdinalIgnoreCase);
+if (useNpu && useGpu)
+{
+    throw new ArgumentException("Choose either --gpu or --npu.");
+}
 
 var paths = AppDataPaths.CreateDefault();
 paths.EnsureCreated();
@@ -15,7 +20,13 @@ var modelManager = new ModelManager(
     paths.ModelsDirectory,
     new HttpModelDownloadClient(httpClient),
     new ModelIntegrityVerifier());
+int modelArgument = Array.IndexOf(args, "--model");
+if (modelArgument >= 0 && modelArgument + 1 >= args.Length)
+{
+    throw new ArgumentException("--model requires a catalog model ID.");
+}
 ModelCatalogEntry modelEntry = RecommendedModelCatalog.Create().GetRequiredModel(
+    modelArgument >= 0 ? args[modelArgument + 1] :
     useNpu ? "openvino-whisper-base-int8" : "whisper-tiny-en");
 var progress = new ModelDownloadProgressReporter();
 
@@ -42,56 +53,34 @@ ITranscriptionProvider provider = useNpu
     : new WhisperCppTranscriptionProvider(new WhisperCppTranscriptionEngine(new WhisperCppNativeApi()));
 var options = new TranscriptionSessionOptions(
     install.Model.ToTranscriptionModelDescriptor(),
-    useNpu ? ComputeBackend.Npu : ComputeBackend.Cpu,
+    useNpu ? ComputeBackend.Npu : useGpu ? ComputeBackend.Gpu : ComputeBackend.Cpu,
     "en",
     TranscriptionMode.Balanced);
 IReadOnlyList<EngineCapability> capabilities = await provider.ProbeAsync(CancellationToken.None);
 Console.WriteLine($"Available devices: {string.Join(", ", capabilities.Select(capability => capability.Backend))}");
 Console.WriteLine($"Requested backend: {options.Backend}");
+if (!capabilities.Any(capability => capability.Backend == options.Backend))
+{
+    throw new InvalidOperationException($"The runtime does not expose {options.Backend}.");
+}
 
 await using ITranscriptionSession session = await provider.CreateSessionAsync(options, CancellationToken.None);
-var partialTranscript = new TaskCompletionSource<TranscriptEvent>(TaskCreationOptions.RunContinuationsAsynchronously);
-Task eventReader = ReadEventsAsync(session.Events, partialTranscript);
-int initialAudioLength = Math.Min(pcmAudio.Length, 16_000 * sizeof(short) * 3);
-await session.PushAudioAsync(pcmAudio.AsMemory(0, initialAudioLength), CancellationToken.None);
-TranscriptEvent? partial = useNpu
-    ? null
-    : await partialTranscript.Task.WaitAsync(TimeSpan.FromMinutes(2));
-if (initialAudioLength < pcmAudio.Length)
-{
-    await session.PushAudioAsync(pcmAudio.AsMemory(initialAudioLength), CancellationToken.None);
-}
-
+var events = new List<TranscriptEvent>();
+Task eventReader = ReadEventsAsync(session.Events, events);
+bool silence = args.Contains("--silence", StringComparer.OrdinalIgnoreCase);
+if (silence) pcmAudio = new byte[16_000 * sizeof(short) * 3];
+await session.PushAudioAsync(pcmAudio, CancellationToken.None);
 TranscriptResult result = await session.CompleteAsync(CancellationToken.None);
 await eventReader;
+if (events.Any(item => item.Kind == TranscriptEventKind.PartialText))
+    throw new InvalidOperationException("Unexpected live transcript event.");
+Console.WriteLine(silence ? $"Silence result: '{result.Text}'" : result.Text);
+if (silence ? !string.IsNullOrWhiteSpace(result.Text) : !result.Text.Contains("ask not", StringComparison.OrdinalIgnoreCase))
+    throw new InvalidOperationException("Unexpected final transcript.");
 
-if (partial is not null)
+static async Task ReadEventsAsync(IAsyncEnumerable<TranscriptEvent> source, List<TranscriptEvent> events)
 {
-    Console.WriteLine($"Live: {partial.Text}");
-}
-Console.WriteLine(result.Text);
-if (!useNpu && string.IsNullOrWhiteSpace(partial?.Text))
-{
-    throw new InvalidOperationException("whisper.cpp did not emit a live partial transcript.");
-}
-
-if (!result.Text.Contains("ask not", StringComparison.OrdinalIgnoreCase))
-{
-    throw new InvalidOperationException($"{provider.DisplayName} did not produce the expected JFK transcript.");
-}
-
-static async Task ReadEventsAsync(
-    IAsyncEnumerable<TranscriptEvent> events,
-    TaskCompletionSource<TranscriptEvent> partialTranscript)
-{
-    await foreach (TranscriptEvent transcriptEvent in events)
-    {
-        if (transcriptEvent.Kind == TranscriptEventKind.PartialText &&
-            !string.IsNullOrWhiteSpace(transcriptEvent.Text))
-        {
-            partialTranscript.TrySetResult(transcriptEvent);
-        }
-    }
+    await foreach (TranscriptEvent item in source) events.Add(item);
 }
 
 static byte[] ReadPcm16Mono16KhzWave(string path)

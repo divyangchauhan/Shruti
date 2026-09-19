@@ -53,6 +53,9 @@ jobs:
           - WasapiAudioCaptureSourceTests
           - WindowsAudioCaptureServiceTests
           - WindowsGlobalTriggerServiceTests
+          - WindowsShortcutRecorderTests
+          - WindowsModifierChordTests
+          - FloatingPillPlacementTests
           - WindowsTargetFocusServiceTests
           - WindowsTextInsertionServiceTests
           - WindowsTrayIconServiceTests

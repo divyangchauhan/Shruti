@@ -26,10 +26,12 @@ public sealed record ShrutiSettings
 
     public bool HasCompletedOnboarding { get; init; }
 
+    public bool ShowFloatingBar { get; init; } = true;
+
     public TriggerConfiguration TriggerConfiguration { get; init; } = new(
         EnableGlobalHotkey: false,
         EnablePushToTalk: true,
-        EnableFloatingButton: false,
+        EnableFloatingButton: true,
         EnableTrayMenu: true,
         HotkeyGesture: "Ctrl+Win+Space",
         PushToTalkKey: "Ctrl+Win+Space",

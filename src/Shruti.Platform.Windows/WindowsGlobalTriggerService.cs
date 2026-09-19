@@ -223,7 +223,7 @@ public sealed class WindowsGlobalTriggerService : IGlobalTriggerService, IDispos
         out WindowsHotkey? hotkey,
         out string? error)
     {
-        if (WindowsHotkeyParser.TryParse(gesture, out hotkey, out error))
+        if (WindowsHotkeyParser.TryParseHoldShortcut(gesture, out hotkey, out error))
         {
             return true;
         }
