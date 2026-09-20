@@ -190,8 +190,8 @@ public sealed class OpenVinoTranscriptionProvider : ITranscriptionProvider, IAsy
 
     private static int BackendRank(ComputeBackend backend) => backend switch
     {
-        ComputeBackend.Npu => 0,
-        ComputeBackend.Gpu => 1,
+        ComputeBackend.Gpu => 0,
+        ComputeBackend.Npu => 1,
         ComputeBackend.Cpu => 2,
         _ => 3
     };

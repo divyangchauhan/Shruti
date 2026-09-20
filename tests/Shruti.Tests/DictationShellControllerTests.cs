@@ -8,6 +8,30 @@ namespace Shruti.Tests;
 
 public sealed class DictationShellControllerTests
 {
+    [Theory]
+    [InlineData("", DictationInsertionMode.AutoInsert)]
+    [InlineData(" \r\n ", DictationInsertionMode.AutoInsert)]
+    [InlineData(" [BLANK_AUDIO]", DictationInsertionMode.AutoInsert)]
+    [InlineData("[BLANK_AUDIO] [BLANK_AUDIO]", DictationInsertionMode.CopyOnly)]
+    [InlineData("[NO_SPEECH]", DictationInsertionMode.PreviewFirst)]
+    public async Task NoSpeech_DoesNotInsertRestoreFocusCopyOrOfferPreview(string text, DictationInsertionMode mode)
+    {
+        var services = MockDictationAppServices.Create();
+        services.Transcription.ResultText = text;
+        await services.Clipboard.CopyTextAsync("original clipboard", CancellationToken.None);
+        var controller = services.CreateShellController();
+        await controller.StartAsync(mode);
+        await controller.StopAsync();
+        Assert.Equal(DictationRunOutcome.NoSpeech, controller.LastResult?.Outcome);
+        Assert.Equal(0, services.TextInsertion.InsertCount);
+        Assert.Equal(0, services.TargetFocus.RestoreCount);
+        Assert.Equal("original clipboard", services.Clipboard.LastCopiedText);
+        Assert.Empty(controller.State.TranscriptPreview);
+        Assert.False(controller.State.CanCopy);
+        Assert.False(controller.State.CanInsertPreview);
+        Assert.DoesNotContain(controller.LastResult!.StatusHistory, item => item.State == DictationSessionState.InsertingText);
+    }
+
     [Fact]
     public async Task StartAsync_CompletesAfterAudioCaptureSessionStarts()
     {
@@ -43,7 +67,7 @@ public sealed class DictationShellControllerTests
     }
 
     [Fact]
-    public async Task LiveTranscript_UpdatesWhileRecordingIsStillActive()
+    public async Task Recording_DoesNotShowPartialTranscript()
     {
         var services = MockDictationAppServices.Create();
         var controller = services.CreateShellController();
@@ -51,9 +75,10 @@ public sealed class DictationShellControllerTests
         await controller.StartAsync(DictationInsertionMode.AutoInsert);
         await WaitForStateAsync(
             controller,
-            state => state.IsRunning && state.TranscriptPreview == "hello from the Shruti mock dictation");
+            state => state.SessionState == DictationSessionState.Recording);
 
         Assert.Equal(DictationSessionState.Recording, controller.State.SessionState);
+        Assert.Empty(controller.State.TranscriptPreview);
         Assert.Equal(0, services.TextInsertion.InsertCount);
 
         await controller.CancelAsync();
@@ -74,9 +99,7 @@ public sealed class DictationShellControllerTests
             state => state.SessionState == DictationSessionState.TranscribingFinalAudio);
 
         services.Transcription.LastSession?.EmitPartialTranscript("late partial transcript");
-        await WaitForStateAsync(
-            controller,
-            state => state.TranscriptPreview == "late partial transcript");
+        Assert.Empty(controller.State.TranscriptPreview);
 
         Assert.Equal(DictationSessionState.TranscribingFinalAudio, controller.State.SessionState);
         Assert.Equal("Transcribing final audio", controller.State.StatusText);

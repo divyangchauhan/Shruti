@@ -65,7 +65,6 @@ public sealed class TranscriptionBenchmarkRunner
                     backend,
                     model.LanguageHint,
                     TranscriptionMode.Fast,
-                    Streaming: new StreamingTranscriptionOptions(EnablePartialTranscription: false),
                     MaximumAudioDuration: audioDuration),
                 cancellationToken)
             .ConfigureAwait(false);

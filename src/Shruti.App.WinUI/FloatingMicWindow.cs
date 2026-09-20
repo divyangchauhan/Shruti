@@ -1,419 +1,305 @@
+using System.Runtime.InteropServices;
 using Microsoft.UI.Windowing;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Automation;
 using Microsoft.UI.Xaml.Controls;
-using System.Runtime.InteropServices;
+using Microsoft.UI.Xaml.Media;
+using Shruti.Core;
+using Shruti.Core.Dictation;
 using Shruti.Platform.Windows;
 using Shruti.Workflow.Dictation;
 using WinRT.Interop;
-using Windows.Graphics;
 
 namespace Shruti.App.WinUI;
 
 public sealed class FloatingMicWindow : Window
 {
-    private const double MinimumWindowWidthDip = 356;
-    private const double PreferredWindowHeightDip = 60;
-    private const double DefaultDpi = 96;
-    private const int DwmWindowCornerPreference = 33;
-    private const int DwmWindowBorderColor = 34;
-    private const int DwmRoundPreference = 2;
-    private const int DwmColorNone = unchecked((int)0xFFFFFFFE);
-
-    private readonly Button _triggerButton;
-    private readonly Button _dismissButton;
-    private readonly FontIcon _triggerIcon;
-    private readonly TextBlock _titleText;
-    private readonly TextBlock _shortcutText;
     private readonly Border _root;
-    private readonly List<Border> _waveformBars = [];
-    private readonly IWindowsWindowVisibility _windowVisibility;
-    private DictationShellState? _lastState;
-    private bool _isInitialized;
-    private bool _allowClose;
-    private bool _isDark;
+    private readonly StackPanel _content = new() { Orientation = Orientation.Horizontal, Spacing = 4, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center };
+    private readonly List<Border> _bars = [];
+    private readonly List<Border> _dots = [];
+    private readonly IWindowsWindowVisibility _visibility;
+    private readonly DispatcherTimer _timer = new() { Interval = TimeSpan.FromMilliseconds(120) };
+    private readonly Native.SubclassProc _procedure;
+    private readonly IntPtr _handle;
+    private IntPtr _monitor;
+    private DictationShellState _state = DictationShellState.Initial;
+    private DateTimeOffset _noticeUntil;
+    private bool _hovered;
+    private bool _closing;
+    private string _mode = "";
+    private string _shortcut = "";
+    private double _width = 40;
+    private double _height = 8;
+    private int _tick;
+    private int _regionWidth;
+    private int _regionHeight;
 
-    public FloatingMicWindow(IWindowsWindowVisibility windowVisibility)
+    public FloatingMicWindow(IWindowsWindowVisibility visibility)
     {
-        _windowVisibility = windowVisibility ?? throw new ArgumentNullException(nameof(windowVisibility));
+        _visibility = visibility;
         Title = "Shruti dictation";
-
-        _triggerIcon = new FontIcon
-        {
-            FontFamily = new Microsoft.UI.Xaml.Media.FontFamily("Segoe Fluent Icons"),
-            Glyph = "\uE720",
-            FontSize = 17
-        };
-        _triggerButton = new Button
-        {
-            Width = 36,
-            Height = 36,
-            Padding = new Thickness(0),
-            CornerRadius = new CornerRadius(18),
-            Background = new Microsoft.UI.Xaml.Media.SolidColorBrush(Windows.UI.Color.FromArgb(255, 252, 233, 216)),
-            Foreground = new Microsoft.UI.Xaml.Media.SolidColorBrush(Windows.UI.Color.FromArgb(255, 188, 86, 16)),
-            BorderThickness = new Thickness(0),
-            IsTabStop = false,
-            UseSystemFocusVisuals = false,
-            Content = _triggerIcon
-        };
-        AutomationProperties.SetName(_triggerButton, "Start dictation");
-        ToolTipService.SetToolTip(_triggerButton, "Start or stop dictation");
-        _triggerButton.Click += TriggerButton_Click;
-
-        _dismissButton = new Button
-        {
-            Width = 32,
-            Height = 32,
-            Padding = new Thickness(0),
-            CornerRadius = new CornerRadius(16),
-            Background = new Microsoft.UI.Xaml.Media.SolidColorBrush(Windows.UI.Color.FromArgb(0, 0, 0, 0)),
-            BorderThickness = new Thickness(0),
-            IsTabStop = true,
-            UseSystemFocusVisuals = true,
-            Content = new FontIcon
-            {
-                FontFamily = new Microsoft.UI.Xaml.Media.FontFamily("Segoe Fluent Icons"),
-                Glyph = "\uE8BB",
-                FontSize = 12
-            }
-        };
-        AutomationProperties.SetName(_dismissButton, "Close floating dictation window");
-        ToolTipService.SetToolTip(_dismissButton, "Close");
-        _dismissButton.Click += DismissButton_Click;
-
-        _titleText = new TextBlock
-        {
-            FontFamily = new Microsoft.UI.Xaml.Media.FontFamily("Segoe UI Variable Text, Segoe UI"),
-            FontSize = 14,
-            FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
-            Text = "Ready to dictate"
-        };
-        _shortcutText = new TextBlock
-        {
-            FontFamily = new Microsoft.UI.Xaml.Media.FontFamily("Cascadia Code, Consolas"),
-            FontSize = 12,
-            Opacity = 0.7,
-            Text = "Ctrl+Win+Space · on this PC"
-        };
-        var content = new Grid
-        {
-            ColumnSpacing = 10
-        };
-        content.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-        content.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-        content.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-        content.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-        content.Children.Add(_triggerButton);
-
-        var waveform = new StackPanel
-        {
-            Orientation = Orientation.Horizontal,
-            Spacing = 2,
-            Height = 22,
-            VerticalAlignment = VerticalAlignment.Center
-        };
-        for (int index = 0; index < 12; index++)
-        {
-            var bar = new Border
-            {
-                Width = 2.5,
-                Height = 4 + ((index * 7) % 13),
-                VerticalAlignment = VerticalAlignment.Center,
-                CornerRadius = new CornerRadius(2)
-            };
-            _waveformBars.Add(bar);
-            waveform.Children.Add(bar);
-        }
-
-        Grid.SetColumn(waveform, 1);
-        content.Children.Add(waveform);
-
-        var text = new StackPanel
-        {
-            VerticalAlignment = VerticalAlignment.Center,
-            Spacing = 1
-        };
-        text.Children.Add(_titleText);
-        text.Children.Add(_shortcutText);
-        Grid.SetColumn(text, 2);
-        content.Children.Add(text);
-
-        Grid.SetColumn(_dismissButton, 3);
-        content.Children.Add(_dismissButton);
-
         _root = new Border
         {
-            Padding = new Thickness(12, 10, 12, 10),
-            CornerRadius = new CornerRadius(30),
-            BorderThickness = new Thickness(1),
-            Child = content
+            // Paint the entire client area. The native window region supplies
+            // the capsule shape without exposing the white window behind XAML corners.
+            Background = new SolidColorBrush(Microsoft.UI.Colors.Black),
+            BorderThickness = new Thickness(0),
+            Child = _content,
+            RequestedTheme = ElementTheme.Dark
         };
         Content = _root;
-        _root.ActualThemeChanged += Root_ActualThemeChanged;
-        AppIcon.Apply(AppWindow);
-        AppWindow.Closing += AppWindow_Closing;
-        ConfigurePresenter();
+        _root.PointerEntered += (_, _) => { _hovered = true; Render(); };
+        _root.PointerExited += (_, _) => { _hovered = false; Render(); };
+        var menu = new MenuFlyout();
+        var settings = new MenuFlyoutItem { Text = "Settings" };
+        settings.Click += (_, _) => SettingsRequested?.Invoke(this, EventArgs.Empty);
+        var hide = new MenuFlyoutItem { Text = "Hide floating bar" };
+        hide.Click += (_, _) => DismissRequested?.Invoke(this, EventArgs.Empty);
+        menu.Items.Add(settings);
+        menu.Items.Add(hide);
+        _root.ContextFlyout = menu;
+        AutomationProperties.SetName(_root, "Shruti floating dictation bar");
+        AutomationProperties.SetLiveSetting(_root, Microsoft.UI.Xaml.Automation.Peers.AutomationLiveSetting.Polite);
+        _handle = WindowNative.GetWindowHandle(this);
+        if (AppWindow.Presenter is OverlappedPresenter presenter)
+        {
+            presenter.SetBorderAndTitleBar(false, false);
+            presenter.IsResizable = false;
+            presenter.IsMinimizable = false;
+            presenter.IsMaximizable = false;
+        }
+        AppWindow.IsShownInSwitchers = false;
+        _visibility.MakeNonActivating(_handle);
+        _procedure = WindowProcedure;
+        if (!Native.SetWindowSubclass(_handle, _procedure, (UIntPtr)0x5351, IntPtr.Zero))
+            throw new System.ComponentModel.Win32Exception(Marshal.GetLastWin32Error());
+        // OverlappedPresenter can retain WS_DLGFRAME after hiding its border.
+        // Remove the native frame so the black client area reaches every edge.
+        nint style = Native.GetWindowLongPtr(_handle, -16);
+        Native.SetWindowLongPtr(_handle, -16, style & ~(nint)0x00CC0000);
+        Native.SetWindowPos(_handle, IntPtr.Zero, 0, 0, 0, 0, 0x0037);
+        int doNotRound = 1;
+        Native.DwmSetWindowAttribute(_handle, 33, ref doNotRound, sizeof(int));
+        int noBorder = -2;
+        Native.DwmSetWindowAttribute(_handle, 34, ref noBorder, sizeof(int));
+        SelectMonitor();
+        _timer.Tick += (_, _) =>
+        {
+            _tick++;
+            for (int i = 0; i < _dots.Count; i++) _dots[i].Opacity = (_tick / 2) % 3 == i ? 1 : 0.3;
+            if (_mode == "notice" && DateTimeOffset.UtcNow >= _noticeUntil) Render();
+            if (_tick % 8 == 0) Place();
+        };
+        AppWindow.Closing += (_, args) => { if (!_closing) { args.Cancel = true; DismissRequested?.Invoke(this, EventArgs.Empty); } };
+        Closed += (_, _) =>
+        {
+            _timer.Stop();
+            Native.RemoveWindowSubclass(_handle, _procedure, (UIntPtr)0x5351);
+        };
     }
 
     public event EventHandler? TriggerRequested;
-
+    public event EventHandler? CancelRequested;
     public event EventHandler? DismissRequested;
-
+    public event EventHandler? SettingsRequested;
     public bool IsVisible { get; private set; }
 
-    public void Show(DictationShellState state, ElementTheme theme, string? modelName)
+    public void Show(DictationShellState state, string shortcut)
     {
-        ApplyTheme(theme);
-        _shortcutText.Text = $"{(string.IsNullOrWhiteSpace(modelName) ? "Local model" : modelName)} · on this PC";
+        _shortcut = shortcut;
         UpdateState(state);
-        ResizeForCurrentDpi(modelName);
-
-        IntPtr windowHandle = WindowNative.GetWindowHandle(this);
-        ApplyRoundedWindowCorners(windowHandle);
-        if (!_isInitialized)
-        {
-            _windowVisibility.MakeNonActivating(windowHandle);
-            Activate();
-            _windowVisibility.MakeNonActivating(windowHandle);
-            ApplyTheme(theme);
-            _isInitialized = true;
-            IsVisible = true;
-            return;
-        }
-
-        if (!IsVisible)
-        {
-            _windowVisibility.ShowWithoutActivating(windowHandle);
-        }
-
+        if (IsVisible) return;
+        Place();
+        AppWindow.Show(activateWindow: false);
         IsVisible = true;
-    }
-
-    public void ApplyTheme(ElementTheme theme)
-    {
-        _root.RequestedTheme = theme;
-        _isDark = theme == ElementTheme.Dark ||
-            (theme == ElementTheme.Default && _root.ActualTheme == ElementTheme.Dark);
-        _root.Background = new Microsoft.UI.Xaml.Media.SolidColorBrush(
-            _isDark ? Windows.UI.Color.FromArgb(255, 44, 41, 37) : Windows.UI.Color.FromArgb(255, 255, 255, 255));
-        _root.BorderBrush = new Microsoft.UI.Xaml.Media.SolidColorBrush(
-            _isDark ? Windows.UI.Color.FromArgb(255, 68, 64, 58) : Windows.UI.Color.FromArgb(255, 231, 228, 223));
-        Windows.UI.Color textColor = _isDark
-            ? Windows.UI.Color.FromArgb(255, 243, 241, 238)
-            : Windows.UI.Color.FromArgb(255, 30, 28, 25);
-        _titleText.Foreground = new Microsoft.UI.Xaml.Media.SolidColorBrush(textColor);
-        _shortcutText.Foreground = new Microsoft.UI.Xaml.Media.SolidColorBrush(textColor);
-        _dismissButton.Foreground = new Microsoft.UI.Xaml.Media.SolidColorBrush(textColor);
-        ApplyTitleBarTheme(_isDark);
-        if (_lastState is not null)
-        {
-            UpdateState(_lastState);
-        }
+        _timer.Start();
     }
 
     public void UpdateState(DictationShellState state)
     {
-        _lastState = state;
-        _triggerIcon.Glyph = state.IsRunning ? "\uE71A" : "\uE720";
-        bool listening = state.SessionState == Shruti.Core.DictationSessionState.Recording;
-        _titleText.Text = state.SessionState switch
+        if (state.IsRunning && !_state.IsRunning)
         {
-            Shruti.Core.DictationSessionState.Recording => "Listening…",
-            Shruti.Core.DictationSessionState.Paused => "Paused",
-            Shruti.Core.DictationSessionState.TranscribingFinalAudio => "Catching up…",
-            Shruti.Core.DictationSessionState.InsertingText => "Adding your words…",
-            _ => "Ready to dictate"
-        };
-        _triggerButton.Background = new Microsoft.UI.Xaml.Media.SolidColorBrush(listening
-            ? (_isDark ? Windows.UI.Color.FromArgb(255, 234, 141, 70) : Windows.UI.Color.FromArgb(255, 222, 110, 30))
-            : (_isDark ? Windows.UI.Color.FromArgb(255, 51, 34, 24) : Windows.UI.Color.FromArgb(255, 252, 233, 216)));
-        _triggerButton.Foreground = new Microsoft.UI.Xaml.Media.SolidColorBrush(listening
-            ? (_isDark ? Windows.UI.Color.FromArgb(255, 44, 19, 5) : Windows.UI.Color.FromArgb(255, 255, 255, 255))
-            : (_isDark ? Windows.UI.Color.FromArgb(255, 234, 141, 70) : Windows.UI.Color.FromArgb(255, 188, 86, 16)));
-        foreach (Border bar in _waveformBars)
-        {
-            bar.Background = new Microsoft.UI.Xaml.Media.SolidColorBrush(listening
-                ? (_isDark ? Windows.UI.Color.FromArgb(255, 234, 141, 70) : Windows.UI.Color.FromArgb(255, 222, 110, 30))
-                : (_isDark ? Windows.UI.Color.FromArgb(255, 68, 64, 58) : Windows.UI.Color.FromArgb(255, 212, 208, 201)));
-            bar.Opacity = listening ? 1 : 0;
+            SelectMonitor();
+            _noticeUntil = default;
         }
-        AutomationProperties.SetName(_triggerButton, state.IsRunning ? "Stop dictation" : "Start dictation");
-        ToolTipService.SetToolTip(_triggerButton, state.IsRunning ? "Stop dictation" : "Start dictation");
-        _triggerButton.IsEnabled = state.CanStart || state.CanStop;
+        if (!state.IsRunning && _state.IsRunning && state.LastOutcome == DictationRunOutcome.NoSpeech)
+            _noticeUntil = DateTimeOffset.UtcNow.AddSeconds(2);
+        _state = state;
+        Render();
+    }
+
+    public void UpdateAudioLevel(float peak)
+    {
+        for (int i = 0; i < _bars.Count; i++)
+        {
+            double envelope = 0.45 + 0.55 * Math.Sin((i + 1d) / (_bars.Count + 1) * Math.PI);
+            _bars[i].Height = 2 + Math.Clamp(peak * 4, 0, 1) * 14 * envelope;
+        }
     }
 
     public void Hide()
     {
+        _timer.Stop();
+        _visibility.Hide(_handle);
         IsVisible = false;
-
-        if (!_isInitialized)
-        {
-            return;
-        }
-
-        _windowVisibility.Hide(WindowNative.GetWindowHandle(this));
+        _hovered = false;
     }
 
     public void CloseForApplicationExit()
     {
-        _allowClose = true;
-        IsVisible = false;
+        _closing = true;
+        _timer.Stop();
         Close();
     }
 
-    private void AppWindow_Closing(AppWindow sender, AppWindowClosingEventArgs args)
+    private void Render()
     {
-        if (_allowClose)
+        string mode = _state.IsRunning
+            ? (_state.CanStop ? "recording" : "processing")
+            : DateTimeOffset.UtcNow < _noticeUntil ? "notice"
+            : _state.LastOutcome == DictationRunOutcome.Failed ? "error"
+            : _hovered ? "hover" : "idle";
+        ToolTipService.SetToolTip(_root, mode == "idle" || mode == "hover" ? $"Dictate � {_shortcut}" : _state.UserMessage);
+        if (_mode == mode) return;
+        _mode = mode;
+        _content.Children.Clear();
+        _bars.Clear();
+        _dots.Clear();
+        (_width, _height) = mode switch
         {
-            return;
-        }
-
-        args.Cancel = true;
-        Hide();
-        DismissRequested?.Invoke(this, EventArgs.Empty);
-    }
-
-    private void ConfigurePresenter()
-    {
-        if (AppWindow.Presenter is OverlappedPresenter presenter)
+            "idle" => (40, 8),
+            "hover" => (76, 28),
+            "recording" => (112, 28),
+            "processing" => (48, 24),
+            "notice" => (112, 24),
+            _ => (76, 28)
+        };
+        _root.Width = _width;
+        _root.Height = _height;
+        if (mode == "hover")
         {
-            presenter.SetBorderAndTitleBar(hasBorder: false, hasTitleBar: false);
-            presenter.IsMaximizable = false;
-            presenter.IsMinimizable = false;
-            presenter.IsResizable = false;
+            _content.Children.Add(ActionButton("\uE720", "Start dictation", () => TriggerRequested?.Invoke(this, EventArgs.Empty)));
+            _content.Children.Add(ActionButton("\uE713", "Open settings", () => SettingsRequested?.Invoke(this, EventArgs.Empty)));
         }
-    }
-
-    private void ResizeForCurrentDpi(string? modelName)
-    {
-        IntPtr windowHandle = WindowNative.GetWindowHandle(this);
-        uint dpi = GetDpiForWindow(windowHandle);
-        double scale = dpi == 0 ? 1 : dpi / DefaultDpi;
-        int subtitleCharacterCount = (modelName?.Length ?? "Local model".Length) + " · on this PC".Length;
-        double subtitleWidthDip = Math.Max(132, subtitleCharacterCount * 7.2);
-        double preferredWidthDip = Math.Max(MinimumWindowWidthDip, 192 + subtitleWidthDip);
-        AppWindow.Resize(new SizeInt32(
-            checked((int)Math.Round(preferredWidthDip * scale)),
-            checked((int)Math.Round(PreferredWindowHeightDip * scale))));
-    }
-
-    private void Root_ActualThemeChanged(FrameworkElement sender, object args)
-    {
-        if (_root.RequestedTheme == ElementTheme.Default)
+        else if (mode == "recording")
         {
-            ApplyTheme(ElementTheme.Default);
+            _content.Children.Add(ActionButton("\uE711", "Cancel dictation", () => CancelRequested?.Invoke(this, EventArgs.Empty)));
+            var waveform = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 3, Height = 18, VerticalAlignment = VerticalAlignment.Center };
+            for (int i = 0; i < 7; i++)
+            {
+                var bar = new Border { Width = 2, Height = 2, CornerRadius = new CornerRadius(1), VerticalAlignment = VerticalAlignment.Center, Background = new SolidColorBrush(Microsoft.UI.Colors.White) };
+                _bars.Add(bar);
+                waveform.Children.Add(bar);
+            }
+            _content.Children.Add(waveform);
+            _content.Children.Add(ActionButton("\uE73E", "Finish dictation", () => TriggerRequested?.Invoke(this, EventArgs.Empty)));
         }
-    }
-
-    private void ApplyTitleBarTheme(bool isDark)
-    {
-        if (!AppWindowTitleBar.IsCustomizationSupported())
+        else if (mode == "processing")
         {
-            return;
+            for (int i = 0; i < 3; i++)
+            {
+                var dot = new Border { Width = 4, Height = 4, CornerRadius = new CornerRadius(2), Background = new SolidColorBrush(Microsoft.UI.Colors.White) };
+                _dots.Add(dot);
+                _content.Children.Add(dot);
+            }
         }
-
-        Windows.UI.Color background = isDark
-            ? Windows.UI.Color.FromArgb(255, 17, 16, 14)
-            : Windows.UI.Color.FromArgb(255, 247, 245, 240);
-        Windows.UI.Color foreground = isDark
-            ? Windows.UI.Color.FromArgb(255, 250, 247, 239)
-            : Windows.UI.Color.FromArgb(255, 35, 33, 29);
-        Windows.UI.Color mutedForeground = isDark
-            ? Windows.UI.Color.FromArgb(255, 207, 199, 186)
-            : Windows.UI.Color.FromArgb(255, 98, 93, 84);
-        Windows.UI.Color hoverBackground = isDark
-            ? Windows.UI.Color.FromArgb(255, 35, 33, 29)
-            : Windows.UI.Color.FromArgb(255, 238, 234, 226);
-
-        AppWindowTitleBar titleBar = AppWindow.TitleBar;
-        titleBar.BackgroundColor = background;
-        titleBar.ForegroundColor = foreground;
-        titleBar.InactiveBackgroundColor = background;
-        titleBar.InactiveForegroundColor = mutedForeground;
-        titleBar.ButtonBackgroundColor = background;
-        titleBar.ButtonForegroundColor = foreground;
-        titleBar.ButtonHoverBackgroundColor = hoverBackground;
-        titleBar.ButtonHoverForegroundColor = foreground;
-        titleBar.ButtonInactiveBackgroundColor = background;
-        titleBar.ButtonInactiveForegroundColor = mutedForeground;
-    }
-
-    private void TriggerButton_Click(object sender, RoutedEventArgs e)
-    {
-        TriggerRequested?.Invoke(this, EventArgs.Empty);
-    }
-
-    private void DismissButton_Click(object sender, RoutedEventArgs e)
-    {
-        Hide();
-        DismissRequested?.Invoke(this, EventArgs.Empty);
-    }
-
-    private static void ApplyRoundedWindowCorners(IntPtr windowHandle)
-    {
-        int preference = DwmRoundPreference;
-        _ = DwmSetWindowAttribute(
-            windowHandle,
-            DwmWindowCornerPreference,
-            ref preference,
-            Marshal.SizeOf<int>());
-
-        int borderColor = DwmColorNone;
-        _ = DwmSetWindowAttribute(
-            windowHandle,
-            DwmWindowBorderColor,
-            ref borderColor,
-            Marshal.SizeOf<int>());
-
-        if (!GetWindowRect(windowHandle, out WindowRect bounds))
+        else if (mode == "notice")
+            _content.Children.Add(new TextBlock { Text = "No speech detected", FontSize = 10, Foreground = new SolidColorBrush(Microsoft.UI.Colors.White) });
+        else if (mode == "error")
         {
-            return;
+            _content.Children.Add(ActionButton("\uE72C", "Try dictation again", () => TriggerRequested?.Invoke(this, EventArgs.Empty)));
+            _content.Children.Add(ActionButton("\uE713", "Open settings", () => SettingsRequested?.Invoke(this, EventArgs.Empty)));
         }
-
-        int width = bounds.Right - bounds.Left;
-        int height = bounds.Bottom - bounds.Top;
-        IntPtr region = CreateRoundRectRgn(0, 0, width + 1, height + 1, height, height);
-        if (region != IntPtr.Zero && SetWindowRgn(windowHandle, region, true) == 0)
+        AutomationProperties.SetName(_root, mode switch
         {
-            _ = DeleteObject(region);
-        }
+            "recording" => "Recording",
+            "processing" => "Processing speech",
+            "notice" => "No speech detected",
+            "error" => _state.UserMessage,
+            _ => $"Dictate, {_shortcut}"
+        });
+        Place();
     }
 
-    [StructLayout(LayoutKind.Sequential)]
-    private struct WindowRect
+    private static Button ActionButton(string glyph, string name, Action action)
     {
-        public int Left;
-        public int Top;
-        public int Right;
-        public int Bottom;
+        var button = new Button
+        {
+            Width = 22,
+            Height = 22,
+            MinWidth = 0,
+            MinHeight = 0,
+            Padding = new Thickness(0),
+            CornerRadius = new CornerRadius(15),
+            Background = new SolidColorBrush(Microsoft.UI.Colors.Transparent),
+            BorderThickness = new Thickness(0),
+            Foreground = new SolidColorBrush(Microsoft.UI.Colors.White),
+            Content = new FontIcon { Glyph = glyph, FontFamily = new FontFamily("Segoe Fluent Icons"), FontSize = 11 }
+        };
+        AutomationProperties.SetName(button, name);
+        ToolTipService.SetToolTip(button, name);
+        button.Click += (_, _) => action();
+        return button;
     }
 
-    [DllImport("user32.dll")]
-    private static extern uint GetDpiForWindow(IntPtr hwnd);
+    private void SelectMonitor() => _monitor = Native.MonitorFromWindow(Native.GetForegroundWindow(), 2);
 
-    [DllImport("user32.dll")]
-    private static extern bool GetWindowRect(IntPtr hwnd, out WindowRect bounds);
+    private void Place()
+    {
+        var info = new Native.MonitorInfo { Size = Marshal.SizeOf<Native.MonitorInfo>() };
+        if (!Native.GetMonitorInfo(_monitor, ref info))
+        {
+            SelectMonitor();
+            if (!Native.GetMonitorInfo(_monitor, ref info)) return;
+        }
+        Native.GetDpiForMonitor(_monitor, 0, out uint dpi, out _);
+        FloatingPillBounds bounds = FloatingPillPlacement.BottomCenter(info.Work.Left, info.Work.Top, info.Work.Right, info.Work.Bottom, _width, _height, dpi);
+        Native.SetWindowPos(_handle, (IntPtr)(-1), bounds.X, bounds.Y, bounds.Width, bounds.Height, 0x0010);
+        _root.UpdateLayout();
+        if (_regionWidth == bounds.Width && _regionHeight == bounds.Height) return;
+        _regionWidth = bounds.Width;
+        _regionHeight = bounds.Height;
+        IntPtr region = Native.CreateRoundRectRgn(0, 0, bounds.Width + 1, bounds.Height + 1, bounds.Height, bounds.Height);
+        if (Native.SetWindowRgn(_handle, region, true) == 0) Native.DeleteObject(region);
+    }
 
-    [DllImport("user32.dll")]
-    private static extern int SetWindowRgn(IntPtr hwnd, IntPtr region, bool redraw);
+    private IntPtr WindowProcedure(IntPtr hwnd, uint message, IntPtr wParam, IntPtr lParam, UIntPtr id, IntPtr data)
+    {
+        if (message == 0x0024) // WM_GETMINMAXINFO: a pill is smaller than a normal app window.
+        {
+            Native.DefSubclassProc(hwnd, message, wParam, lParam);
+            var limits = Marshal.PtrToStructure<Native.MinMaxInfo>(lParam);
+            limits.MinTrackSize = new Native.Point { X = 1, Y = 1 };
+            Marshal.StructureToPtr(limits, lParam, false);
+            return IntPtr.Zero;
+        }
+        if (message == 0x0021) return (IntPtr)3; // MA_NOACTIVATE: keep the editor's caret.
+        if (message == 0x0084) return (IntPtr)1; // HTCLIENT: there is no draggable caption.
+        if (message == 0x0112 && (wParam.ToInt64() & 0xFFF0) is 0xF010 or 0xF000) return IntPtr.Zero;
+        return Native.DefSubclassProc(hwnd, message, wParam, lParam);
+    }
 
-    [DllImport("gdi32.dll")]
-    private static extern IntPtr CreateRoundRectRgn(
-        int left,
-        int top,
-        int right,
-        int bottom,
-        int ellipseWidth,
-        int ellipseHeight);
-
-    [DllImport("gdi32.dll")]
-    private static extern bool DeleteObject(IntPtr handle);
-
-    [DllImport("dwmapi.dll")]
-    private static extern int DwmSetWindowAttribute(
-        IntPtr hwnd,
-        int attribute,
-        ref int attributeValue,
-        int attributeSize);
+    private static class Native
+    {
+        [DllImport("user32.dll", EntryPoint = "GetWindowLongPtrW")] public static extern nint GetWindowLongPtr(IntPtr hwnd, int index);
+        [DllImport("user32.dll", EntryPoint = "SetWindowLongPtrW")] public static extern nint SetWindowLongPtr(IntPtr hwnd, int index, nint value);
+        [StructLayout(LayoutKind.Sequential)] public struct Point { public int X, Y; }
+        [StructLayout(LayoutKind.Sequential)] public struct MinMaxInfo { public Point Reserved, MaxSize, MaxPosition, MinTrackSize, MaxTrackSize; }
+        [DllImport("dwmapi.dll")] public static extern int DwmSetWindowAttribute(IntPtr hwnd, int attribute, ref int value, int size);
+        [StructLayout(LayoutKind.Sequential)] public struct Rect { public int Left, Top, Right, Bottom; }
+        [StructLayout(LayoutKind.Sequential)] public struct MonitorInfo { public int Size; public Rect Monitor, Work; public uint Flags; }
+        public delegate IntPtr SubclassProc(IntPtr hwnd, uint message, IntPtr wParam, IntPtr lParam, UIntPtr id, IntPtr data);
+        [DllImport("comctl32.dll", SetLastError = true)][return: MarshalAs(UnmanagedType.Bool)] public static extern bool SetWindowSubclass(IntPtr hwnd, SubclassProc proc, UIntPtr id, IntPtr data);
+        [DllImport("comctl32.dll")][return: MarshalAs(UnmanagedType.Bool)] public static extern bool RemoveWindowSubclass(IntPtr hwnd, SubclassProc proc, UIntPtr id);
+        [DllImport("comctl32.dll")] public static extern IntPtr DefSubclassProc(IntPtr hwnd, uint message, IntPtr wParam, IntPtr lParam);
+        [DllImport("user32.dll")] public static extern IntPtr GetForegroundWindow();
+        [DllImport("user32.dll")] public static extern IntPtr MonitorFromWindow(IntPtr hwnd, uint flags);
+        [DllImport("user32.dll", EntryPoint = "GetMonitorInfoW")][return: MarshalAs(UnmanagedType.Bool)] public static extern bool GetMonitorInfo(IntPtr monitor, ref MonitorInfo info);
+        [DllImport("shcore.dll")] public static extern int GetDpiForMonitor(IntPtr monitor, int type, out uint x, out uint y);
+        [DllImport("user32.dll")][return: MarshalAs(UnmanagedType.Bool)] public static extern bool SetWindowPos(IntPtr hwnd, IntPtr after, int x, int y, int cx, int cy, uint flags);
+        [DllImport("gdi32.dll")] public static extern IntPtr CreateRoundRectRgn(int left, int top, int right, int bottom, int width, int height);
+        [DllImport("user32.dll")] public static extern int SetWindowRgn(IntPtr hwnd, IntPtr region, [MarshalAs(UnmanagedType.Bool)] bool redraw);
+        [DllImport("gdi32.dll")][return: MarshalAs(UnmanagedType.Bool)] public static extern bool DeleteObject(IntPtr value);
+    }
 }

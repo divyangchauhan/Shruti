@@ -113,9 +113,9 @@ public sealed class JsonSettingsRepository : ISettingsRepository
                 : ShrutiSettings.Default.BackendPreference,
             AllowSlowTranscription = settings.AllowSlowTranscription,
             HasCompletedOnboarding = settings.HasCompletedOnboarding,
+            ShowFloatingBar = settings.ShowFloatingBar,
             TriggerConfiguration = triggerConfiguration with
             {
-                EnableFloatingButton = false,
                 EnableFloatingWindowShortcut = false,
                 FloatingWindowShortcut = null
             }

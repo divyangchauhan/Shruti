@@ -1,5 +1,9 @@
 [CmdletBinding()]
-param([switch]$Npu)
+param([switch]$Npu, [switch]$Gpu, [string]$ModelId, [switch]$Silence)
+
+if ($Npu -and $Gpu) {
+    throw "Choose either -Gpu or -Npu."
+}
 
 $repositoryRoot = Split-Path -Parent $PSScriptRoot
 
@@ -20,12 +24,20 @@ if ($LASTEXITCODE -ne 0) {
 }
 
 $integrationAssembly = "$repositoryRoot\tools\Shruti.RealIntegration\bin\x64\Release\net8.0\Shruti.RealIntegration.dll"
+$integrationArguments = @()
 if ($Npu) {
-    & dotnet $integrationAssembly --npu
+    $integrationArguments += "--npu"
 }
-else {
-    & dotnet $integrationAssembly
+elseif ($Gpu) {
+    $integrationArguments += "--gpu"
 }
+if (-not [string]::IsNullOrWhiteSpace($ModelId)) {
+    $integrationArguments += @("--model", $ModelId)
+}
+if ($Silence) {
+    $integrationArguments += "--silence"
+}
+& dotnet $integrationAssembly @integrationArguments
 
 if ($LASTEXITCODE -ne 0) {
     exit $LASTEXITCODE

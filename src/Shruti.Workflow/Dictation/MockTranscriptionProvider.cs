@@ -13,6 +13,8 @@ public sealed class MockTranscriptionProvider : ITranscriptionProvider
 
     public TaskCompletionSource? CompleteGate { get; set; }
 
+    public string ResultText { get; set; } = "hello from the Shruti mock dictation loop";
+
     public Task<IReadOnlyList<EngineCapability>> ProbeAsync(CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
@@ -24,7 +26,7 @@ public sealed class MockTranscriptionProvider : ITranscriptionProvider
                 DisplayName,
                 ComputeBackend.Cpu,
                 "Mock CPU",
-                SupportsStreaming: true,
+                SupportsStreaming: false,
                 SupportsTimestamps: true,
                 SupportsLanguageDetection: false,
                 MeasuredRealtimeFactor: 0.05,
@@ -48,7 +50,7 @@ public sealed class MockTranscriptionProvider : ITranscriptionProvider
         CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        LastSession = new MockTranscriptionSession(CompleteGate);
+        LastSession = new MockTranscriptionSession(CompleteGate, ResultText);
         return Task.FromResult<ITranscriptionSession>(LastSession);
     }
 
@@ -56,11 +58,12 @@ public sealed class MockTranscriptionProvider : ITranscriptionProvider
     {
         private readonly Channel<TranscriptEvent> _events = Channel.CreateUnbounded<TranscriptEvent>();
         private readonly TaskCompletionSource? _completeGate;
-        private bool _partialTranscriptSent;
+        private readonly string _resultText;
 
-        public MockTranscriptionSession(TaskCompletionSource? completeGate)
+        public MockTranscriptionSession(TaskCompletionSource? completeGate, string resultText)
         {
             _completeGate = completeGate;
+            _resultText = resultText;
         }
 
         public AudioFormat RequiredInputFormat => AudioFormat.Speech16KhzMono;
@@ -77,14 +80,6 @@ public sealed class MockTranscriptionProvider : ITranscriptionProvider
         {
             cancellationToken.ThrowIfCancellationRequested();
             PushedAudioChunkCount++;
-            if (!_partialTranscriptSent)
-            {
-                _partialTranscriptSent = true;
-                _events.Writer.TryWrite(new TranscriptEvent(
-                    TranscriptEventKind.PartialText,
-                    Text: "hello from the Shruti mock dictation"));
-            }
-
             return ValueTask.FromResult(TranscriptionAudioPushResult.Continue);
         }
 
@@ -96,7 +91,7 @@ public sealed class MockTranscriptionProvider : ITranscriptionProvider
                 await _completeGate.Task.WaitAsync(cancellationToken).ConfigureAwait(false);
             }
 
-            TranscriptResult result = TranscriptResult.FromText("hello from the Shruti mock dictation loop");
+            TranscriptResult result = TranscriptResult.FromText(_resultText);
             _events.Writer.TryWrite(new TranscriptEvent(TranscriptEventKind.Completed, Text: result.Text));
             _events.Writer.TryComplete();
             return result;

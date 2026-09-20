@@ -121,7 +121,7 @@ public sealed class WindowsTextInsertionService : ITextInsertionService
             return safetyFailure;
         }
 
-        if (text.Length == 0)
+        if (Shruti.Transcription.Abstractions.TranscriptText.IsEmptyOrNonSpeech(text))
         {
             return Failure("Shruti will not insert an empty transcript.");
         }

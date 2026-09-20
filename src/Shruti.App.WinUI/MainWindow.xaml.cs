@@ -49,12 +49,16 @@ public sealed partial class MainWindow : Window
     private readonly List<Border> _waveformBars = [];
 
     private Storyboard? _micPulseStoryboard;
+    private FloatingMicWindow? _floatingMicWindow;
     private Task? _triggerDispatchTask;
     private bool _allowClose;
     private bool _isDisposed;
     private bool _audioDevicesLoaded;
     private bool _settingsLoaded;
     private bool _isApplyingSettings;
+    private bool _isEditingShortcut;
+    private string _pushToTalkGesture = "Ctrl+Win+Space";
+    private string _globalHotkeyGesture = "Ctrl+Win+Space";
     private bool _isApplyingModelSelection;
     private bool _isModelOperationRunning;
     private bool _isOnboardingModelOperation;
@@ -327,6 +331,7 @@ public sealed partial class MainWindow : Window
         _settings = _settings with { HasCompletedOnboarding = true };
         await _settingsRepository.SaveAsync(_settings, CancellationToken.None);
         OnboardingLayer.Visibility = Visibility.Collapsed;
+        UpdateFloatingBar();
     }
 
     private async void ModelSelectionComboBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
@@ -349,15 +354,110 @@ public sealed partial class MainWindow : Window
         await ApplyTriggerConfigurationAsync();
     }
 
-    private async void TriggerConfigurationInput_LostFocus(object sender, RoutedEventArgs e)
+    private async void ChangeHotkeyButton_Click(object sender, RoutedEventArgs e)
     {
-        await ApplyTriggerConfigurationAsync();
+        await ChangeShortcutAsync(holdToTalk: true);
     }
 
-    private void ChangeHotkeyButton_Click(object sender, RoutedEventArgs e)
+    private async void ChangeSinglePressHotkeyButton_Click(object sender, RoutedEventArgs e)
     {
-        PushToTalkKeyTextBox.Focus(FocusState.Programmatic);
-        PushToTalkKeyTextBox.SelectAll();
+        await ChangeShortcutAsync(holdToTalk: false);
+    }
+
+    private async Task ChangeShortcutAsync(bool holdToTalk)
+    {
+        if (_isEditingShortcut) return;
+        await EnsureSettingsLoadedAsync();
+        if (_isEditingShortcut) return;
+        if (_controller.State.IsRunning)
+        {
+            TriggerStatusText.Text = "Finish dictation before changing a shortcut.";
+            return;
+        }
+
+        _isEditingShortcut = true;
+        UpdateFloatingBar();
+        TriggerConfiguration original = _triggerService.Configuration;
+        TriggerConfiguration restore = original;
+        try
+        {
+            await _triggerService.ConfigureAsync(original with
+            {
+                EnableGlobalHotkey = false,
+                EnablePushToTalk = false,
+                EnableFloatingWindowShortcut = false
+            }, CancellationToken.None);
+            _trayIconService.SetDictationCommandsEnabled(false);
+            var dialog = new ShortcutCaptureDialog(this, _windowHandle, Root.XamlRoot,
+                (holdToTalk ? original.PushToTalkKey : original.HotkeyGesture) ?? string.Empty,
+                holdToTalk, async gesture =>
+                {
+                    TriggerConfiguration updated = holdToTalk
+                        ? original with { PushToTalkKey = gesture }
+                        : original with { HotkeyGesture = gesture };
+
+                    // Probe availability while our own registrations are suspended.
+                    WindowsHotkeyParser.TryParse(gesture, out WindowsHotkey? hotkey, out _);
+                    if (hotkey is null && WindowsVirtualKey.TryParse(gesture, out uint key, out _) && key is >= 0x70 and <= 0x87)
+                    {
+                        hotkey = new WindowsHotkey(0, key, gesture);
+                    }
+                    if (hotkey is not null)
+                    {
+                        const int probeId = 0x5350;
+                        var registration = new Win32HotkeyRegistration();
+                        if (!registration.Register(_windowHandle, probeId, hotkey!))
+                            throw new InvalidOperationException("That shortcut is in use by Windows or another app. Record a different shortcut.");
+                        registration.Unregister(_windowHandle, probeId);
+                    }
+
+                    await _settingsGate.WaitAsync();
+                    try
+                    {
+                        await _triggerService.ConfigureAsync(updated, CancellationToken.None);
+                        ShrutiSettings updatedSettings = _settings with { TriggerConfiguration = updated };
+                        await _settingsRepository.SaveAsync(updatedSettings, CancellationToken.None);
+                        _settings = updatedSettings;
+                        _transcriptionOptionsProvider.ApplySettings(_settings);
+                        restore = updated;
+                    }
+                    catch
+                    {
+                        await _triggerService.ConfigureAsync(original with
+                        {
+                            EnableGlobalHotkey = false,
+                            EnablePushToTalk = false,
+                            EnableFloatingWindowShortcut = false
+                        }, CancellationToken.None);
+                        throw;
+                    }
+                    finally
+                    {
+                        _settingsGate.Release();
+                    }
+                });
+            await dialog.ShowAsync();
+        }
+        catch (Exception exception)
+        {
+            TriggerStatusText.Text = DiagnosticTextRedactor.Redact(exception.Message);
+        }
+        finally
+        {
+            try
+            {
+                await _triggerService.ConfigureAsync(restore, CancellationToken.None);
+                ApplyTriggerConfigurationToControls(restore);
+                _trayIconService.SetDictationCommandsEnabled(restore.EnableTrayMenu);
+                if (restore != original) TriggerStatusText.Text = "Shortcut saved.";
+            }
+            catch (Exception exception)
+            {
+                TriggerStatusText.Text = DiagnosticTextRedactor.Redact(exception.Message);
+            }
+            _isEditingShortcut = false;
+            UpdateFloatingBar();
+        }
     }
 
     private async void MainWindow_Activated(object sender, WindowActivatedEventArgs args)
@@ -504,6 +604,7 @@ public sealed partial class MainWindow : Window
         {
             AudioLevelBar.Value = Math.Clamp(level.Peak * 100, AudioLevelBar.Minimum, AudioLevelBar.Maximum);
             UpdateAudioWaveform(level.Peak);
+            _floatingMicWindow?.UpdateAudioLevel(level.Peak);
         });
     }
 
@@ -714,6 +815,38 @@ public sealed partial class MainWindow : Window
         DiagnosticsSnapshotText.Text = FormatDiagnosticsSnapshot(_controller.LastResult);
 
         _trayIconService.UpdateDictationState(state.IsRunning);
+        UpdateFloatingBar();
+    }
+
+    private async void FloatingBarCheckBox_Toggled(object sender, RoutedEventArgs e)
+    {
+        if (!_settingsLoaded || _isApplyingSettings) return;
+        UpdateFloatingBar();
+        await ApplyTriggerConfigurationAsync();
+    }
+
+    private void UpdateFloatingBar()
+    {
+        if (_isDisposed || !_settingsLoaded) return;
+        if (!FloatingBarCheckBox.IsOn || _isEditingShortcut || !_settings.HasCompletedOnboarding)
+        {
+            _floatingMicWindow?.Hide();
+            return;
+        }
+        if (_floatingMicWindow is null)
+        {
+            _floatingMicWindow = new FloatingMicWindow(_windowVisibility);
+            _floatingMicWindow.TriggerRequested += async (_, _) =>
+                await RaiseTriggerAsync(DictationTriggerKind.FloatingButton, "floating-pill");
+            _floatingMicWindow.CancelRequested += async (_, _) => await _controller.CancelAsync();
+            _floatingMicWindow.DismissRequested += (_, _) => FloatingBarCheckBox.IsOn = false;
+            _floatingMicWindow.SettingsRequested += (_, _) =>
+            {
+                ShowMainWindow();
+                ShowPage("Settings");
+            };
+        }
+        _floatingMicWindow.Show(_controller.State, _pushToTalkGesture);
     }
 
     private string FormatPrimaryStatus(DictationShellState state)
@@ -1477,6 +1610,7 @@ public sealed partial class MainWindow : Window
 
     private async Task ApplyTriggerConfigurationAsync(bool persist = true)
     {
+        if (persist && (!_settingsLoaded || _isApplyingSettings || _isEditingShortcut)) return;
         TriggerConfiguration configuration = GetTriggerConfigurationFromControls();
 
         try
@@ -1506,10 +1640,10 @@ public sealed partial class MainWindow : Window
         return new TriggerConfiguration(
             EnableGlobalHotkey: GlobalHotkeyCheckBox.IsOn,
             EnablePushToTalk: PushToTalkCheckBox.IsOn,
-            EnableFloatingButton: false,
+            EnableFloatingButton: FloatingBarCheckBox.IsOn,
             EnableTrayMenu: TrayMenuCheckBox.IsOn,
-            HotkeyGesture: HotkeyGestureTextBox.Text,
-            PushToTalkKey: PushToTalkKeyTextBox.Text,
+            HotkeyGesture: _globalHotkeyGesture,
+            PushToTalkKey: _pushToTalkGesture,
             EnableFloatingWindowShortcut: false,
             FloatingWindowShortcut: null);
     }
@@ -1519,8 +1653,10 @@ public sealed partial class MainWindow : Window
         GlobalHotkeyCheckBox.IsOn = configuration.EnableGlobalHotkey;
         PushToTalkCheckBox.IsOn = configuration.EnablePushToTalk;
         TrayMenuCheckBox.IsOn = configuration.EnableTrayMenu;
-        HotkeyGestureTextBox.Text = configuration.HotkeyGesture ?? string.Empty;
-        PushToTalkKeyTextBox.Text = configuration.PushToTalkKey ?? string.Empty;
+        _globalHotkeyGesture = configuration.HotkeyGesture ?? string.Empty;
+        _pushToTalkGesture = configuration.PushToTalkKey ?? string.Empty;
+        ShortcutCaptureDialog.SetKeycaps(GlobalShortcutKeys, _globalHotkeyGesture);
+        ShortcutCaptureDialog.SetKeycaps(PushToTalkShortcutKeys, _pushToTalkGesture);
         HoldShortcutText.Text = string.IsNullOrWhiteSpace(configuration.PushToTalkKey)
             ? "Hold shortcut"
             : configuration.PushToTalkKey;
@@ -1567,6 +1703,7 @@ public sealed partial class MainWindow : Window
             {
                 _isApplyingSettings = false;
                 _settingsLoaded = true;
+                UpdateFloatingBar();
             }
 
             UpdateComputeButtons();
@@ -1583,6 +1720,7 @@ public sealed partial class MainWindow : Window
 
     private void ApplySettingsToControls(ShrutiSettings settings)
     {
+        FloatingBarCheckBox.IsOn = settings.ShowFloatingBar;
         SelectComboBoxItem(InsertionModeComboBox, settings.InsertionMode.ToString());
         SelectComboBoxItem(ThemeComboBox, ToElementTheme(settings.ThemePreference).ToString());
         SelectComboBoxItem(AudioRetentionComboBox, settings.AudioRetentionPolicy.ToString());
@@ -1595,7 +1733,7 @@ public sealed partial class MainWindow : Window
 
     private async Task PersistSettingsAsync()
     {
-        if (!_settingsLoaded || _isApplyingSettings)
+        if (!_settingsLoaded || _isApplyingSettings || _isEditingShortcut)
         {
             return;
         }
@@ -1629,6 +1767,7 @@ public sealed partial class MainWindow : Window
                 BackendPreference = backendPreference,
                 AllowSlowTranscription = AllowSlowTranscriptionCheckBox.IsChecked == true,
                 HasCompletedOnboarding = _settings.HasCompletedOnboarding,
+                ShowFloatingBar = FloatingBarCheckBox.IsOn,
                 TriggerConfiguration = GetTriggerConfigurationFromControls()
             };
             _transcriptionOptionsProvider.ApplySettings(_settings);
@@ -2108,6 +2247,8 @@ public sealed partial class MainWindow : Window
         }
 
         _isDisposed = true;
+        _floatingMicWindow?.CloseForApplicationExit();
+        _floatingMicWindow = null;
         _controller.AudioLevelChanged -= Controller_AudioLevelChanged;
         _triggerDispatchCancellation.Cancel();
         _targetFocusService.Dispose();

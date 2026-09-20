@@ -21,7 +21,7 @@ public sealed class TranscriptionReadinessServiceTests
     }
 
     [Fact]
-    public async Task EvaluateAsync_AutoChoosesFastestCachedEligibleBackend()
+    public async Task EvaluateAsync_AutoPrefersGpuEvenWhenCpuBenchmarkIsFaster()
     {
         var provider = new FakeProvider(
             "provider-a",
@@ -30,7 +30,7 @@ public sealed class TranscriptionReadinessServiceTests
                 Capability("provider-a", ComputeBackend.Gpu, "GPU")
             ]);
         var cache = new InMemoryTranscriptionBenchmarkCache();
-        await cache.SaveAsync(Benchmark(provider, ComputeBackend.Cpu, "CPU", 0.8), CancellationToken.None);
+        await cache.SaveAsync(Benchmark(provider, ComputeBackend.Cpu, "CPU", 0.2), CancellationToken.None);
         await cache.SaveAsync(Benchmark(provider, ComputeBackend.Gpu, "GPU", 0.4), CancellationToken.None);
         var service = new TranscriptionReadinessService(
             new TranscriptionProviderRegistry([provider]),
@@ -48,6 +48,33 @@ public sealed class TranscriptionReadinessServiceTests
         Assert.True(readiness.CanProceed);
         Assert.Equal(ComputeBackend.Gpu, readiness.SelectedBackend);
         Assert.Equal(0.4, readiness.RealtimeFactor);
+    }
+
+    [Theory]
+    [InlineData(true, ComputeBackend.Auto, ComputeBackend.Gpu)]
+    [InlineData(false, ComputeBackend.Auto, ComputeBackend.Cpu)]
+    [InlineData(true, ComputeBackend.Cpu, ComputeBackend.Cpu)]
+    public async Task EvaluateAsync_DefaultPrefersGpuAndPreservesCpuFallbackAndOverride(
+        bool hasGpu, ComputeBackend preference, ComputeBackend expected)
+    {
+        var capabilities = new List<EngineCapability> { Capability("provider-a", ComputeBackend.Cpu, "CPU") };
+        if (hasGpu)
+        {
+            capabilities.Add(Capability("provider-a", ComputeBackend.Gpu, "GPU"));
+            capabilities.Add(Capability("provider-a", ComputeBackend.Npu, "NPU"));
+        }
+        var provider = new FakeProvider("provider-a", capabilities);
+        var service = new TranscriptionReadinessService(new TranscriptionProviderRegistry([provider]));
+
+        TranscriptionReadinessResult readiness = await service.EvaluateAsync(
+            new TranscriptionReadinessRequest(
+                Model("provider-a", new HashSet<ComputeBackend> { ComputeBackend.Cpu, ComputeBackend.Gpu, ComputeBackend.Npu }),
+                preference,
+                AllowSlowTranscription: false),
+            CancellationToken.None);
+
+        Assert.True(readiness.CanProceed);
+        Assert.Equal(expected, readiness.SelectedBackend);
     }
 
     [Fact]
