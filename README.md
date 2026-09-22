@@ -116,4 +116,7 @@ Keep changes focused, preserve the separation between the core workflow and Wind
 
 ## Privacy
 
+Read the [privacy policy](PRIVACY.md) for data handling, model downloads,
+clipboard use, deletion, and contact information.
+
 Shruti is designed around local transcription. The development workflow keeps models, recordings, transcripts, and settings on the local machine unless the user explicitly exports data or enables a future integration.
