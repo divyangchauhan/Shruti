@@ -269,8 +269,10 @@ public sealed class WindowsTextInsertionServiceTests
         Assert.Equal(0, clipboard.CaptureCount);
     }
 
-    [Fact]
-    public async Task InsertAsync_ClipboardPreferredTargetSkipsDirectInputAndPastes()
+    [Theory]
+    [InlineData("winword")]
+    [InlineData("notepad")]
+    public async Task InsertAsync_ClipboardPreferredTargetSkipsDirectInputAndPastes(string processName)
     {
         var input = new FakeTextInput
         {
@@ -285,7 +287,7 @@ public sealed class WindowsTextInsertionServiceTests
             clipboard);
 
         TextInsertionResult result = await service.InsertAsync(
-            CreateTarget(ProcessName: "winword"),
+            CreateTarget(ProcessName: processName),
             "Hello, Shruti.",
             new TextInsertionOptions(),
             CancellationToken.None);
@@ -883,7 +885,7 @@ public sealed class WindowsTextInsertionServiceTests
         bool? IsEditable = true,
         bool? HasSelectedText = false,
         bool IsElevated = false,
-        string ProcessName = "notepad",
+        string ProcessName = "unknown-editor",
         string? WindowTitle = "Untitled - Notepad")
     {
         return new FocusTarget(

@@ -116,7 +116,6 @@ public sealed partial class MainWindow : Window
 
         InsertionModeComboBox.SelectedIndex = 0;
         ThemeComboBox.SelectedIndex = 0;
-        AudioRetentionComboBox.SelectedIndex = 0;
         BackendPreferenceComboBox.SelectedIndex = 0;
         PopulateModelSelectionComboBox();
         ShowPage("Home");
@@ -216,11 +215,6 @@ public sealed partial class MainWindow : Window
         await PersistSettingsAsync();
     }
 
-    private async void AudioRetentionComboBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
-    {
-        await PersistSettingsAsync();
-    }
-
     private async void BackendPreferenceComboBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
     {
         UpdateComputeButtons();
@@ -247,7 +241,7 @@ public sealed partial class MainWindow : Window
         }
 
         ModelCatalogEntry activeModel = _transcriptionOptionsProvider.GetSelectedModelEntry(_settings);
-        if (!GetAvailableBackends(activeModel).Contains(selectedBackend))
+        if (selectedBackend != ComputeBackend.Auto && !GetAvailableBackends(activeModel).Contains(selectedBackend))
         {
             SelectedModelStatusText.Text =
                 $"{activeModel.DisplayName} cannot run on {selectedBackend.ToString().ToUpperInvariant()} on this PC. " +
@@ -262,6 +256,11 @@ public sealed partial class MainWindow : Window
 
     private void ReplayWelcomeButton_Click(object sender, RoutedEventArgs e)
     {
+        if (_controller.State.IsRunning)
+        {
+            TriggerStatusText.Text = "Finish dictation before replaying setup.";
+            return;
+        }
         _ = ReplayOnboardingAsync();
     }
 
@@ -272,19 +271,36 @@ public sealed partial class MainWindow : Window
 
     private async void OnboardingMicrophoneButton_Click(object sender, RoutedEventArgs e)
     {
-        if (!_audioDevicesLoaded)
+        OnboardingMicrophoneButton.IsEnabled = false;
+        OnboardingMicStatusText.Text = "Checking access. Allow the Windows microphone prompt if it appears.";
+        try
         {
             await LoadAudioDevicesAsync();
-        }
+            if (!_audioDevicesLoaded)
+            {
+                OnboardingMicStatusText.Text = DiagnosticFailureText.MicrophoneRecovery;
+                return;
+            }
 
-        if (_audioDevicesLoaded)
-        {
-            OnboardingMicStatusText.Text = "Microphone ready";
+            // Enumeration alone does not request access or prove that audio can arrive.
+            await using IAudioCaptureSession capture = await Task.Run(() => _audioCaptureService.StartAsync(
+                _controller.AudioOptions, AudioFormat.Speech16KhzMono, CancellationToken.None));
+            using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+            await using var frames = capture.Frames.GetAsyncEnumerator(timeout.Token);
+            if (!await frames.MoveNextAsync())
+            {
+                throw new InvalidOperationException("The microphone did not supply audio.");
+            }
+            await capture.StopAsync(CancellationToken.None);
             SetOnboardingStep(2);
         }
-        else
+        catch (Exception)
         {
             OnboardingMicStatusText.Text = DiagnosticFailureText.MicrophoneRecovery;
+        }
+        finally
+        {
+            OnboardingMicrophoneButton.IsEnabled = true;
         }
     }
 
@@ -303,6 +319,7 @@ public sealed partial class MainWindow : Window
         }
 
         _isOnboardingModelOperation = true;
+        OnboardingModelStatusText.Text = "Downloading your model. Keep Shruti open until it finishes.";
         OnboardingModelActionButton.IsEnabled = false;
         OnboardingModelProgressBar.Value = 0;
         OnboardingModelProgressBar.Visibility = Visibility.Visible;
@@ -316,6 +333,10 @@ public sealed partial class MainWindow : Window
             {
                 SetOnboardingStep(3);
             }
+            else
+            {
+                OnboardingModelStatusText.Text = ModelsStatusText.Text + " Check your connection and try Download again.";
+            }
         }
         finally
         {
@@ -328,10 +349,18 @@ public sealed partial class MainWindow : Window
 
     private async void OnboardingFinishButton_Click(object sender, RoutedEventArgs e)
     {
-        _settings = _settings with { HasCompletedOnboarding = true };
-        await _settingsRepository.SaveAsync(_settings, CancellationToken.None);
-        OnboardingLayer.Visibility = Visibility.Collapsed;
-        UpdateFloatingBar();
+        try
+        {
+            ShrutiSettings completed = _settings with { HasCompletedOnboarding = true };
+            await _settingsRepository.SaveAsync(completed, CancellationToken.None);
+            _settings = completed;
+            OnboardingLayer.Visibility = Visibility.Collapsed;
+            UpdateFloatingBar();
+        }
+        catch (Exception ex)
+        {
+            OnboardingDoneText.Text = $"Could not save setup: {DiagnosticTextRedactor.Redact(ex.Message)}. Try again.";
+        }
     }
 
     private async void ModelSelectionComboBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
@@ -610,6 +639,8 @@ public sealed partial class MainWindow : Window
 
     private async Task LoadAudioDevicesAsync()
     {
+        _audioDevicesLoaded = false;
+        AudioDeviceComboBox.IsEnabled = false;
         try
         {
             IReadOnlyList<AudioInputDevice> devices = await _audioCaptureService
@@ -633,11 +664,12 @@ public sealed partial class MainWindow : Window
                 return;
             }
 
-            string selectedDeviceId = _controller.AudioOptions.DeviceId ??
+            string selectedDeviceId = devices.FirstOrDefault(device => device.Id == _controller.AudioOptions.DeviceId)?.Id ??
                 devices.FirstOrDefault(device => device.IsDefault)?.Id ??
                 devices[0].Id;
             SelectAudioDevice(selectedDeviceId);
             _audioDevicesLoaded = true;
+            AudioDeviceComboBox.IsEnabled = !_controller.State.IsRunning;
             MicrophoneReadinessText.Text = "Ready";
         }
         catch (Exception ex)
@@ -851,6 +883,10 @@ public sealed partial class MainWindow : Window
 
     private string FormatPrimaryStatus(DictationShellState state)
     {
+        if (!state.IsRunning && state.LastOutcome == DictationRunOutcome.NoSpeech)
+        {
+            return "No speech detected";
+        }
         string shortcut = string.IsNullOrWhiteSpace(_triggerService.Configuration.PushToTalkKey)
             ? "your shortcut"
             : _triggerService.Configuration.PushToTalkKey;
@@ -870,6 +906,10 @@ public sealed partial class MainWindow : Window
 
     private string FormatSecondaryStatus(DictationShellState state)
     {
+        if (!state.IsRunning && state.LastOutcome == DictationRunOutcome.NoSpeech)
+        {
+            return "Check your microphone, then try speaking again. Nothing was inserted.";
+        }
         ModelCatalogEntry model = _transcriptionOptionsProvider.GetSelectedModelEntry(_settings);
         string compute = (_settings.BackendPreference == ComputeBackend.Auto
             ? "automatic compute"
@@ -1040,18 +1080,6 @@ public sealed partial class MainWindow : Window
             ElementTheme.Dark => AppThemePreference.Dark,
             _ => AppThemePreference.System
         };
-    }
-
-    private AudioRetentionPolicy GetSelectedAudioRetentionPolicy()
-    {
-        if (AudioRetentionComboBox.SelectedItem is ComboBoxItem item &&
-            item.Tag is string value &&
-            Enum.TryParse(value, out AudioRetentionPolicy policy))
-        {
-            return policy;
-        }
-
-        return AudioRetentionPolicy.DeleteAfterTranscription;
     }
 
     private ComputeBackend GetSelectedBackendPreference()
@@ -1723,7 +1751,6 @@ public sealed partial class MainWindow : Window
         FloatingBarCheckBox.IsOn = settings.ShowFloatingBar;
         SelectComboBoxItem(InsertionModeComboBox, settings.InsertionMode.ToString());
         SelectComboBoxItem(ThemeComboBox, ToElementTheme(settings.ThemePreference).ToString());
-        SelectComboBoxItem(AudioRetentionComboBox, settings.AudioRetentionPolicy.ToString());
         SelectComboBoxItem(BackendPreferenceComboBox, settings.BackendPreference.ToString());
         SelectModelComboBoxItem(settings.SelectedModelId);
         AllowSlowTranscriptionCheckBox.IsChecked = settings.AllowSlowTranscription;
@@ -1763,7 +1790,7 @@ public sealed partial class MainWindow : Window
                 SelectedModelId = selectedModelId,
                 InsertionMode = GetSelectedInsertionMode(),
                 ThemePreference = GetSelectedThemePreference(),
-                AudioRetentionPolicy = GetSelectedAudioRetentionPolicy(),
+                AudioRetentionPolicy = AudioRetentionPolicy.DeleteAfterTranscription,
                 BackendPreference = backendPreference,
                 AllowSlowTranscription = AllowSlowTranscriptionCheckBox.IsChecked == true,
                 HasCompletedOnboarding = _settings.HasCompletedOnboarding,
@@ -1830,8 +1857,8 @@ public sealed partial class MainWindow : Window
             GetCatalogAvailableBackends(),
             filtersModels: true);
         UpdateComputeButtonGroup(
-            [SettingsBackendNpuButton, SettingsBackendGpuButton, SettingsBackendCpuButton],
-            selected == ComputeBackend.Auto ? _resolvedBackend : selected,
+            [SettingsBackendAutoButton, SettingsBackendNpuButton, SettingsBackendGpuButton, SettingsBackendCpuButton],
+            selected,
             GetAvailableBackends(_transcriptionOptionsProvider.GetSelectedModelEntry(_settings)),
             filtersModels: false);
 
@@ -1915,9 +1942,7 @@ public sealed partial class MainWindow : Window
         OnboardingHotkeyStep.Visibility = _onboardingStep == 3 ? Visibility.Visible : Visibility.Collapsed;
         OnboardingDoneStep.Visibility = _onboardingStep == 4 ? Visibility.Visible : Visibility.Collapsed;
 
-        OnboardingMicStatusText.Text = _audioDevicesLoaded
-            ? "Microphone ready"
-            : "We will check your Windows microphone access.";
+        OnboardingMicStatusText.Text = "We will check your Windows microphone access.";
         OnboardingHotkeyText.Text = string.IsNullOrWhiteSpace(_triggerService.Configuration.PushToTalkKey)
             ? "Hold shortcut"
             : _triggerService.Configuration.PushToTalkKey;
@@ -2199,6 +2224,11 @@ public sealed partial class MainWindow : Window
         SetNavigationButtonState(HomeNavButton, isHome);
         SetNavigationButtonState(ModelsNavButton, isModels);
         SetNavigationButtonState(SettingsNavButton, isSettings);
+
+        if (isHome && _settingsLoaded)
+        {
+            UpdateView();
+        }
 
         if (isModels && _settingsLoaded)
         {
