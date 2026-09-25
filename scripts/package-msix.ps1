@@ -296,6 +296,12 @@ Invoke-CheckedCommand "dotnet" @(
     "-o", $publishDirectory
 )
 
+& (Join-Path $root 'scripts\stage-native-dependencies.ps1') -Destination $publishDirectory
+Invoke-CheckedCommand 'powershell.exe' @(
+    '-NoProfile', '-File', (Join-Path $root 'scripts\test-native-package-runtime.ps1'),
+    '-NativeDirectory', $publishDirectory
+)
+
 $appResourceIndex = Get-ChildItem -LiteralPath $appBuildOutputRoot -Recurse -Filter "Shruti.App.WinUI.pri" |
     Where-Object { $_.FullName -match "\\win-x64\\Shruti\.App\.WinUI\.pri$" } |
     Sort-Object LastWriteTimeUtc -Descending |

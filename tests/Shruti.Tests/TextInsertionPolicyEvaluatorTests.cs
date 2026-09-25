@@ -54,7 +54,7 @@ public sealed class TextInsertionPolicyEvaluatorTests
     {
         var evaluator = new TextInsertionPolicyEvaluator();
 
-        TextInsertionPolicy policy = evaluator.Evaluate(CreateTarget("notepad"));
+        TextInsertionPolicy policy = evaluator.Evaluate(CreateTarget("unknown-editor"));
 
         Assert.Equal(TextInsertionPolicy.Default, policy);
         Assert.Equal(TextInsertionPolicyMode.DirectInputPreferred, policy.Mode);
@@ -62,14 +62,15 @@ public sealed class TextInsertionPolicyEvaluatorTests
 
     [Theory]
     [InlineData("notepad")]
-    public void Evaluate_KeepsKnownEditableAppClassesOnDefaultDirectInput(string processName)
+    [InlineData("Notepad.exe")]
+    public void Evaluate_UsesClipboardForNotepadToAvoidUnicodePacketCorruption(string processName)
     {
         var evaluator = new TextInsertionPolicyEvaluator();
 
         TextInsertionPolicy policy = evaluator.Evaluate(CreateTarget(processName));
 
-        Assert.Equal(TextInsertionPolicy.Default, policy);
-        Assert.Equal(TextInsertionPolicyMode.DirectInputPreferred, policy.Mode);
+        Assert.Equal("notepad.clipboard-preferred", policy.Id);
+        Assert.Equal(TextInsertionPolicyMode.ClipboardPastePreferred, policy.Mode);
     }
 
     private static FocusTarget CreateTarget(string processName)
