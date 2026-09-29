@@ -2,13 +2,15 @@
 
 [![Windows CI](https://github.com/divyangchauhan/Shruti/actions/workflows/windows-ci.yml/badge.svg)](https://github.com/divyangchauhan/Shruti/actions/workflows/windows-ci.yml)
 
+[Download Shruti from the Microsoft Store](https://apps.microsoft.com/detail/9N39R62TTCPS)
+
 Shruti is a Windows-native, local-first dictation app. Trigger dictation, speak, and have the finalized transcript inserted into the app that was focused before recording began.
 
-The first implementation uses WinUI 3, WASAPI microphone capture, and `whisper.cpp` for local speech recognition. No account or hosted transcription service is required for the core workflow.
+Shruti uses WinUI 3, WASAPI microphone capture, and `whisper.cpp` for local speech recognition. No account or hosted transcription service is required for the core workflow.
 
 ## Status
 
-Shruti is under active development and is not packaged for end users yet. The Windows development build currently supports:
+Shruti is available on the Microsoft Store and remains under active development. It supports:
 
 - Microphone capture with an audio level meter.
 - Local `whisper.cpp` transcription after recording finishes.
@@ -19,6 +21,14 @@ Shruti is under active development and is not packaged for end users yet. The Wi
 - System, light, and dark theme preferences.
 
 Text is shown or inserted only after transcription finishes. Empty results and non-speech markers such as `[BLANK_AUDIO]` insert nothing and leave the clipboard unchanged.
+
+## Install
+
+1. [Get Shruti from the Microsoft Store](https://apps.microsoft.com/detail/9N39R62TTCPS).
+2. Open Shruti, choose a microphone, and download a speech model.
+3. Focus an editable field in another app and use the dictation shortcut or floating microphone control to start dictating.
+
+Internet access is needed to download models. After download, transcription runs locally. The current model catalog focuses on English dictation.
 
 ## How It Works
 
@@ -32,7 +42,16 @@ If the maximum recording duration is reached, Shruti stops capture and finalizes
 
 ## Requirements
 
-- Windows 10 version 2004 (build 19041) or later, 64-bit.
+- Windows 10 version 2004, build 19041 or later, 64-bit.
+- A microphone.
+- Internet access for installation and model downloads.
+
+GPU and NPU processing depend on the selected model, hardware, and drivers. CPU processing is available without a dedicated GPU or NPU.
+
+### Build requirements
+
+To build from source, also install:
+
 - .NET 8 SDK.
 - Visual Studio 2022 Build Tools with the Desktop development with C++ workload and a Windows SDK.
 - CMake 3.21 or later.
