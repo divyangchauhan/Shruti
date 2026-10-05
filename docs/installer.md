@@ -5,6 +5,11 @@ publish output. Self-contained release packages include both the .NET runtime
 and Windows App SDK runtime, so a clean machine does not need a separate
 Windows App Runtime installation.
 
+The package also includes the Visual C++ CRT, OpenMP runtime, and Vulkan loader.
+These are app-local files, not system-wide installers. The Vulkan loader must
+be present even on CPU-only machines because the speech DLL imports it.
+GPU drivers are optional; CPU transcription remains available without them.
+
 ## Build
 
 Run from the repository root:
@@ -17,6 +22,8 @@ The script:
 
 - builds the `whisper.cpp` native shim with CMake,
 - publishes `src/Shruti.App.WinUI` as a self-contained `win-x64` app,
+- stages official Visual C++ redistributables and a checksum-pinned Vulkan runtime,
+- checks native loading with package-only dependency lookup and GPU drivers disabled,
 - generates the package-level `resources.pri` required for packaged WinUI XAML,
 - stages a full-trust MSIX layout under `artifacts\installer\stage`,
 - verifies `shruti_whisper.dll` is present in the package layout, and
@@ -41,6 +48,23 @@ artifact independently:
   -ExpectedPublisher "CN=Shruti Dev" `
   -RuntimeMode SelfContained
 ```
+
+To repeat the CPU-only native dependency check in a fresh process:
+
+```powershell
+powershell.exe -NoProfile -File .\scripts\test-native-package-runtime.ps1 `
+  -NativeDirectory .\artifacts\installer\publish\Release\x64
+```
+
+This catches missing native dependencies without uninstalling shared runtimes
+or graphics drivers from the development PC. It is not a replacement for an
+end-to-end test in a clean Windows VM. Run the check in a fresh process so
+previously loaded native DLLs cannot hide missing package files.
+
+On a fresh installation, complete the welcome flow, allow the Windows microphone
+permission prompt, and download the default English model. No SDK, developer
+toolchain, account, or processor configuration is required on the user's PC.
+The model download needs internet access; subsequent dictation runs locally.
 
 ## Signing
 

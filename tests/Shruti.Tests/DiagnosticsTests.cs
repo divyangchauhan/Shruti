@@ -10,6 +10,20 @@ namespace Shruti.Tests;
 
 public sealed class DiagnosticsTests
 {
+    [Theory]
+    [InlineData(DictationRunOutcome.NoSpeech, "No speech detected. Nothing was inserted.")]
+    [InlineData(DictationRunOutcome.Cancelled, "Transcript insertion was cancelled.")]
+    [InlineData(DictationRunOutcome.CopyOnly, "Copy-only mode is enabled.")]
+    [InlineData(DictationRunOutcome.PreviewRequired, "Preview before insertion is enabled.")]
+    public void NormalOutcomes_AreNotReportedAsMicrophoneOrInsertionFailures(DictationRunOutcome outcome, string message)
+    {
+        var result = new DictationRunResult(outcome,
+            [new DictationStatus(DictationSessionState.RequestingMicrophone, "Starting microphone capture")],
+            Target: null, Transcript: null, Message: message);
+
+        Assert.Equal(message, DiagnosticFailureText.ForDictationResult(result));
+    }
+
     [Fact]
     public void Snapshot_OmitsTranscriptAndWindowTitleByDefault()
     {

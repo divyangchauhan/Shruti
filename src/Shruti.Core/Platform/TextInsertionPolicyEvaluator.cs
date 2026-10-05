@@ -19,6 +19,14 @@ public sealed class TextInsertionPolicyEvaluator
 
     public static IReadOnlyList<TextInsertionPolicyRule> DefaultRules { get; } =
     [
+        // Modern Notepad can corrupt rapid KEYEVENTF_UNICODE packet input.
+        new TextInsertionPolicyRule(
+            "notepad-process",
+            ["notepad"],
+            new TextInsertionPolicy(
+                "notepad.clipboard-preferred",
+                TextInsertionPolicyMode.ClipboardPastePreferred,
+                "Notepad uses clipboard paste to preserve the complete transcript.")),
         new TextInsertionPolicyRule(
             "terminal-processes",
             [

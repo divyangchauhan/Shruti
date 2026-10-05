@@ -84,7 +84,12 @@ try {
         "Assets/Wide310x150Logo.png",
         "VFS/ProgramFilesX64/Shruti/Shruti.App.WinUI.exe",
         "VFS/ProgramFilesX64/Shruti/Shruti.App.WinUI.pri",
-        "VFS/ProgramFilesX64/Shruti/shruti_whisper.dll"
+        "VFS/ProgramFilesX64/Shruti/shruti_whisper.dll",
+        "VFS/ProgramFilesX64/Shruti/vulkan-1.dll",
+        "VFS/ProgramFilesX64/Shruti/msvcp140.dll",
+        "VFS/ProgramFilesX64/Shruti/vcruntime140.dll",
+        "VFS/ProgramFilesX64/Shruti/vcruntime140_1.dll",
+        "VFS/ProgramFilesX64/Shruti/vcomp140.dll"
     )
     foreach ($requiredEntry in $requiredEntries) {
         if ($entryNames -notcontains $requiredEntry) {

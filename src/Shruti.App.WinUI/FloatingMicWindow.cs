@@ -49,8 +49,6 @@ public sealed class FloatingMicWindow : Window
             RequestedTheme = ElementTheme.Dark
         };
         Content = _root;
-        _root.PointerEntered += (_, _) => { _hovered = true; Render(); };
-        _root.PointerExited += (_, _) => { _hovered = false; Render(); };
         var menu = new MenuFlyout();
         var settings = new MenuFlyoutItem { Text = "Settings" };
         settings.Click += (_, _) => SettingsRequested?.Invoke(this, EventArgs.Empty);
@@ -86,6 +84,18 @@ public sealed class FloatingMicWindow : Window
         SelectMonitor();
         _timer.Tick += (_, _) =>
         {
+            // Resizing the non-activating capsule can invalidate XAML's pointer
+            // boundary events. Use its native hit target so hover stays stable.
+            if (Native.GetCursorPos(out Native.Point cursor))
+            {
+                IntPtr hitWindow = Native.WindowFromPoint(cursor);
+                bool hovered = hitWindow == _handle || Native.GetAncestor(hitWindow, 2) == _handle;
+                if (_hovered != hovered)
+                {
+                    _hovered = hovered;
+                    Render();
+                }
+            }
             _tick++;
             for (int i = 0; i < _dots.Count; i++) _dots[i].Opacity = (_tick / 2) % 3 == i ? 1 : 0.3;
             if (_mode == "notice" && DateTimeOffset.UtcNow >= _noticeUntil) Render();
@@ -282,6 +292,9 @@ public sealed class FloatingMicWindow : Window
 
     private static class Native
     {
+        [DllImport("user32.dll")][return: MarshalAs(UnmanagedType.Bool)] public static extern bool GetCursorPos(out Point point);
+        [DllImport("user32.dll")] public static extern IntPtr WindowFromPoint(Point point);
+        [DllImport("user32.dll")] public static extern IntPtr GetAncestor(IntPtr hwnd, uint flags);
         [DllImport("user32.dll", EntryPoint = "GetWindowLongPtrW")] public static extern nint GetWindowLongPtr(IntPtr hwnd, int index);
         [DllImport("user32.dll", EntryPoint = "SetWindowLongPtrW")] public static extern nint SetWindowLongPtr(IntPtr hwnd, int index, nint value);
         [StructLayout(LayoutKind.Sequential)] public struct Point { public int X, Y; }

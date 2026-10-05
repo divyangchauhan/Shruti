@@ -22,6 +22,15 @@ public static class DiagnosticFailureText
     {
         ArgumentNullException.ThrowIfNull(result);
 
+        // Normal runs also contain microphone and insertion words in their history.
+        // Only classify recovery guidance when an operation actually failed.
+        if (result.Outcome != DictationRunOutcome.Failed && result.Error is null &&
+            result.InsertionResult is null && result.FocusRestoreResult?.Restored is not false)
+        {
+            string normalMessage = DiagnosticTextRedactor.Redact(result.Message);
+            return string.IsNullOrWhiteSpace(normalMessage) ? "Dictation finished." : normalMessage;
+        }
+
         string combined = string.Join(
             " ",
             result.Message,
@@ -87,8 +96,10 @@ public static class DiagnosticFailureText
 
     private static bool LooksLikeMicrophoneFailure(string text, DictationRunResult result)
     {
-        return ContainsAny(text, "microphone", "audio input", "capture device", "wasapi") ||
-            result.StatusHistory.Any(status => status.State == DictationSessionState.RequestingMicrophone);
+        return result.Outcome == DictationRunOutcome.Failed &&
+            (ContainsAny(text, "microphone", "audio input", "capture device", "wasapi") ||
+             result.StatusHistory.LastOrDefault(status => status.State != DictationSessionState.Failed)?.State ==
+                 DictationSessionState.RequestingMicrophone);
     }
 
     private static bool LooksLikeMissingModel(string text)

@@ -370,7 +370,7 @@
                             <TextBlock VerticalAlignment="Center" FontWeight="SemiBold" Foreground="{ThemeResource ShrutiTextSecondaryBrush}" Text="Run models on" />
                             <Border Padding="4" Background="{ThemeResource ShrutiSunkenBrush}" CornerRadius="10">
                                 <StackPanel Orientation="Horizontal" Spacing="4">
-                                    <Button x:Name="BackendAutoButton" Style="{StaticResource ComputeButtonStyle}" Tag="Auto" Visibility="Collapsed" Click="BackendButton_Click">Auto</Button>
+                                    <Button x:Name="BackendAutoButton" Style="{StaticResource ComputeButtonStyle}" Tag="Auto" Click="BackendButton_Click">All</Button>
                                     <Button x:Name="BackendNpuButton" Style="{StaticResource ComputeButtonStyle}" Tag="Npu" Click="BackendButton_Click">
                                         <StackPanel Orientation="Horizontal" Spacing="6"><FontIcon FontFamily="Segoe Fluent Icons" FontSize="14" Glyph="&#xE735;" /><TextBlock Text="NPU" /></StackPanel>
                                     </Button>
@@ -437,10 +437,7 @@
                                 <Border Width="36" Height="36" Background="{ThemeResource ShrutiPageBrush}" CornerRadius="10">
                                     <FontIcon HorizontalAlignment="Center" VerticalAlignment="Center" FontFamily="Segoe Fluent Icons" FontSize="16" Foreground="{ThemeResource ShrutiTextSecondaryBrush}" Glyph="&#xE74D;" />
                                 </Border>
-                                <StackPanel Grid.Column="1" VerticalAlignment="Center" Spacing="3"><TextBlock FontWeight="SemiBold" Text="Audio retention" /><TextBlock Style="{StaticResource CaptionTextStyle}" Text="Control whether temporary recordings stay on disk." /></StackPanel>
-                                <ComboBox x:Name="AudioRetentionComboBox" Grid.Column="2" Width="220" Height="32" HorizontalAlignment="Right" SelectionChanged="AudioRetentionComboBox_SelectionChanged">
-                                    <ComboBoxItem Content="Delete after transcription" Tag="DeleteAfterTranscription" /><ComboBoxItem Content="Keep recordings" Tag="Keep" /><ComboBoxItem Content="Ask each time" Tag="AskEveryTime" />
-                                </ComboBox>
+                                <StackPanel Grid.Column="1" VerticalAlignment="Center" Spacing="3"><TextBlock FontWeight="SemiBold" Text="Audio privacy" /><TextBlock Style="{StaticResource CaptionTextStyle}" Text="Audio stays in memory during dictation. Recordings are not saved." TextWrapping="Wrap" /></StackPanel>
                             </Grid>
                         </StackPanel>
                     </Border>
@@ -453,6 +450,7 @@
                                 <StackPanel VerticalAlignment="Center" Spacing="3"><TextBlock FontWeight="SemiBold" Text="Run models on" /><TextBlock Style="{StaticResource CaptionTextStyle}" Text="Choose the processor used for local transcription." /></StackPanel>
                                 <Border Grid.Column="1" Padding="4" Background="{ThemeResource ShrutiSunkenBrush}" CornerRadius="10">
                                     <StackPanel Orientation="Horizontal" Spacing="4">
+                                        <Button x:Name="SettingsBackendAutoButton" Tag="Auto" Style="{StaticResource ComputeButtonStyle}" Click="BackendButton_Click">Auto</Button>
                                         <Button x:Name="SettingsBackendNpuButton" Tag="Npu" Style="{StaticResource ComputeButtonStyle}" Click="BackendButton_Click">
                                             <StackPanel Orientation="Horizontal" Spacing="6"><FontIcon FontFamily="Segoe Fluent Icons" FontSize="14" Glyph="&#xE735;" /><TextBlock Text="NPU" /></StackPanel>
                                         </Button>
@@ -575,9 +573,9 @@
                     <StackPanel x:Name="OnboardingMicrophoneStep" HorizontalAlignment="Center" Spacing="18" Visibility="Collapsed">
                         <Border Width="64" Height="64" HorizontalAlignment="Center" Background="{ThemeResource ShrutiAccentSoftBrush}" CornerRadius="32"><FontIcon HorizontalAlignment="Center" VerticalAlignment="Center" FontFamily="Segoe Fluent Icons" FontSize="30" Foreground="{ThemeResource ShrutiAccentBrush}" Glyph="&#xE720;" /></Border>
                         <TextBlock HorizontalAlignment="Center" FontSize="20" FontWeight="SemiBold" Text="Let Shruti hear you" />
-                        <TextBlock MaxWidth="350" HorizontalAlignment="Center" TextAlignment="Center" Style="{StaticResource MutedTextStyle}" Text="Shruti needs your microphone to dictate. Audio is transcribed on the spot and never saved unless you choose to keep it." />
-                        <TextBlock x:Name="OnboardingMicStatusText" HorizontalAlignment="Center" Style="{StaticResource CaptionTextStyle}" Text="We will check your Windows microphone access." />
-                        <Button Height="48" Padding="24,0" HorizontalAlignment="Center" Background="{ThemeResource ShrutiAccentBrush}" Foreground="{ThemeResource ShrutiAccentForegroundBrush}" CornerRadius="10" Click="OnboardingMicrophoneButton_Click">Check microphone</Button>
+                        <TextBlock MaxWidth="350" HorizontalAlignment="Center" TextAlignment="Center" Style="{StaticResource MutedTextStyle}" Text="Shruti needs your microphone to dictate. Audio is transcribed on this PC. Recordings are never saved." />
+                        <TextBlock x:Name="OnboardingMicStatusText" MaxWidth="350" TextWrapping="Wrap" TextAlignment="Center" HorizontalAlignment="Center" Style="{StaticResource CaptionTextStyle}" Text="We will check your Windows microphone access." />
+                        <Button x:Name="OnboardingMicrophoneButton" Height="48" Padding="24,0" HorizontalAlignment="Center" Background="{ThemeResource ShrutiAccentBrush}" Foreground="{ThemeResource ShrutiAccentForegroundBrush}" CornerRadius="10" Click="OnboardingMicrophoneButton_Click">Check microphone</Button>
                     </StackPanel>
 
                     <StackPanel x:Name="OnboardingModelStep" Spacing="18" Visibility="Collapsed">
@@ -591,6 +589,7 @@
                             </Grid>
                         </Border>
                         <ProgressBar x:Name="OnboardingModelProgressBar" Height="4" Maximum="100" Minimum="0" Visibility="Collapsed" />
+                        <TextBlock x:Name="OnboardingModelStatusText" Style="{StaticResource CaptionTextStyle}" TextWrapping="Wrap" />
                     </StackPanel>
 
                     <StackPanel x:Name="OnboardingHotkeyStep" HorizontalAlignment="Center" Spacing="18" Visibility="Collapsed">
