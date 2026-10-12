@@ -1,0 +1,20 @@
+<UserControl
+    x:Class="Shruti.App.WinUI.DictionaryControl"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    <StackPanel Spacing="12">
+        <TextBlock Text="Dictionary" FontSize="24" FontWeight="SemiBold" />
+        <TextBlock Text="Vocabulary helps recognition. Explicit corrections replace matching words after recognition." TextWrapping="Wrap" />
+        <TextBox x:Name="LanguageBox" Header="Language code" Text="en" MaxLength="32" />
+        <TextBox x:Name="TermBox" Header="Name or technical term" MaxLength="256" />
+        <Button Content="Save vocabulary" Click="SaveVocabulary_Click" />
+        <ListView x:Name="VocabularyList" MaxHeight="180" />
+        <Button Content="Delete selected vocabulary" Click="DeleteVocabulary_Click" />
+        <TextBox x:Name="HeardBox" Header="When recognition writes" MaxLength="256" />
+        <TextBox x:Name="ReplacementBox" Header="Replace with this exact spelling" MaxLength="256" />
+        <Button Content="Confirm and save correction" Click="SaveCorrection_Click" />
+        <ListView x:Name="CorrectionList" MaxHeight="180" />
+        <Button Content="Delete selected correction" Click="DeleteCorrection_Click" />
+        <TextBlock x:Name="MessageText" TextWrapping="Wrap" />
+    </StackPanel>
+</UserControl>

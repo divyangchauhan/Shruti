@@ -2,6 +2,7 @@
     x:Class="Shruti.App.WinUI.MainWindow"
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:local="using:Shruti.App.WinUI"
     Title="Shruti dictation">
     <Grid
         x:Name="Root"
@@ -519,6 +520,10 @@
                             </Border>
                             <StackPanel Grid.Column="1" Spacing="3"><TextBlock FontWeight="SemiBold" Text="Everything stays on this PC" /><TextBlock Style="{StaticResource MutedTextStyle}" FontSize="12" Text="Shruti never sends your audio or text off your device. There is no account and no cloud." /></StackPanel>
                         </Grid>
+                    </Border>
+
+                    <Border Padding="20" Style="{StaticResource CardBorderStyle}">
+                        <local:DictionaryControl />
                     </Border>
 
                     <TextBlock Margin="0,12,0,0" Style="{StaticResource SectionLabelStyle}" Text="Diagnostics" />
