@@ -1,0 +1,12 @@
+[
+  { "id": "coffee-correction", "expectedRaw": "Let's do coffee at two actually three.", "expectedFinal": "Let's do coffee at 3.", "tags": ["self-correction", "numbers"] },
+  { "id": "punctuation", "expectedRaw": "hello comma world full stop new paragraph next line", "expectedFinal": "Hello, world.\n\nNext line", "tags": ["punctuation", "paragraphs"] },
+  { "id": "cloud-negative", "expectedRaw": "There is a dark cloud.", "expectedFinal": "There is a dark cloud.", "vocabulary": ["Claude"], "forbiddenTokens": ["Claude"], "tags": ["vocabulary-false-positive"] },
+  { "id": "explicit-correction", "expectedRaw": "Use Whisper Flow.", "expectedFinal": "Use Wispr Flow.", "corrections": {"Whisper Flow": "Wispr Flow"}, "properNames": ["Wispr Flow"], "tags": ["dictionary"] },
+  { "id": "continuation", "expectedRaw": "The next step.", "expectedFinal": "the next step", "beforeCaret": "We should take ", "afterCaret": ".", "tags": ["mid-sentence"] },
+  { "id": "protected", "expectedRaw": "Do not rename Shruti.cs or change 42.", "expectedFinal": "Do not rename Shruti.cs or change 42.", "protectedTokens": ["not", "Shruti.cs", "42"], "tags": ["negation", "code", "numbers"] },
+  { "id": "one-word", "expectedRaw": "Shruti", "expectedFinal": "Shruti", "vocabulary": ["Shruti"], "properNames": ["Shruti"], "tags": ["one-word", "names"] },
+  { "id": "technical", "expectedRaw": "Use OpenVINO with Vulkan.", "expectedFinal": "Use OpenVINO with Vulkan.", "vocabulary": ["OpenVINO", "Vulkan"], "technicalTerms": ["OpenVINO", "Vulkan"], "tags": ["technical-terms"] },
+  { "id": "fillers", "expectedRaw": "Um please send the report.", "expectedFinal": "Please send the report.", "tags": ["fillers"] },
+  { "id": "like-meaning", "expectedRaw": "I like this actually.", "expectedFinal": "I like this actually.", "protectedTokens": ["like"], "tags": ["false-deletion"] }
+]
