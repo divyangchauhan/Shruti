@@ -1,6 +1,7 @@
 using Shruti.Core.Audio;
 using Shruti.Core.Platform;
 using Shruti.Core.Triggers;
+using Shruti.Core.TranscriptQuality;
 using Shruti.Transcription.Abstractions;
 
 namespace Shruti.Core.Dictation;
@@ -15,7 +16,8 @@ public sealed record DictationRequest
         DictationTriggerEvent? trigger = null,
         IProgress<DictationStatus>? statusProgress = null,
         IProgress<TranscriptEvent>? transcriptProgress = null,
-        Action<IAudioCaptureSession>? captureSessionStarted = null)
+        Action<IAudioCaptureSession>? captureSessionStarted = null,
+        TranscriptQualitySettings? qualitySettings = null)
     {
         TranscriptionOptions = transcriptionOptions;
         InsertionMode = insertionMode;
@@ -25,9 +27,11 @@ public sealed record DictationRequest
         StatusProgress = statusProgress;
         TranscriptProgress = transcriptProgress;
         CaptureSessionStarted = captureSessionStarted;
+        QualitySettings = qualitySettings ?? new TranscriptQualitySettings { Language = transcriptionOptions.Language };
     }
 
     public TranscriptionSessionOptions TranscriptionOptions { get; }
+    public TranscriptQualitySettings QualitySettings { get; }
 
     public DictationInsertionMode InsertionMode { get; }
 

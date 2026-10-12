@@ -1,5 +1,6 @@
 using Shruti.Core.Platform;
 using Shruti.Transcription.Abstractions;
+using Shruti.Core.TranscriptQuality;
 
 namespace Shruti.Core.Dictation;
 
@@ -14,6 +15,7 @@ public sealed record DictationRunResult(
     string? Message = null,
     Exception? Error = null)
 {
+    public RefinedTranscript? RefinedTranscript { get; init; }
     public bool Inserted => Outcome == DictationRunOutcome.Inserted && InsertionResult?.Succeeded == true;
 
     public bool RequiresPreview => Outcome == DictationRunOutcome.PreviewRequired;

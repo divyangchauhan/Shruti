@@ -33,6 +33,8 @@ Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "tools", "tools", "{07C2787E
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Shruti.QualityBench", "tools\Shruti.QualityBench\Shruti.QualityBench.csproj", "{BF7B75BA-37BD-49E1-B570-57BB0D34CB75}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Shruti.TranscriptQuality", "src\Shruti.TranscriptQuality\Shruti.TranscriptQuality.csproj", "{DF6DDDD3-1098-40D4-9427-2CEB1EE68787}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|x64 = Debug|x64
@@ -199,6 +201,18 @@ Global
 		{BF7B75BA-37BD-49E1-B570-57BB0D34CB75}.Release|Any CPU.Build.0 = Release|x64
 		{BF7B75BA-37BD-49E1-B570-57BB0D34CB75}.Release|x86.ActiveCfg = Release|x64
 		{BF7B75BA-37BD-49E1-B570-57BB0D34CB75}.Release|x86.Build.0 = Release|x64
+		{DF6DDDD3-1098-40D4-9427-2CEB1EE68787}.Debug|x64.ActiveCfg = Debug|x64
+		{DF6DDDD3-1098-40D4-9427-2CEB1EE68787}.Debug|x64.Build.0 = Debug|x64
+		{DF6DDDD3-1098-40D4-9427-2CEB1EE68787}.Debug|Any CPU.ActiveCfg = Debug|x64
+		{DF6DDDD3-1098-40D4-9427-2CEB1EE68787}.Debug|Any CPU.Build.0 = Debug|x64
+		{DF6DDDD3-1098-40D4-9427-2CEB1EE68787}.Debug|x86.ActiveCfg = Debug|x64
+		{DF6DDDD3-1098-40D4-9427-2CEB1EE68787}.Debug|x86.Build.0 = Debug|x64
+		{DF6DDDD3-1098-40D4-9427-2CEB1EE68787}.Release|x64.ActiveCfg = Release|x64
+		{DF6DDDD3-1098-40D4-9427-2CEB1EE68787}.Release|x64.Build.0 = Release|x64
+		{DF6DDDD3-1098-40D4-9427-2CEB1EE68787}.Release|Any CPU.ActiveCfg = Release|x64
+		{DF6DDDD3-1098-40D4-9427-2CEB1EE68787}.Release|Any CPU.Build.0 = Release|x64
+		{DF6DDDD3-1098-40D4-9427-2CEB1EE68787}.Release|x86.ActiveCfg = Release|x64
+		{DF6DDDD3-1098-40D4-9427-2CEB1EE68787}.Release|x86.Build.0 = Release|x64
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
@@ -206,5 +220,6 @@ Global
 	GlobalSection(NestedProjects) = preSolution
 		{CA25A20B-F2E4-4347-890A-46EB158AE009} = {2AF46C1A-224C-44E5-860D-2490B15842F0}
 		{BF7B75BA-37BD-49E1-B570-57BB0D34CB75} = {07C2787E-EAC7-C090-1BA3-A61EC2A24D84}
+		{DF6DDDD3-1098-40D4-9427-2CEB1EE68787} = {2AF46C1A-224C-44E5-860D-2490B15842F0}
 	EndGlobalSection
 EndGlobal

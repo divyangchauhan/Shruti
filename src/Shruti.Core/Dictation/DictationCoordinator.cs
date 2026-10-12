@@ -1,6 +1,7 @@
 using Shruti.Core.Audio;
 using Shruti.Core.Platform;
 using Shruti.Transcription.Abstractions;
+using Shruti.Core.TranscriptQuality;
 
 namespace Shruti.Core.Dictation;
 
@@ -10,17 +11,20 @@ public sealed class DictationCoordinator
     private readonly IAudioCaptureService _audioCaptureService;
     private readonly ITextInsertionService _textInsertionService;
     private readonly ITranscriptionProvider _transcriptionProvider;
+    private readonly ITranscriptQualityPipeline? _transcriptQualityPipeline;
 
     public DictationCoordinator(
         ITargetFocusService targetFocusService,
         IAudioCaptureService audioCaptureService,
         ITextInsertionService textInsertionService,
-        ITranscriptionProvider transcriptionProvider)
+        ITranscriptionProvider transcriptionProvider,
+        ITranscriptQualityPipeline? transcriptQualityPipeline = null)
     {
         _targetFocusService = targetFocusService ?? throw new ArgumentNullException(nameof(targetFocusService));
         _audioCaptureService = audioCaptureService ?? throw new ArgumentNullException(nameof(audioCaptureService));
         _textInsertionService = textInsertionService ?? throw new ArgumentNullException(nameof(textInsertionService));
         _transcriptionProvider = transcriptionProvider ?? throw new ArgumentNullException(nameof(transcriptionProvider));
+        _transcriptQualityPipeline = transcriptQualityPipeline;
     }
 
     public async Task<DictationRunResult> RunOnceAsync(
@@ -34,6 +38,8 @@ public sealed class DictationCoordinator
         ITranscriptionSession? transcriptionSession = null;
         IAudioCaptureSession? audioCaptureSession = null;
         Task? transcriptEventTask = null;
+        ITranscriptQualitySession? qualitySession = null;
+        bool qualityStartFailed = false;
         var maximumAudioDurationReached = false;
 
         void Transition(DictationSessionState state, string message)
@@ -50,6 +56,20 @@ public sealed class DictationCoordinator
             Transition(DictationSessionState.PreparingTarget, "Capturing target");
             target = await _targetFocusService.CaptureCurrentTargetAsync(cancellationToken).ConfigureAwait(false);
             cancellationToken.ThrowIfCancellationRequested();
+
+            if (_transcriptQualityPipeline is not null)
+            {
+                try
+                {
+                    qualitySession = await _transcriptQualityPipeline.BeginAsync(target, request.QualitySettings,
+                        cancellationToken).ConfigureAwait(false);
+                }
+                catch (Exception) when (!cancellationToken.IsCancellationRequested)
+                {
+                    qualityStartFailed = true;
+                    System.Diagnostics.Trace.TraceWarning("Transcript quality session unavailable; using raw output.");
+                }
+            }
 
             transcriptionSession = await _transcriptionProvider
                 .CreateSessionAsync(request.TranscriptionOptions, cancellationToken)
@@ -98,15 +118,34 @@ public sealed class DictationCoordinator
 
             cancellationToken.ThrowIfCancellationRequested();
 
+            RefinedTranscript refined = RefinedTranscript.Unchanged(transcript, qualityStartFailed);
+            if (qualitySession is not null && !TranscriptText.IsEmptyOrNonSpeech(transcript.Text))
+            {
+                Transition(DictationSessionState.RefiningTranscript, "Refining transcript");
+                using var refinementCancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+                refinementCancellation.CancelAfter(request.QualitySettings.RefinementTimeout);
+                try
+                {
+                    refined = await qualitySession.RefineAsync(transcript, refinementCancellation.Token)
+                        .WaitAsync(refinementCancellation.Token).ConfigureAwait(false);
+                }
+                catch (Exception) when (!cancellationToken.IsCancellationRequested)
+                {
+                    refined = RefinedTranscript.Unchanged(transcript, fallback: true);
+                    System.Diagnostics.Trace.TraceWarning("Transcript refinement failed; using raw output.");
+                }
+            }
+
+            cancellationToken.ThrowIfCancellationRequested();
             var result = await CompleteAsync(
                 request,
                 target,
-                transcript,
+                TranscriptResult.FromText(refined.Text),
                 statusHistory,
                 Transition,
                 cancellationToken).ConfigureAwait(false);
 
-            return result;
+            return result with { RefinedTranscript = refined };
         }
         catch (OperationCanceledException)
         {
@@ -133,6 +172,11 @@ public sealed class DictationCoordinator
         }
         finally
         {
+            if (qualitySession is not null)
+            {
+                try { await qualitySession.DisposeAsync().ConfigureAwait(false); }
+                catch { System.Diagnostics.Trace.TraceWarning("Transcript quality session disposal failed."); }
+            }
             if (audioCaptureSession is not null)
             {
                 await audioCaptureSession.DisposeAsync().ConfigureAwait(false);
