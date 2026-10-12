@@ -1,6 +1,6 @@
 # Privacy policy
 
-Effective date: September 22, 2026
+Effective date: October 12, 2026
 
 This policy covers Shruti, the Windows dictation app developed by Divyang
 Chauhan.
@@ -16,11 +16,23 @@ automatically save microphone recordings or a transcript history to disk.
 The latest transcript can remain visible in the app until it is replaced or
 the app exits.
 
+Optional transcript cleanup also runs on your computer. Shruti keeps both the
+original and cleaned text for the latest dictation so you can recover the
+original. It does not save this recovery data as a transcript history.
+
 ## Keyboard, active applications, and clipboard
 
 Shruti monitors keyboard events to recognize your configured dictation
 shortcuts. It uses information about the active window and focused text field
 to insert your transcript into the application you selected.
+
+When nearby cursor text is enabled, Shruti may read up to 512 characters before
+the caret, 512 selected characters, and 512 characters after it. This helps
+recognize nearby names and join the dictated text with existing text. Shruti
+discards this context after that dictation. It does not send or save the context.
+The reader skips password fields, recognized address bars and sensitive fields,
+recognized banking and payment applications, Shruti's windows, and controls
+whose caret cannot be determined. You can disable this option in Settings.
 
 Copy and paste operations place transcript text on the Windows clipboard.
 Paste fallback may read and temporarily preserve existing clipboard contents
@@ -35,6 +47,10 @@ Shruti stores downloaded models, settings such as your microphone and shortcut
 choices, and transcription performance measurements on your computer. Its
 default data location is `%LOCALAPPDATA%\Shruti`. Windows packaging can redirect
 local application data into the app's package storage.
+
+Your Dictionary vocabulary and explicit correction rules are saved in a local
+SQLite database. You can remove entries in Settings. Cleanup diagnostics record
+rule names or failures, without recording transcript text or cursor context.
 
 The app displays local diagnostic information to help explain failures. This
 can include the target process name, window identifiers, processing device,
@@ -64,6 +80,9 @@ diagnostic collection under its own settings and
 
 You can stop dictation, exit Shruti, or revoke microphone access through
 Windows privacy settings. You can remove downloaded models in the app.
+You can disable cleanup or nearby cursor text in Settings. Dictionary changes
+require an explicit save action. Reviewing a suggested spelling correction does
+not save it until you confirm the rule.
 
 To remove remaining local data, exit Shruti and delete its data folder. This
 removes saved preferences and models, which must be configured or downloaded

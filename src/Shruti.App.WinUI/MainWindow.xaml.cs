@@ -774,6 +774,14 @@ public sealed partial class MainWindow : Window
         return DictationInsertionMode.AutoInsert;
     }
 
+    private void UseOriginalButton_Click(object sender, RoutedEventArgs e) => _controller.UseRawTranscript();
+    private void ReviewCorrectionButton_Click(object sender, RoutedEventArgs e)
+    {
+        DictionaryEditor.ReviewPreviewCorrection(_controller.State.RawTranscript, TranscriptPreviewBox.Text);
+        ShowPage("Settings");
+        DictionaryEditor.StartBringIntoView();
+    }
+
     private void UpdateView()
     {
         DictationShellState state = _controller.State;
@@ -784,6 +792,8 @@ public sealed partial class MainWindow : Window
         TargetText.Text = state.TargetDescription;
         UserMessageText.Text = state.UserMessage;
         TranscriptPreviewBox.Text = state.TranscriptPreview;
+        UseOriginalButton.Visibility = state.CanUseRawTranscript ? Visibility.Visible : Visibility.Collapsed;
+        ReviewCorrectionButton.Visibility = !state.IsRunning && state.RawTranscript.Length > 0 ? Visibility.Visible : Visibility.Collapsed;
 
         string errorText = FormatErrorText(state);
         ErrorText.Text = errorText;
@@ -895,6 +905,7 @@ public sealed partial class MainWindow : Window
             DictationSessionState.Recording => "Listening…",
             DictationSessionState.Paused => "Paused",
             DictationSessionState.TranscribingFinalAudio => "Catching up…",
+            DictationSessionState.RefiningTranscript => "Cleaning up transcript",
             DictationSessionState.InsertingText => "Adding your words…",
             DictationSessionState.PreparingTarget => "Getting ready…",
             DictationSessionState.RequestingMicrophone => "Checking your microphone…",
@@ -919,6 +930,7 @@ public sealed partial class MainWindow : Window
             DictationSessionState.Recording => "Speak naturally — your audio stays on this PC",
             DictationSessionState.Paused => "Resume when you're ready",
             DictationSessionState.TranscribingFinalAudio => $"Transcribing with {model.DisplayName} · nothing leaves this PC",
+            DictationSessionState.RefiningTranscript => "Formatting and cleanup run on this PC",
             DictationSessionState.InsertingText => "Returning your text to the app where you were typing",
             DictationSessionState.Failed => state.UserMessage,
             _ => $"{model.DisplayName} · on this PC · {compute}"
@@ -987,6 +999,7 @@ public sealed partial class MainWindow : Window
                 borderKey = "ShrutiDangerSoftBrush";
                 break;
             case DictationSessionState.TranscribingFinalAudio:
+            case DictationSessionState.RefiningTranscript:
             case DictationSessionState.InsertingText:
                 backgroundKey = "ShrutiCardBrush";
                 foregroundKey = "ShrutiAccentBrush";
@@ -1715,6 +1728,8 @@ public sealed partial class MainWindow : Window
 
                 _isApplyingSettings = true;
                 _transcriptionOptionsProvider.ApplySettings(_settings);
+                QualityControl.Configure(_settingsRepository, _settings.TranscriptQuality);
+                QualityControl.SettingsChanged += (_, _) => _settings = _settings with { TranscriptQuality = QualityControl.Settings };
                 ApplySettingsToControls(_settings);
                 _controller.SetInsertionMode(_settings.InsertionMode);
                 _controller.SetAudioInputDevice(_settings.AudioInputDeviceId);
@@ -1786,6 +1801,7 @@ public sealed partial class MainWindow : Window
 
             _settings = new ShrutiSettings
             {
+                TranscriptQuality = QualityControl.Settings,
                 AudioInputDeviceId = _controller.AudioOptions.DeviceId,
                 SelectedModelId = selectedModelId,
                 InsertionMode = GetSelectedInsertionMode(),
@@ -2300,6 +2316,7 @@ public sealed partial class MainWindow : Window
             DictationSessionState.Recording => "Recording",
             DictationSessionState.Paused => "Paused",
             DictationSessionState.TranscribingFinalAudio => "Transcribing",
+            DictationSessionState.RefiningTranscript => "Refining transcript",
             DictationSessionState.InsertingText => "Inserting text",
             DictationSessionState.Complete => "Complete",
             DictationSessionState.Cancelled => "Cancelled",

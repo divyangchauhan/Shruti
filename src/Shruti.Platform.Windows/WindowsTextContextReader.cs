@@ -64,10 +64,11 @@ public sealed class WindowsTextContextReader(IWindowsTextContextSource? source =
                 }
                 if (!belongs) return null;
                 string identity = (element.Current.AutomationId + " " + element.Current.Name).ToLowerInvariant();
-                if (new[] { "address", "omnibox", "urlbar", "url bar", "search or enter", "numeric", "pin", "credit card" }
+                if (new[] { "address", "omnibox", "urlbar", "url bar", "search or enter", "numeric", "pin", "credit card", "otp", "cvv", "passcode", "security code", "verification code" }
                     .Any(identity.Contains)) return null;
                 if (element.TryGetCurrentPattern(RangeValuePattern.Pattern, out _)) return null;
                 if (!element.TryGetCurrentPattern(TextPattern.Pattern, out object patternObject) || patternObject is not TextPattern pattern) return null;
+                if (pattern.SupportedTextSelection == SupportedTextSelection.None) return null;
                 TextPatternRange[] selections = pattern.GetSelection();
                 if (selections.Length != 1) return null;
                 TextPatternRange selection = selections[0];

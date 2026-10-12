@@ -2,6 +2,7 @@ using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Shruti.Core.TranscriptQuality;
 using Shruti.Storage;
+using Shruti.TranscriptQuality;
 
 namespace Shruti.App.WinUI;
 
@@ -13,6 +14,19 @@ public sealed partial class DictionaryControl : UserControl
         InitializeComponent();
         Loaded += async (_, _) => await ExecuteAsync(RefreshAsync);
         LanguageBox.LostFocus += async (_, _) => await ExecuteAsync(RefreshAsync);
+    }
+
+    public void ReviewPreviewCorrection(string raw, string edited)
+    {
+        var suggestion = PreviewCorrectionSuggestion.Create(raw, edited);
+        if (suggestion is null)
+        {
+            MessageText.Text = "Enter the misheard word or phrase and its replacement, then confirm the rule.";
+            return;
+        }
+        HeardBox.Text = suggestion.HeardText;
+        ReplacementBox.Text = suggestion.ReplacementText;
+        MessageText.Text = "Review these words. Nothing is saved until you confirm the correction.";
     }
 
     private async Task RefreshAsync()

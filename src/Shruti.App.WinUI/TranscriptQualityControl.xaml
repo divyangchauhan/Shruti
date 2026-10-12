@@ -1,0 +1,13 @@
+<UserControl x:Class="Shruti.App.WinUI.TranscriptQualityControl"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    <StackPanel Spacing="12">
+        <TextBlock Text="Transcript cleanup" FontSize="24" FontWeight="SemiBold" />
+        <CheckBox x:Name="CleanupBox" Content="Light cleanup and spoken formatting" Click="Preferences_Click" />
+        <CheckBox x:Name="ContextBox" Content="Use nearby cursor text for spacing and vocabulary" Click="Preferences_Click" />
+        <CheckBox x:Name="ModelBox" Content="Use local AI for fillers and grammar" Click="Preferences_Click" />
+        <TextBlock Text="The optional Qwen 2B model downloads about 1.3 GB. Cleanup runs on this PC. Only the latest dictation stays available for recovery." TextWrapping="Wrap" />
+        <Button x:Name="InstallButton" Content="Download local cleanup" Click="Install_Click" />
+        <TextBlock x:Name="MessageText" TextWrapping="Wrap" />
+    </StackPanel>
+</UserControl>

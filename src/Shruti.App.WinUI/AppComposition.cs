@@ -55,20 +55,23 @@ public sealed class AppComposition
     public MainWindow CreateMainWindow()
     {
         appDataPaths.EnsureCreated();
+        var qualityPipeline = new TranscriptQualityPipeline(new SqliteVocabularyRepository(appDataPaths), new WindowsTextContextReader());
         var coordinator = new DictationCoordinator(
             targetFocusService,
             audioCaptureService,
             textInsertionService,
             new RoutingTranscriptionProvider(
                 new TranscriptionProviderRegistry([whisperCppProvider, openVinoProvider])),
-            new TranscriptQualityPipeline(new SqliteVocabularyRepository(appDataPaths), new WindowsTextContextReader()));
+            qualityPipeline);
         var controller = new DictationShellController(
             coordinator,
             audioCaptureService,
             transcriptClipboard,
-            transcriptionOptionsProvider.CreateAsync);
+            transcriptionOptionsProvider.CreateAsync,
+            async cancellationToken => (await settingsRepository.LoadAsync(cancellationToken).ConfigureAwait(false)).TranscriptQuality with
+            { LocalRuntimePath = Path.Combine(AppContext.BaseDirectory, "CleanupRuntime", "llama-server.exe") });
         var triggerRouter = new DictationTriggerRouter(controller);
-        return new MainWindow(
+        var window = new MainWindow(
             controller,
             audioCaptureService,
             settingsRepository,
@@ -80,5 +83,7 @@ public sealed class AppComposition
             platformModule.CreateGlobalTriggerService(),
             platformModule.CreateTrayIconService(),
             platformModule.CreateWindowVisibility());
+        window.Closed += (_, _) => qualityPipeline.Dispose();
+        return window;
     }
 }

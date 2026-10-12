@@ -1,0 +1,56 @@
+name: Manual transcript quality benchmark
+on:
+  workflow_dispatch:
+    inputs:
+      cleanup:
+        description: Download and run optional 2B CPU cleanup
+        type: boolean
+        default: false
+jobs:
+  quality:
+    runs-on: windows-2022
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+      - name: Install Vulkan SDK
+        shell: pwsh
+        run: |
+          choco install vulkan-sdk --version=1.4.350 --yes --no-progress
+          if ($LASTEXITCODE -notin @(0, 1641, 3010)) { exit $LASTEXITCODE }
+          $sdk = [Environment]::GetEnvironmentVariable('VULKAN_SDK', 'Machine')
+          if ([string]::IsNullOrWhiteSpace($sdk)) { throw 'Vulkan SDK installation failed.' }
+          "VULKAN_SDK=$sdk" | Out-File $env:GITHUB_ENV -Encoding utf8 -Append
+          (Join-Path $sdk 'Bin') | Out-File $env:GITHUB_PATH -Encoding utf8 -Append
+      - name: Build native runtime
+        run: |
+          cmake -S src/Shruti.Transcription.WhisperCpp.Native -B artifacts/whispercpp-native -G "Visual Studio 17 2022" -A x64
+          cmake --build artifacts/whispercpp-native --config Release
+          ctest --test-dir artifacts/whispercpp-native -C Release --output-on-failure
+      - name: Download pinned tiny.en smoke model
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force artifacts/models | Out-Null
+          curl.exe --fail --location --output artifacts/models/ggml-tiny.en.bin https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-tiny.en.bin
+          if ($LASTEXITCODE -ne 0) { throw 'Model download failed.' }
+          if ((Get-FileHash artifacts/models/ggml-tiny.en.bin).Hash -ne '921e4cf8686fdd993dcd081a5da5b6c365bfde1162e72b08d75ac75289920b1f') { throw 'Model checksum mismatch.' }
+      - name: Prepare optional cleanup model
+        if: inputs.cleanup
+        run: ./scripts/prepare-local-cleanup.ps1
+      - name: Run stages
+        shell: pwsh
+        run: |
+          dotnet run --project tools/Shruti.QualityBench -- tests/quality/manifest.json --stage recognition --no-hints --model artifacts/models/ggml-tiny.en.bin --native-directory artifacts/whispercpp-native/Release --name tiny-cpu
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $cleanupArgs = @()
+          if ('${{ inputs.cleanup }}' -eq 'true') { $cleanupArgs = @('--cleanup-model', 'artifacts/local-cleanup/qwen3.5-2b-q4_k_m.gguf', '--cleanup-runtime', 'artifacts/local-cleanup/Cpu/llama-server.exe') }
+          dotnet run --project tools/Shruti.QualityBench -- tests/quality/manifest.json --stage refinement --name saved-raw @cleanupArgs
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          dotnet run --project tools/Shruti.QualityBench -- tests/quality/manifest.json --stage full --model artifacts/models/ggml-tiny.en.bin --native-directory artifacts/whispercpp-native/Release --name full-cpu @cleanupArgs
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - uses: actions/upload-artifact@v4
+        with:
+          name: transcript-quality-reports
+          path: artifacts/quality/*

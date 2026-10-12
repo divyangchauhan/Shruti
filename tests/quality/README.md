@@ -1,7 +1,29 @@
-# Quality corpus
+# Transcript quality fixtures
 
-The checked-in text cases cover corrections, protected tokens, formatting, and cursor joining. They do not prove recognition accuracy or Indian English support. `expectedRaw` is the reference spoken text. `savedRaw` can hold actual ASR output for independent refinement tests.
+`manifest.json` is an array of `QualityCase` records. Each case has an ID,
+expected raw and final text, and optional audio, cursor context, vocabulary,
+explicit corrections, category tags, and protected or forbidden tokens.
+`savedRaw` overrides the input to the refinement-only stage. Audio is mono
+PCM16 WAV at 16 kHz.
 
-Public audio smoke fixtures are generated from authored sentences with Windows speech synthesis by `scripts/prepare-quality-audio.ps1`. Synthetic voices are not a substitute for held-out human recordings. Keep private recordings outside Git. A downloaded corpus must have an immutable revision, license, and checksums in its manifest.
+The 15 checked-in WAV files contain Windows synthesized speech made from our
+authored sentences. They contain no private recordings. `audioSource` identifies
+them as smoke fixtures. Quiet speech uses one tenth of the original amplitude.
+The noisy case adds seeded white noise with an amplitude of 1,000 PCM units.
+These are synthetic conditions, not recordings of real speakers or rooms.
 
-Run `dotnet run --project tools/Shruti.QualityBench -- tests/quality/manifest.json`. Reports contain fixture text and belong under ignored `artifacts/quality`. Never run this tool with private recordings in public CI. Model-heavy runs are manual.
+Regenerate with `scripts/prepare-quality-audio.ps1`. The installed Windows voice
+affects regenerated audio. Keep the checked-in WAV files fixed for comparisons.
+
+For a larger human recognition baseline, run `scripts/prepare-quality-corpus.ps1`
+with an installed FFmpeg executable. It downloads the versioned LibriSpeech
+test-clean archive, verifies OpenSLR's published checksum, converts the first
+requested utterances in sorted speaker/chapter order, and writes attribution and
+a manifest under ignored `artifacts/quality-corpus`. Use the recognition stage.
+The unformatted reference is not a dictation formatting target.
+
+Record Indian English, names, homophones, quiet and noisy speech, restatements,
+and real app insertion separately before making a release decision. Keep private
+recordings and reports outside Git. Use a held-out set that has not been used to
+tune rules or model prompts. Automated protected-token checks require a human
+meaning review alongside them.

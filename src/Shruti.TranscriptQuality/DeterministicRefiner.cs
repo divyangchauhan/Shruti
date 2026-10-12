@@ -22,20 +22,51 @@ public static class DeterministicRefiner
                 chunk = Regex.Replace(chunk, @"\b" + command.Key + @"\b[.,]?", command.Value, RegexOptions.IgnoreCase);
             chunk = Regex.Replace(chunk, @"\b(zero|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|\d+)\s*,?\s+actually\s+(zero|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|\d+)\b",
                 match => Numbers.GetValueOrDefault(match.Groups[2].Value, match.Groups[2].Value), RegexOptions.IgnoreCase);
-            chunk = Regex.Replace(chunk, @"(?i)\bat (zero|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve)\b",
+            chunk = Regex.Replace(chunk, @"(?i)\bat (zero|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve)\b(?!\s+(?:with|of|time|point|another)\b)",
                 match => "at " + Numbers[match.Groups[1].Value]);
+            // ASR may already insert punctuation immediately before a spoken command.
+            chunk = Regex.Replace(chunk, @"[,;:]\s*([.!?])", "$1");
             return chunk;
         });
-        text = Regex.Replace(text, @"[^\S\r\n]+([,.;:!?])", "$1");
-        text = Regex.Replace(text, @"[ \t]*\n[ \t]*", "\n");
-        text = Regex.Replace(text, @"[ \t]{2,}", " ").Trim();
+        text = TransformUnprotected(text, vocabulary, chunk =>
+        {
+            chunk = Regex.Replace(chunk, @"[^\S\r\n]+([,.;:!?])", "$1");
+            chunk = Regex.Replace(chunk, @"[ \t]*\n[ \t]*", "\n");
+            return Regex.Replace(chunk, @"[ \t]{2,}", " ");
+        }).Trim();
         // Numbered lists require an explicit introduction and a complete sequence starting with 1 and 2.
-        Match list = Regex.Match(text, @"(?is)^numbered list\s*[:.,]?\s*(?:one|1)[.)]?\s+(.+?)\s+(?:two|2)[.)]?\s+(.+?)(?:\s+(?:three|3)[.)]?\s+(.+))?$", RegexOptions.CultureInvariant);
-        if (list.Success)
-            text = "1. " + list.Groups[1].Value.Trim() + "\n2. " + list.Groups[2].Value.Trim() +
-                (list.Groups[3].Success ? "\n3. " + list.Groups[3].Value.Trim() : "");
+        text = FormatExplicitList(text);
+        var casingRules = vocabulary.Where(term => !string.IsNullOrWhiteSpace(term)).Select(term =>
+            new CorrectionRule(Guid.Empty, "en", term, term, DateTimeOffset.UnixEpoch)).ToArray();
+        text = TransformUnprotected(text, vocabulary, chunk => CorrectionMatcher.Apply(chunk, casingRules));
         text = SentenceCase(text, vocabulary);
+        if (context?.AppCategory is TranscriptAppCategory.Document or TranscriptAppCategory.Email &&
+            string.IsNullOrWhiteSpace(context.BeforeCaret) && string.IsNullOrWhiteSpace(context.AfterCaret) &&
+            !text.Contains('\n') && Regex.Matches(text, @"\S+").Count >= 3 &&
+            text.Length > 0 && char.IsLetterOrDigit(text[^1]))
+            text += ".";
         return text;
+    }
+
+    private static string FormatExplicitList(string text)
+    {
+        Match introduction = Regex.Match(text, @"(?i)^numbered list\s*[:.,]?\s*");
+        if (!introduction.Success) return text;
+        string contents = text[introduction.Length..];
+        Match[] markers = Regex.Matches(contents, @"(?i)\b(one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|[1-9]|1[0-2])\b[.)]?\s+").ToArray();
+        if (markers.Length < 2 || markers[0].Index != 0) return text;
+        var items = new List<string>();
+        for (int i = 0; i < markers.Length; i++)
+        {
+            string label = Numbers.GetValueOrDefault(markers[i].Groups[1].Value, markers[i].Groups[1].Value);
+            if (label != (i + 1).ToString(System.Globalization.CultureInfo.InvariantCulture)) return text;
+            int start = markers[i].Index + markers[i].Length;
+            int end = i + 1 < markers.Length ? markers[i + 1].Index : contents.Length;
+            string item = contents[start..end].Trim();
+            if (item.Length == 0) return text;
+            items.Add($"{label}. {item}");
+        }
+        return string.Join("\n", items);
     }
 
     internal static string TransformUnprotected(string text, IReadOnlyList<string> vocabulary, Func<string, string> transform)
@@ -56,8 +87,8 @@ public static class DeterministicRefiner
 
     internal static string SentenceCase(string text, IReadOnlyList<string> vocabulary)
     {
-        return Regex.Replace(text, @"(^|[.!?]\s+|\n+)(\p{Ll})", match =>
-            match.Groups[1].Value + match.Groups[2].Value.ToUpperInvariant());
+        return TransformUnprotected(text, vocabulary, chunk => Regex.Replace(chunk, @"(^|[.!?]\s+|\n+)(\p{Ll})", match =>
+            match.Groups[1].Value + match.Groups[2].Value.ToUpperInvariant()));
     }
 
     public static string Join(string text, TranscriptContext? context, IReadOnlyList<string> vocabulary)
@@ -72,6 +103,7 @@ public static class DeterministicRefiner
             Regex.IsMatch(text, @"^I(?:\b|['’])");
         if (continuation && !proper && char.IsUpper(text[0])) text = char.ToLowerInvariant(text[0]) + text[1..];
         if (after.Length > 0 && ".,!?;:".Contains(after[0]) && text.Length > 0 && ".,!?;:".Contains(text[^1])) text = text[..^1];
+        if (text.Length == 0) return text;
         if (before.Length > 0 && !char.IsWhiteSpace(before[^1]) && !"([{\"'".Contains(before[^1]) &&
             !char.IsWhiteSpace(text[0]) && !".,!?;:)]}".Contains(text[0])) text = " " + text;
         if (after.Length > 0 && !char.IsWhiteSpace(after[0]) && !".,!?;:)]}\"'".Contains(after[0]) &&

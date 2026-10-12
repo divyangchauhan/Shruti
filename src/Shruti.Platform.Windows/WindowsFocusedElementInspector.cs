@@ -119,7 +119,7 @@ public sealed class WindowsFocusedElementInspector : IWindowsFocusedElementInspe
 
             foreach (TextPatternRange range in pattern.GetSelection())
             {
-                string? selectedText = range.GetText(-1);
+                string? selectedText = range.GetText(1);
                 if (!string.IsNullOrEmpty(selectedText))
                 {
                     return true;

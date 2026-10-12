@@ -202,6 +202,11 @@ public sealed class DictationCoordinator
         }
     }
 
+    public Task<DictationRunResult> InsertFinalizedTextAsync(
+        FocusTarget target, string text, TextInsertionOptions? insertionOptions,
+        IProgress<DictationStatus>? statusProgress, CancellationToken cancellationToken)
+        => InsertFinalizedTranscriptAsync(target, TranscriptResult.FromText(text), insertionOptions, statusProgress, cancellationToken);
+
     public async Task<DictationRunResult> InsertFinalizedTranscriptAsync(
         FocusTarget target,
         TranscriptResult transcript,

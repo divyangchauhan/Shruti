@@ -21,6 +21,8 @@ public static class PackagedNativeProbe {
             throw new InvalidOperationException("Packaged speech runtime cannot load without machine-installed dependencies. Win32 error: " + Marshal.GetLastWin32Error());
         var entry = GetProcAddress(module, "shruti_whisper_available_backends");
         if (entry == IntPtr.Zero) throw new InvalidOperationException("Backend capability export is missing.");
+        if (GetProcAddress(module, "shruti_whisper_transcribe_with_prompt") == IntPtr.Zero)
+            throw new InvalidOperationException("Managed recognition-hint ABI export is missing.");
         return ((AvailableBackends)Marshal.GetDelegateForFunctionPointer(entry, typeof(AvailableBackends)))();
     }
 }

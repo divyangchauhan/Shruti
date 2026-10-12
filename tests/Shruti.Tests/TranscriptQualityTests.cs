@@ -9,11 +9,22 @@ namespace Shruti.Tests;
 
 public sealed class TranscriptQualityTests
 {
+    [Fact]
+    public void PreviewCorrection_OnlySuggestsOneSpellingChangeForReview()
+    {
+        Assert.Equal(new PreviewCorrectionSuggestion("cloud", "Claude"),
+            PreviewCorrectionSuggestion.Create("Ask cloud tomorrow.", "Ask Claude tomorrow."));
+        Assert.Null(PreviewCorrectionSuggestion.Create("Um send this.", "Send this."));
+        Assert.Null(PreviewCorrectionSuggestion.Create("Send 42 files.", "Send 43 files."));
+    }
     [Theory]
     [InlineData("hello comma world full stop new paragraph next line", "Hello, world.\n\nNext line")]
     [InlineData("Let's do coffee at two actually three.", "Let's do coffee at 3.")]
     [InlineData("numbered list one apples two oranges three pears", "1. Apples\n2. Oranges\n3. Pears")]
+    [InlineData("numbered list one apples two oranges three pears four bananas", "1. Apples\n2. Oranges\n3. Pears\n4. Bananas")]
     [InlineData("I like this actually.", "I like this actually.")]
+    [InlineData("We are at one with nature.", "We are at one with nature.")]
+    [InlineData("hello, full stop", "Hello.")]
     public void Formatting_IsConservative(string input, string expected)
     {
         Assert.Equal(expected, DeterministicRefiner.Refine(input, [], null, TranscriptCleanupMode.Light, []));
@@ -25,7 +36,19 @@ public sealed class TranscriptQualityTests
     {
         Assert.Equal("OpenVINO says \"new line\" in Shruti.cs.",
             DeterministicRefiner.Refine("OpenVINO says \"new line\" in Shruti.cs.", ["OpenVINO"], null, TranscriptCleanupMode.Light, []));
+        Assert.Equal("Ask Claude about OpenVINO and a dark cloud.",
+            DeterministicRefiner.Refine("ask claude about openvino and a dark cloud.", ["Claude", "OpenVINO"], null, TranscriptCleanupMode.Light, []));
+        Assert.Equal("Say \"openvino\" exactly.",
+            DeterministicRefiner.Refine("say \"openvino\" exactly.", ["OpenVINO"], null, TranscriptCleanupMode.Light, []));
     }
+
+    [Theory]
+    [InlineData(TranscriptAppCategory.Email, "Please send the report.")]
+    [InlineData(TranscriptAppCategory.Document, "Please send the report.")]
+    [InlineData(TranscriptAppCategory.PersonalMessaging, "Please send the report")]
+    public void Style_AddsTerminalPunctuationOnlyForStandaloneFormalText(TranscriptAppCategory category, string expected)
+        => Assert.Equal(expected, DeterministicRefiner.Refine("please send the report", [],
+            new("", null, "", category), TranscriptCleanupMode.Light, []));
 
     [Theory]
     [InlineData("We should take ", ".", "The next step.", "the next step")]
@@ -33,6 +56,7 @@ public sealed class TranscriptQualityTests
     [InlineData("Ask ", ".", "Shruti.", "Shruti")]
     [InlineData("Done. ", "", "Next", "Next")]
     [InlineData("Line\n", "", "Next", "Next")]
+    [InlineData("Done", ".", ".", "")]
     public void Joining_UsesCaretBoundaries(string before, string after, string input, string expected)
         => Assert.Equal(expected, DeterministicRefiner.Join(input,
             new(before, null, after, TranscriptAppCategory.Document), ["Shruti"]));

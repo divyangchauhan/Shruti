@@ -10,6 +10,28 @@ namespace Shruti.Tests;
 public sealed class JsonSettingsRepositoryTests : IDisposable
 {
     [Fact]
+    public async Task QualityPreferences_RoundTripAndClampPromptAndTimeout()
+    {
+        var repository = new JsonSettingsRepository(new AppDataPaths(_rootPath));
+        await repository.SaveAsync(ShrutiSettings.Default with
+        {
+            TranscriptQuality = new()
+            {
+                EnableLocalModel = true,
+                LocalModelPath = "model.gguf",
+                LocalRuntimePath = "llama-server.exe",
+                MaximumPromptTokens = 9999,
+                RefinementTimeout = TimeSpan.FromHours(1)
+            }
+        }, default);
+        var quality = (await repository.LoadAsync(default)).TranscriptQuality;
+        Assert.True(quality.EnableLocalModel);
+        Assert.Equal("model.gguf", quality.LocalModelPath);
+        Assert.Equal("llama-server.exe", quality.LocalRuntimePath);
+        Assert.Equal(224, quality.MaximumPromptTokens);
+        Assert.Equal(TimeSpan.FromSeconds(10), quality.RefinementTimeout);
+    }
+    [Fact]
     public async Task FloatingBarVisibility_DefaultsOnAndPersistsOptOut()
     {
         var repository = new JsonSettingsRepository(new AppDataPaths(_rootPath));

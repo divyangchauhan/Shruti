@@ -1,3 +1,4 @@
+using Shruti.Core.TranscriptQuality;
 using System.Runtime.CompilerServices;
 using System.Threading.Channels;
 using Shruti.Core;
@@ -226,13 +227,63 @@ public sealed class DictationCoordinatorTests
             TranscriptionMode.Balanced);
     }
 
+    [Fact]
+    public async Task RefinementFailure_InsertsRawAndStillSucceeds()
+    {
+        var pipeline = new FakeQualityPipeline(throwRefinement: true);
+        var services = TestServices.Create(quality: pipeline);
+        var result = await services.Coordinator.RunOnceAsync(new DictationRequest(CreateTranscriptionOptions()), default);
+        Assert.True(result.Inserted);
+        Assert.True(result.RefinedTranscript!.UsedRawFallback);
+        Assert.Equal("hello from shruti", result.Transcript!.Text);
+        Assert.True(pipeline.Disposed);
+    }
+
+    [Fact]
+    public async Task Refinement_ReturnsRawAndFinalAndReportsRefiningState()
+    {
+        var pipeline = new FakeQualityPipeline(throwRefinement: false);
+        var services = TestServices.Create(quality: pipeline);
+        var result = await services.Coordinator.RunOnceAsync(new DictationRequest(CreateTranscriptionOptions()), default);
+        Assert.True(result.Inserted);
+        Assert.Equal("hello from shruti", result.RefinedTranscript!.Raw.Text);
+        Assert.Equal("Hello from Shruti.", result.Transcript!.Text);
+        Assert.Contains(result.StatusHistory, status => status.State == DictationSessionState.RefiningTranscript);
+        Assert.True(pipeline.Disposed);
+    }
+
+    [Fact]
+    public async Task RefinementTimeout_InsertsRawAndDisposesSession()
+    {
+        var pipeline = new FakeQualityPipeline(false, neverFinish: true);
+        var services = TestServices.Create(quality: pipeline);
+        var result = await services.Coordinator.RunOnceAsync(new DictationRequest(CreateTranscriptionOptions(),
+            qualitySettings: new() { RefinementTimeout = TimeSpan.FromMilliseconds(30) }), default);
+        Assert.True(result.Inserted);
+        Assert.True(result.RefinedTranscript!.UsedRawFallback);
+        Assert.True(pipeline.Disposed);
+    }
+
+    private sealed class FakeQualityPipeline(bool throwRefinement, bool neverFinish = false) : ITranscriptQualityPipeline, ITranscriptQualitySession
+    {
+        public bool Disposed { get; private set; }
+        public RecognitionHints RecognitionHints => RecognitionHints.Empty;
+        public Task<ITranscriptQualitySession> BeginAsync(FocusTarget? target, TranscriptQualitySettings settings, CancellationToken token)
+            => Task.FromResult<ITranscriptQualitySession>(this);
+        public Task<RefinedTranscript> RefineAsync(TranscriptResult raw, CancellationToken token)
+            => neverFinish ? new TaskCompletionSource<RefinedTranscript>().Task
+                : throwRefinement ? throw new InvalidOperationException("fixture failure")
+                : Task.FromResult(new RefinedTranscript(raw, "Hello from Shruti.", [], false));
+        public ValueTask DisposeAsync() { Disposed = true; return ValueTask.CompletedTask; }
+    }
+
     private sealed class TestServices
     {
         private TestServices(
             FakeTargetFocusService targetFocus,
             FakeAudioCaptureService audioCapture,
             FakeTextInsertionService textInsertion,
-            FakeTranscriptionProvider transcription)
+            FakeTranscriptionProvider transcription, ITranscriptQualityPipeline? quality = null)
         {
             TargetFocus = targetFocus;
             AudioCapture = audioCapture;
@@ -242,7 +293,7 @@ public sealed class DictationCoordinatorTests
                 targetFocus,
                 audioCapture,
                 textInsertion,
-                transcription);
+                transcription, quality);
         }
 
         public DictationCoordinator Coordinator { get; }
@@ -261,7 +312,8 @@ public sealed class DictationCoordinatorTests
             TextInsertionCapability? capability = null,
             TextInsertionResult? insertionResult = null,
             Action? onComplete = null,
-            bool reachMaximumAudioDurationAfterFirstPush = false)
+            bool reachMaximumAudioDurationAfterFirstPush = false,
+            ITranscriptQualityPipeline? quality = null)
         {
             var targetFocus = new FakeTargetFocusService();
             var audioCapture = new FakeAudioCaptureService(
@@ -282,7 +334,7 @@ public sealed class DictationCoordinatorTests
                 targetFocus,
                 audioCapture,
                 textInsertion,
-                transcription);
+                transcription, quality);
         }
     }
 

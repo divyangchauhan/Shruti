@@ -343,6 +343,10 @@
                                     </StackPanel>
                                 </Button>
                             </StackPanel>
+                            <StackPanel Orientation="Horizontal" Spacing="8">
+                                <Button x:Name="UseOriginalButton" Content="Use original" Click="UseOriginalButton_Click" Visibility="Collapsed" />
+                                <Button x:Name="ReviewCorrectionButton" Content="Review dictionary correction" Click="ReviewCorrectionButton_Click" Visibility="Collapsed" />
+                            </StackPanel>
                             <TextBlock x:Name="ErrorText" AutomationProperties.LiveSetting="Assertive" Foreground="{ThemeResource ShrutiDangerBrush}" TextWrapping="Wrap" Visibility="Collapsed" />
                         </StackPanel>
                     </Border>
@@ -523,7 +527,7 @@
                     </Border>
 
                     <Border Padding="20" Style="{StaticResource CardBorderStyle}">
-                        <local:DictionaryControl />
+                        <StackPanel Spacing="20"><local:TranscriptQualityControl x:Name="QualityControl" /><local:DictionaryControl x:Name="DictionaryEditor" /></StackPanel>
                     </Border>
 
                     <TextBlock Margin="0,12,0,0" Style="{StaticResource SectionLabelStyle}" Text="Diagnostics" />

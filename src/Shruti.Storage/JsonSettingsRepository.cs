@@ -83,6 +83,17 @@ public sealed class JsonSettingsRepository : ISettingsRepository
         }
     }
 
+    private static Shruti.Core.TranscriptQuality.TranscriptQualitySettings NormalizeQuality(Shruti.Core.TranscriptQuality.TranscriptQualitySettings? quality)
+    {
+        quality ??= new();
+        return quality with
+        {
+            CleanupMode = Enum.IsDefined(quality.CleanupMode) ? quality.CleanupMode : Shruti.Core.TranscriptQuality.TranscriptCleanupMode.Light,
+            MaximumPromptTokens = Math.Clamp(quality.MaximumPromptTokens, 0, 224),
+            RefinementTimeout = TimeSpan.FromMilliseconds(Math.Clamp(quality.RefinementTimeout.TotalMilliseconds, 100, 10000))
+        };
+    }
+
     private static ShrutiSettings Normalize(ShrutiSettings? settings)
     {
         if (settings is null)
@@ -95,6 +106,7 @@ public sealed class JsonSettingsRepository : ISettingsRepository
 
         return new ShrutiSettings
         {
+            TranscriptQuality = NormalizeQuality(settings.TranscriptQuality),
             AudioInputDeviceId = settings.AudioInputDeviceId,
             SelectedModelId = string.IsNullOrWhiteSpace(settings.SelectedModelId)
                 ? ShrutiSettings.Default.SelectedModelId
