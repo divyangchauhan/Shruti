@@ -8,6 +8,7 @@ using Shruti.Storage;
 using Shruti.Transcription.Abstractions;
 using Shruti.Transcription.WhisperCpp;
 using Shruti.Transcription.OpenVino;
+using Shruti.TranscriptQuality;
 
 namespace Shruti.App.WinUI;
 
@@ -59,7 +60,8 @@ public sealed class AppComposition
             audioCaptureService,
             textInsertionService,
             new RoutingTranscriptionProvider(
-                new TranscriptionProviderRegistry([whisperCppProvider, openVinoProvider])));
+                new TranscriptionProviderRegistry([whisperCppProvider, openVinoProvider])),
+            new TranscriptQualityPipeline(new SqliteVocabularyRepository(appDataPaths), new WindowsTextContextReader()));
         var controller = new DictationShellController(
             coordinator,
             audioCaptureService,

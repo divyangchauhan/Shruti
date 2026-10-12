@@ -22,6 +22,7 @@
     </ItemGroup>
 
     <ItemGroup>
+        <ProjectReference Include="../Shruti.TranscriptQuality/Shruti.TranscriptQuality.csproj" />
         <ProjectReference Include="..\Shruti.Core\Shruti.Core.csproj" />
         <ProjectReference Include="..\Shruti.Audio.Windows\Shruti.Audio.Windows.csproj" />
         <ProjectReference Include="..\Shruti.Platform.Windows\Shruti.Platform.Windows.csproj" />
