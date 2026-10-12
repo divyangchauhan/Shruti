@@ -29,6 +29,13 @@ public static class RecommendedModelCatalog
                     "ggml-small.en.bin",
                     487_614_201,
                     "db8a495a91d927739e50b3fc1cc4c6b8f6c2d022"),
+                new ModelCatalogEntry(
+                    "whisper-large-v3-turbo-q5", "Whisper large-v3-turbo Q5",
+                    "whisper.cpp", "ggml-large-v3-turbo-q5_0.bin", ModelFileFormat.Ggml, "en",
+                    574_041_195,
+                    new Uri("https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3-turbo-q5_0.bin"),
+                    new ModelIntegrity(ModelHashAlgorithm.Sha256, "394221709cd5ad1f40c46e6031ca61bce88931e6e088c188294c6d5a55ffa7e2"),
+                    [ComputeBackend.Cpu, ComputeBackend.Gpu]),
                 CreateOpenVinoWhisperBaseModel()
             ]);
     }

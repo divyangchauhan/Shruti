@@ -67,7 +67,7 @@ public sealed class WhisperCppTranscriptionEngine : IWhisperCppTranscriptionEngi
 
         public async Task<WhisperCppTranscriptionResult> TranscribeAsync(
             float[] samples,
-            CancellationToken cancellationToken)
+            CancellationToken cancellationToken, string? initialPrompt = null)
         {
             ArgumentNullException.ThrowIfNull(samples);
             cancellationToken.ThrowIfCancellationRequested();
@@ -87,7 +87,7 @@ public sealed class WhisperCppTranscriptionEngine : IWhisperCppTranscriptionEngi
                     context = _context!;
                 }
 
-                int status = context.Transcribe(samples, _language, _threadCount, cancellationToken);
+                int status = context.Transcribe(samples, _language, _threadCount, cancellationToken, initialPrompt);
                 cancellationToken.ThrowIfCancellationRequested();
                 if (status != 0)
                 {

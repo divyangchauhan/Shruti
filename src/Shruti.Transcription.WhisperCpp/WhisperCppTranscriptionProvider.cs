@@ -392,7 +392,7 @@ public sealed class WhisperCppTranscriptionProvider : ITranscriptionProvider, IA
             {
                 WhisperCppTranscriptionResult native = audio.Length == 0
                     ? new WhisperCppTranscriptionResult([])
-                    : await _inferenceSession.TranscribeAsync(audio, linked.Token).ConfigureAwait(false);
+                    : await _inferenceSession.TranscribeAsync(audio, linked.Token, _options.RecognitionHints?.InitialPrompt).ConfigureAwait(false);
                 linked.Token.ThrowIfCancellationRequested();
                 TranscriptSegment[] segments = native.Segments
                     .Where(segment => !TranscriptText.IsEmptyOrNonSpeech(segment.Text))

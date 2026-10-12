@@ -72,7 +72,8 @@ public sealed class DictationCoordinator
             }
 
             transcriptionSession = await _transcriptionProvider
-                .CreateSessionAsync(request.TranscriptionOptions, cancellationToken)
+                .CreateSessionAsync(request.TranscriptionOptions with
+                { RecognitionHints = qualitySession?.RecognitionHints ?? request.TranscriptionOptions.RecognitionHints }, cancellationToken)
                 .ConfigureAwait(false);
 
             if (request.TranscriptProgress is not null)

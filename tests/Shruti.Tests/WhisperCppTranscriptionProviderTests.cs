@@ -339,7 +339,7 @@ public sealed class WhisperCppTranscriptionProviderTests : IDisposable
 
             public Task<WhisperCppTranscriptionResult> TranscribeAsync(
                 float[] samples,
-                CancellationToken cancellationToken)
+                CancellationToken cancellationToken, string? initialPrompt = null)
             {
                 cancellationToken.ThrowIfCancellationRequested();
                 lock (_owner._sync)
@@ -408,7 +408,7 @@ public sealed class WhisperCppTranscriptionProviderTests : IDisposable
 
             public Task<WhisperCppTranscriptionResult> TranscribeAsync(
                 float[] samples,
-                CancellationToken cancellationToken)
+                CancellationToken cancellationToken, string? initialPrompt = null)
             {
                 _owner.Started.TrySetResult();
                 return _owner._completion.Task;

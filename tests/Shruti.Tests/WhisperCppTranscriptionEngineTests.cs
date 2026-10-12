@@ -22,8 +22,10 @@ public sealed class WhisperCppTranscriptionEngineTests
             new WhisperCppTranscriptionSessionOptions("model.bin", "en", ThreadCount: 3),
             CancellationToken.None);
 
-        WhisperCppTranscriptionResult first = await session.TranscribeAsync([0.1f, -0.1f], CancellationToken.None);
-        WhisperCppTranscriptionResult second = await session.TranscribeAsync([0.2f, -0.2f], CancellationToken.None);
+        WhisperCppTranscriptionResult first = await session.TranscribeAsync([0.1f, -0.1f], CancellationToken.None, "Shruti");
+        Assert.Equal("Shruti", context.InitialPrompt);
+        WhisperCppTranscriptionResult second = await session.TranscribeAsync([0.2f, -0.2f], CancellationToken.None, "OpenVINO");
+        Assert.Equal("OpenVINO", context.InitialPrompt);
 
         Assert.Equal("model.bin", nativeApi.LoadedModelPath);
         Assert.Equal(ComputeBackend.Cpu, nativeApi.LoadedBackend);
@@ -198,6 +200,7 @@ public sealed class WhisperCppTranscriptionEngineTests
         public bool Disposed { get; private set; }
 
         public string? Language { get; private set; }
+        public string? InitialPrompt { get; private set; }
 
         public int ThreadCount { get; private set; }
 
@@ -205,9 +208,10 @@ public sealed class WhisperCppTranscriptionEngineTests
 
         private int Status { get; }
 
-        public int Transcribe(float[] samples, string language, int threadCount, CancellationToken cancellationToken)
+        public int Transcribe(float[] samples, string language, int threadCount, CancellationToken cancellationToken, string? initialPrompt = null)
         {
             Language = language;
+            InitialPrompt = initialPrompt;
             ThreadCount = threadCount;
             TranscriptionCount++;
             return Status;
@@ -233,7 +237,7 @@ public sealed class WhisperCppTranscriptionEngineTests
     {
         public TaskCompletionSource Started { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
 
-        public int Transcribe(float[] samples, string language, int threadCount, CancellationToken cancellationToken)
+        public int Transcribe(float[] samples, string language, int threadCount, CancellationToken cancellationToken, string? initialPrompt = null)
         {
             Started.TrySetResult();
             cancellationToken.WaitHandle.WaitOne();

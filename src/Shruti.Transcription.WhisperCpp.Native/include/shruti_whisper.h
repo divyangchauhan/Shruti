@@ -46,6 +46,17 @@ SHRUTI_WHISPER_API int shruti_whisper_transcribe(
     shruti_whisper_abort_callback abort_callback,
     void * abort_callback_user_data);
 
+// Versioned entry point keeps older managed clients safe while adding per-call prompts.
+SHRUTI_WHISPER_API int shruti_whisper_transcribe_with_prompt(
+    shruti_whisper_context * context,
+    const float * samples,
+    int sample_count,
+    const char * language,
+    int thread_count,
+    const char * initial_prompt,
+    shruti_whisper_abort_callback abort_callback,
+    void * abort_callback_user_data);
+
 SHRUTI_WHISPER_API int shruti_whisper_get_segment_count(const shruti_whisper_context * context);
 SHRUTI_WHISPER_API int shruti_whisper_get_segment(
     const shruti_whisper_context * context,

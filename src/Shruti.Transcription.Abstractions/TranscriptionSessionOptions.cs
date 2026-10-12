@@ -5,7 +5,8 @@ public sealed record TranscriptionSessionOptions(
     ComputeBackend Backend,
     string Language,
     TranscriptionMode Mode,
-    TimeSpan? MaximumAudioDuration = null)
+    TimeSpan? MaximumAudioDuration = null,
+    RecognitionHints? RecognitionHints = null)
 {
     public TimeSpan EffectiveMaximumAudioDuration => MaximumAudioDuration ?? TimeSpan.FromMinutes(10);
 }

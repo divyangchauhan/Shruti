@@ -17,8 +17,8 @@ public sealed class ModelCatalogTests : IDisposable
         ModelCatalog catalog = RecommendedModelCatalog.Create();
 
         Assert.Equal(1, catalog.SchemaVersion);
-        Assert.Equal(4, catalog.Models.Count);
-        Assert.All(catalog.Models.Where(model => model.ProviderId == "whisper.cpp"), model =>
+        Assert.Equal(5, catalog.Models.Count);
+        Assert.All(catalog.Models.Where(model => model.ProviderId == "whisper.cpp" && model.IsRecommended), model =>
         {
             Assert.True(model.IsRecommended);
             Assert.Equal("whisper.cpp", model.ProviderId);
@@ -29,6 +29,11 @@ public sealed class ModelCatalogTests : IDisposable
             Assert.Contains(ComputeBackend.Gpu, model.SupportedBackends);
             Assert.DoesNotContain(ComputeBackend.Npu, model.SupportedBackends);
         });
+
+        ModelCatalogEntry turbo = catalog.GetRequiredModel("whisper-large-v3-turbo-q5");
+        Assert.False(turbo.IsRecommended);
+        Assert.Equal(574_041_195, turbo.SizeBytes);
+        Assert.Equal(ModelHashAlgorithm.Sha256, turbo.Integrity?.Algorithm);
 
         ModelCatalogEntry openVino = catalog.GetRequiredModel("openvino-whisper-base-int8");
         Assert.Equal("openvino-genai", openVino.ProviderId);
