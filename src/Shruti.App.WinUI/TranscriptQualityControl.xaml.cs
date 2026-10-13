@@ -9,6 +9,7 @@ namespace Shruti.App.WinUI;
 public sealed partial class TranscriptQualityControl : UserControl
 {
     private ISettingsRepository? _repository;
+    private bool _installing;
     public TranscriptQualitySettings Settings { get; private set; } = new();
     public event EventHandler? SettingsChanged;
     public TranscriptQualityControl() { InitializeComponent(); }
@@ -18,8 +19,30 @@ public sealed partial class TranscriptQualityControl : UserControl
         _repository = repository; Settings = settings;
         CleanupBox.IsChecked = settings.CleanupMode == TranscriptCleanupMode.Light;
         ContextBox.IsChecked = settings.EnableCursorContext;
-        ModelBox.IsChecked = settings.EnableLocalModel;
-        ModelBox.IsEnabled = File.Exists(settings.LocalModelPath) && File.Exists(settings.LocalRuntimePath);
+        UpdateModelCard();
+    }
+    private void UpdateModelCard()
+    {
+        bool installed = File.Exists(Settings.LocalModelPath) && File.Exists(Settings.LocalRuntimePath);
+        bool active = installed && Settings.EnableLocalModel && Settings.CleanupMode == TranscriptCleanupMode.Light;
+        ModelStatusText.Text = active ? "Active" : installed ? "Installed" : "Not installed";
+        ToggleModelButton.Content = active ? "Disable" : "Set active";
+        ToggleModelButton.IsEnabled = installed && !_installing;
+        InstallButton.Visibility = installed ? Visibility.Collapsed : Visibility.Visible;
+        InstallButton.IsEnabled = !_installing;
+        DownloadProgress.Visibility = _installing ? Visibility.Visible : Visibility.Collapsed;
+    }
+    private async void ToggleModel_Click(object sender, RoutedEventArgs e)
+    {
+        bool active = Settings.EnableLocalModel && Settings.CleanupMode == TranscriptCleanupMode.Light;
+        Settings = Settings with
+        {
+            EnableLocalModel = !active,
+            CleanupMode = active ? Settings.CleanupMode : TranscriptCleanupMode.Light
+        };
+        CleanupBox.IsChecked = Settings.CleanupMode == TranscriptCleanupMode.Light;
+        await SaveAsync();
+        UpdateModelCard();
     }
     private async void Preferences_Click(object sender, RoutedEventArgs e)
     {
@@ -27,26 +50,26 @@ public sealed partial class TranscriptQualityControl : UserControl
         {
             CleanupMode = CleanupBox.IsChecked == true ? TranscriptCleanupMode.Light : TranscriptCleanupMode.Off,
             EnableCursorContext = ContextBox.IsChecked == true,
-            EnableLocalModel = ModelBox.IsChecked == true
+            EnableLocalModel = CleanupBox.IsChecked == true && Settings.EnableLocalModel
         };
         await SaveAsync();
+        UpdateModelCard();
     }
     private async void Install_Click(object sender, RoutedEventArgs e)
     {
-        InstallButton.IsEnabled = false; MessageText.Text = "Downloading and verifying local cleanup. You can keep using dictation.";
+        _installing = true; UpdateModelCard(); MessageText.Text = "Downloading and verifying Qwen3.5-2B. You can keep using dictation.";
         try
         {
             using var client = new HttpClient { Timeout = Timeout.InfiniteTimeSpan };
             var installation = await new LocalCleanupInstaller(client).InstallAsync(
                 Path.Combine(AppDataPaths.CreateDefault().ModelsDirectory, "Cleanup"),
                 Path.Combine(AppContext.BaseDirectory, "CleanupRuntime"), CancellationToken.None);
-            Settings = Settings with { LocalModelPath = installation.ModelPath, LocalRuntimePath = installation.RuntimePath, EnableLocalModel = true };
-            ModelBox.IsEnabled = true; ModelBox.IsChecked = true;
+            Settings = Settings with { LocalModelPath = installation.ModelPath, LocalRuntimePath = installation.RuntimePath };
             await SaveAsync();
-            MessageText.Text = "Local cleanup is installed. The model loads before the first recording.";
+            MessageText.Text = "Qwen3.5-2B is installed. Choose Set active to use it for cleanup.";
         }
         catch (Exception) { MessageText.Text = "Local cleanup could not be installed. Dictation is still available. Try the download again."; }
-        finally { InstallButton.IsEnabled = true; }
+        finally { _installing = false; UpdateModelCard(); }
     }
     private async Task SaveAsync()
     {

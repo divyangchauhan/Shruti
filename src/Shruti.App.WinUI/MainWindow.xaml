@@ -393,6 +393,7 @@
                     <ProgressBar x:Name="ModelDownloadProgressBar" Height="4" IsIndeterminate="False" Maximum="100" Minimum="0" Visibility="Collapsed" />
                     <TextBlock x:Name="ModelsDirectoryText" Style="{StaticResource CaptionTextStyle}" TextTrimming="CharacterEllipsis" Visibility="Collapsed" />
                     <StackPanel x:Name="ModelListPanel" Spacing="12" />
+                    <local:TranscriptQualityControl x:Name="QualityControl" Margin="0,28,0,0" />
                 </StackPanel>
             </ScrollViewer>
 
@@ -527,7 +528,7 @@
                     </Border>
 
                     <Border Padding="20" Style="{StaticResource CardBorderStyle}">
-                        <StackPanel Spacing="20"><local:TranscriptQualityControl x:Name="QualityControl" /><local:DictionaryControl x:Name="DictionaryEditor" /></StackPanel>
+                        <local:DictionaryControl x:Name="DictionaryEditor" />
                     </Border>
 
                     <TextBlock Margin="0,12,0,0" Style="{StaticResource SectionLabelStyle}" Text="Diagnostics" />

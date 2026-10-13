@@ -2,12 +2,34 @@
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
     <StackPanel Spacing="12">
-        <TextBlock Text="Transcript cleanup" FontSize="24" FontWeight="SemiBold" />
+        <TextBlock Text="Dictation cleanup" FontSize="20" FontWeight="SemiBold" />
+        <TextBlock Text="Refine the words after speech recognition. The cleanup model runs separately from your speech model." Foreground="{ThemeResource ShrutiTextSecondaryBrush}" TextWrapping="Wrap" />
+        <Border x:Name="ModelCard" Background="{ThemeResource ShrutiCardBrush}" BorderBrush="{ThemeResource ShrutiBorderSubtleBrush}" BorderThickness="1" CornerRadius="12" Padding="20,16">
+            <Grid ColumnSpacing="16">
+                <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                <StackPanel Spacing="5">
+                    <StackPanel Orientation="Horizontal" Spacing="8">
+                        <TextBlock Text="Qwen3.5-2B" FontSize="16" FontWeight="SemiBold" VerticalAlignment="Center" />
+                        <Border Background="{ThemeResource ShrutiSunkenBrush}" CornerRadius="11" Padding="9,3">
+                            <TextBlock Text="CPU" FontSize="12" Foreground="{ThemeResource ShrutiTextSecondaryBrush}" />
+                        </Border>
+                        <Border Background="{ThemeResource ShrutiAccentSoftBrush}" CornerRadius="11" Padding="9,3">
+                            <TextBlock x:Name="ModelStatusText" FontSize="12" Foreground="{ThemeResource ShrutiAccentBrush}" Text="Not installed" />
+                        </Border>
+                    </StackPanel>
+                    <TextBlock Text="1.3 GB · English · Q4_K_M" FontSize="12" FontFamily="Cascadia Code, Consolas" Foreground="{ThemeResource ShrutiTextSecondaryBrush}" />
+                    <TextBlock Text="Local cleanup for fillers, grammar, and clear restatements." FontSize="12" Foreground="{ThemeResource ShrutiTextSecondaryBrush}" TextWrapping="Wrap" />
+                </StackPanel>
+                <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                    <Button x:Name="InstallButton" Content="Download" Click="Install_Click" AutomationProperties.Name="Download Qwen3.5-2B" />
+                    <Button x:Name="ToggleModelButton" Content="Set active" Click="ToggleModel_Click" AutomationProperties.Name="Use Qwen3.5-2B for dictation cleanup" />
+                </StackPanel>
+            </Grid>
+        </Border>
+        <ProgressBar x:Name="DownloadProgress" Height="4" IsIndeterminate="True" Visibility="Collapsed" />
         <CheckBox x:Name="CleanupBox" Content="Light cleanup and spoken formatting" Click="Preferences_Click" />
         <CheckBox x:Name="ContextBox" Content="Use nearby cursor text for spacing and vocabulary" Click="Preferences_Click" />
-        <CheckBox x:Name="ModelBox" Content="Use local AI for fillers and grammar" Click="Preferences_Click" />
-        <TextBlock Text="The optional Qwen 2B model downloads about 1.3 GB. Cleanup runs on this PC. Only the latest dictation stays available for recovery." TextWrapping="Wrap" />
-        <Button x:Name="InstallButton" Content="Download local cleanup" Click="Install_Click" />
+        <TextBlock Text="Only the latest dictation stays available for original-text recovery." FontSize="12" Foreground="{ThemeResource ShrutiTextSecondaryBrush}" TextWrapping="Wrap" />
         <TextBlock x:Name="MessageText" TextWrapping="Wrap" />
     </StackPanel>
 </UserControl>
