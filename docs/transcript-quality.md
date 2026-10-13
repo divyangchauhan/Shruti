@@ -171,8 +171,8 @@ is not a public installer. The unpacked app used to build it is
 `artifacts/installer/stage/Release/x64/VFS/ProgramFilesX64/Shruti/Shruti.App.WinUI.exe`.
 For a local UI check, exit another running Shruti instance and start that app.
 Its unpackaged data can share `%LOCALAPPDATA%\Shruti`, so preserve existing
-preferences and dictionary entries. In Settings, use Light cleanup first, then
-download the optional cleanup model and turn it on. The CLI benchmark weights
+preferences and dictionary entries. On Models, under Dictation cleanup, use Light
+cleanup first, then download Qwen3.5-2B and choose Set active. The CLI benchmark weights
 are under `artifacts/local-cleanup`; they are separate from app-managed downloads.
 
 Local checks completed with 288 passing tests, formatting verification, a full

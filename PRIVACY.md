@@ -1,6 +1,6 @@
 # Privacy policy
 
-Effective date: October 12, 2026
+Effective date: October 13, 2026
 
 This policy covers Shruti, the Windows dictation app developed by Divyang
 Chauhan.
@@ -32,7 +32,7 @@ recognize nearby names and join the dictated text with existing text. Shruti
 discards this context after that dictation. It does not send or save the context.
 The reader skips password fields, recognized address bars and sensitive fields,
 recognized banking and payment applications, Shruti's windows, and controls
-whose caret cannot be determined. You can disable this option in Settings.
+whose caret cannot be determined. You can disable this option on the Models page.
 
 Copy and paste operations place transcript text on the Windows clipboard.
 Paste fallback may read and temporarily preserve existing clipboard contents
@@ -80,7 +80,7 @@ diagnostic collection under its own settings and
 
 You can stop dictation, exit Shruti, or revoke microphone access through
 Windows privacy settings. You can remove downloaded models in the app.
-You can disable cleanup or nearby cursor text in Settings. Dictionary changes
+You can disable cleanup or nearby cursor text on the Models page. Dictionary changes
 require an explicit save action. Reviewing a suggested spelling correction does
 not save it until you confirm the rule.
 
