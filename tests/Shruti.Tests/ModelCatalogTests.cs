@@ -67,7 +67,7 @@ public sealed class ModelCatalogTests : IDisposable
     }
 
     [Fact]
-    public void BackendFilter_ShowsCompatibleModelsAndAlwaysKeepsActiveModelVisible()
+    public void BackendFilter_ShowsOnlyCompatibleModelsIncludingTheActiveModel()
     {
         ModelCatalog catalog = RecommendedModelCatalog.Create();
         ModelCatalogEntry activeGpuModel = catalog.GetRequiredModel("whisper-small-en");
@@ -85,26 +85,36 @@ public sealed class ModelCatalogTests : IDisposable
             ComputeBackend.Cpu
         };
 
-        Assert.True(ModelCatalogFiltering.IsVisibleForBackend(
+        Assert.False(ModelCatalogFiltering.IsVisibleForBackend(
             activeGpuModel,
-            activeGpuModel.Id,
             ComputeBackend.Npu,
             gpuBackends));
         Assert.False(ModelCatalogFiltering.IsVisibleForBackend(
             otherGpuModel,
-            activeGpuModel.Id,
             ComputeBackend.Npu,
             gpuBackends));
         Assert.True(ModelCatalogFiltering.IsVisibleForBackend(
             npuModel,
-            activeGpuModel.Id,
             ComputeBackend.Npu,
             npuBackends));
         Assert.True(ModelCatalogFiltering.IsVisibleForBackend(
             otherGpuModel,
-            activeGpuModel.Id,
             ComputeBackend.Auto,
             gpuBackends));
+    }
+
+    [Theory]
+    [InlineData(ComputeBackend.Cpu)]
+    [InlineData(ComputeBackend.Gpu)]
+    [InlineData(ComputeBackend.Npu)]
+    public void BackendFilter_HidesActiveModelWhenBackendIsUnavailable(ComputeBackend backend)
+    {
+        ModelCatalogEntry active = RecommendedModelCatalog.Create().GetRequiredModel("openvino-whisper-base-int8");
+
+        Assert.False(ModelCatalogFiltering.IsVisibleForBackend(
+            active,
+            backend,
+            new HashSet<ComputeBackend>()));
     }
 
     [Fact]

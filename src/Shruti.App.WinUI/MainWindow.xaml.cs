@@ -1131,7 +1131,6 @@ public sealed partial class MainWindow : Window
         IReadOnlyList<ModelCatalogEntry> visibleModels = _modelCatalog.Models
             .Where(model => ModelCatalogFiltering.IsVisibleForBackend(
                 model,
-                _settings.SelectedModelId,
                 _modelBackendFilter,
                 GetAvailableBackends(model)))
             .ToArray();
@@ -1145,8 +1144,7 @@ public sealed partial class MainWindow : Window
             }
             else
             {
-                int compatibleCount = visibleModels.Count(model =>
-                    GetAvailableBackends(model).Contains(_modelBackendFilter));
+                int compatibleCount = visibleModels.Count;
                 ModelsStatusText.Text = compatibleCount == 1
                     ? $"1 model for {_modelBackendFilter.ToString().ToUpperInvariant()}"
                     : $"{compatibleCount} models for {_modelBackendFilter.ToString().ToUpperInvariant()}";
