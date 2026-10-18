@@ -1,4 +1,5 @@
 using Shruti.Core.Dictation;
+using Shruti.Core.TranscriptQuality;
 using Shruti.Core.Triggers;
 using Shruti.Transcription.Abstractions;
 
@@ -9,6 +10,8 @@ public sealed record ShrutiSettings
     public const string DefaultModelId = "whisper-tiny-en";
 
     public static ShrutiSettings Default { get; } = new();
+
+    public TranscriptQualitySettings TranscriptQuality { get; init; } = new();
 
     public string? AudioInputDeviceId { get; init; }
 
@@ -27,6 +30,10 @@ public sealed record ShrutiSettings
     public bool HasCompletedOnboarding { get; init; }
 
     public bool ShowFloatingBar { get; init; } = true;
+
+    public bool ShowFloatingBarOnAllMonitors { get; init; }
+
+    public string? FloatingBarMonitorId { get; init; }
 
     public TriggerConfiguration TriggerConfiguration { get; init; } = new(
         EnableGlobalHotkey: false,

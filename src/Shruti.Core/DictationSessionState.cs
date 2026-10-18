@@ -8,6 +8,7 @@ public enum DictationSessionState
     Recording,
     Paused,
     TranscribingFinalAudio,
+    RefiningTranscript,
     InsertingText,
     Complete,
     Cancelled,

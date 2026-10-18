@@ -1,0 +1,207 @@
+[
+  {
+    "id": "coffee-correction",
+    "expectedRaw": "Let's do coffee at two actually three.",
+    "expectedFinal": "Let's do coffee at 3.",
+    "tags": [
+      "self-correction",
+      "numbers"
+    ],
+    "audio": "audio/coffee-correction.wav",
+    "audioSource": "windows-synthetic-smoke"
+  },
+  {
+    "id": "punctuation",
+    "expectedRaw": "hello comma world full stop new paragraph next line",
+    "expectedFinal": "Hello, world.\n\nNext line",
+    "tags": [
+      "punctuation",
+      "paragraphs"
+    ],
+    "audio": "audio/punctuation.wav",
+    "audioSource": "windows-synthetic-smoke"
+  },
+  {
+    "id": "cloud-negative",
+    "expectedRaw": "There is a dark cloud.",
+    "expectedFinal": "There is a dark cloud.",
+    "vocabulary": [
+      "Claude"
+    ],
+    "forbiddenTokens": [
+      "Claude"
+    ],
+    "tags": [
+      "vocabulary-false-positive"
+    ],
+    "audio": "audio/cloud-negative.wav",
+    "audioSource": "windows-synthetic-smoke"
+  },
+  {
+    "id": "explicit-correction",
+    "expectedRaw": "Use Whisper Flow.",
+    "expectedFinal": "Use Wispr Flow.",
+    "corrections": {
+      "Whisper Flow": "Wispr Flow"
+    },
+    "properNames": [
+      "Wispr Flow"
+    ],
+    "tags": [
+      "dictionary"
+    ],
+    "audio": "audio/explicit-correction.wav",
+    "audioSource": "windows-synthetic-smoke"
+  },
+  {
+    "id": "continuation",
+    "expectedRaw": "The next step.",
+    "expectedFinal": "the next step",
+    "beforeCaret": "We should take ",
+    "afterCaret": ".",
+    "tags": [
+      "mid-sentence"
+    ],
+    "audio": "audio/continuation.wav",
+    "audioSource": "windows-synthetic-smoke"
+  },
+  {
+    "id": "protected",
+    "expectedRaw": "Do not rename Shruti.cs or change 42.",
+    "expectedFinal": "Do not rename Shruti.cs or change 42.",
+    "protectedTokens": [
+      "not",
+      "Shruti.cs",
+      "42"
+    ],
+    "tags": [
+      "negation",
+      "code",
+      "numbers"
+    ],
+    "audio": "audio/protected.wav",
+    "audioSource": "windows-synthetic-smoke"
+  },
+  {
+    "id": "one-word",
+    "expectedRaw": "Shruti",
+    "expectedFinal": "Shruti",
+    "vocabulary": [
+      "Shruti"
+    ],
+    "properNames": [
+      "Shruti"
+    ],
+    "tags": [
+      "one-word",
+      "names"
+    ],
+    "audio": "audio/one-word.wav",
+    "audioSource": "windows-synthetic-smoke"
+  },
+  {
+    "id": "technical",
+    "expectedRaw": "Use OpenVINO with Vulkan.",
+    "expectedFinal": "Use OpenVINO with Vulkan.",
+    "vocabulary": [
+      "OpenVINO",
+      "Vulkan"
+    ],
+    "technicalTerms": [
+      "OpenVINO",
+      "Vulkan"
+    ],
+    "tags": [
+      "technical-terms"
+    ],
+    "audio": "audio/technical.wav",
+    "audioSource": "windows-synthetic-smoke"
+  },
+  {
+    "id": "fillers",
+    "expectedRaw": "Um please send the report.",
+    "expectedFinal": "Please send the report.",
+    "tags": [
+      "fillers"
+    ],
+    "audio": "audio/fillers.wav",
+    "audioSource": "windows-synthetic-smoke"
+  },
+  {
+    "id": "like-meaning",
+    "expectedRaw": "I like this actually.",
+    "expectedFinal": "I like this actually.",
+    "protectedTokens": [
+      "like"
+    ],
+    "tags": [
+      "false-deletion"
+    ],
+    "audio": "audio/like-meaning.wav",
+    "audioSource": "windows-synthetic-smoke"
+  },
+  {
+    "id": "four-item-list",
+    "expectedRaw": "numbered list one apples two oranges three pears four bananas",
+    "expectedFinal": "1. Apples\n2. Oranges\n3. Pears\n4. Bananas",
+    "tags": [
+      "lists"
+    ],
+    "audio": "audio/four-item-list.wav",
+    "audioSource": "windows-synthetic-smoke"
+  },
+  {
+    "id": "date-and-number",
+    "expectedRaw": "Send 42 files on October 12.",
+    "expectedFinal": "Send 42 files on October 12.",
+    "protectedTokens": [
+      "42",
+      "October",
+      "12"
+    ],
+    "tags": [
+      "dates",
+      "numbers"
+    ],
+    "audio": "audio/date-and-number.wav",
+    "audioSource": "windows-synthetic-smoke"
+  },
+  {
+    "id": "selection-spacing",
+    "expectedRaw": "Next step",
+    "expectedFinal": " next step ",
+    "beforeCaret": "The",
+    "selectedText": " old plan ",
+    "afterCaret": "works.",
+    "tags": [
+      "selection",
+      "mid-sentence"
+    ],
+    "audio": "audio/selection-spacing.wav",
+    "audioSource": "windows-synthetic-smoke"
+  },
+  {
+    "id": "quiet-speech",
+    "expectedRaw": "Please send the report.",
+    "expectedFinal": "Please send the report.",
+    "audioCondition": "quiet",
+    "tags": [
+      "quiet",
+      "synthetic"
+    ],
+    "audio": "audio/quiet-speech.wav",
+    "audioSource": "windows-synthetic-smoke-quiet"
+  },
+  {
+    "id": "noisy-speech",
+    "expectedRaw": "Please send the report.",
+    "expectedFinal": "Please send the report.",
+    "audioCondition": "white-noise",
+    "tags": [
+      "noise",
+      "synthetic"
+    ],
+    "audio": "audio/noisy-speech.wav",
+    "audioSource": "windows-synthetic-smoke-white-noise"
+  }
+]

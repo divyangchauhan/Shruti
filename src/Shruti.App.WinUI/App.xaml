@@ -1,14 +1,38 @@
 <Application
     x:Class="Shruti.App.WinUI.App"
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
-    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:local="using:Shruti.App.WinUI">
     <Application.Resources>
         <ResourceDictionary>
             <ResourceDictionary.MergedDictionaries>
                 <XamlControlsResources xmlns="using:Microsoft.UI.Xaml.Controls" />
             </ResourceDictionary.MergedDictionaries>
+            <Style TargetType="ComboBox">
+                <Setter Property="local:PopupAppearance.UseOpaqueBackground" Value="True" />
+            </Style>
+            <Style x:Key="OpaqueMenuFlyoutPresenterStyle" TargetType="MenuFlyoutPresenter">
+                <Setter Property="Background" Value="{ThemeResource ShrutiPopupBackgroundBrush}" />
+                <Setter Property="Foreground" Value="{ThemeResource TextFillColorPrimaryBrush}" />
+                <Setter Property="BorderBrush" Value="{ThemeResource SurfaceStrokeColorFlyoutBrush}" />
+                <Setter Property="BorderThickness" Value="1" />
+            </Style>
+            <Style x:Key="LibraryTextStyle" TargetType="TextBlock">
+                <Setter Property="FontFamily" Value="Segoe UI Variable" />
+                <Setter Property="FontSize" Value="15" />
+                <Setter Property="Foreground" Value="{ThemeResource ShrutiTextPrimaryBrush}" />
+                <Setter Property="TextWrapping" Value="Wrap" />
+            </Style>
+            <Style x:Key="LibraryCardStyle" TargetType="Border">
+                <Setter Property="Background" Value="{ThemeResource ShrutiCardBrush}" />
+                <Setter Property="BorderBrush" Value="{ThemeResource ShrutiBorderSubtleBrush}" />
+                <Setter Property="BorderThickness" Value="1" />
+                <Setter Property="CornerRadius" Value="14" />
+                <Setter Property="Padding" Value="22" />
+            </Style>
             <ResourceDictionary.ThemeDictionaries>
                 <ResourceDictionary x:Key="Default">
+                    <SolidColorBrush x:Key="ShrutiPopupBackgroundBrush" Color="#FFFFFF" />
                     <SolidColorBrush x:Key="ShrutiPageBrush" Color="#FAF9F7" />
                     <SolidColorBrush x:Key="ShrutiCardBrush" Color="#FFFFFF" />
                     <SolidColorBrush x:Key="ShrutiSunkenBrush" Color="#F3F1EE" />
@@ -50,6 +74,7 @@
                     <SolidColorBrush x:Key="ShrutiCriticalBrush" Color="#C93838" />
                 </ResourceDictionary>
                 <ResourceDictionary x:Key="Light">
+                    <SolidColorBrush x:Key="ShrutiPopupBackgroundBrush" Color="#FFFFFF" />
                     <SolidColorBrush x:Key="ShrutiPageBrush" Color="#FAF9F7" />
                     <SolidColorBrush x:Key="ShrutiCardBrush" Color="#FFFFFF" />
                     <SolidColorBrush x:Key="ShrutiSunkenBrush" Color="#F3F1EE" />
@@ -91,6 +116,7 @@
                     <SolidColorBrush x:Key="ShrutiCriticalBrush" Color="#C93838" />
                 </ResourceDictionary>
                 <ResourceDictionary x:Key="Dark">
+                    <SolidColorBrush x:Key="ShrutiPopupBackgroundBrush" Color="#2C2925" />
                     <SolidColorBrush x:Key="ShrutiPageBrush" Color="#141311" />
                     <SolidColorBrush x:Key="ShrutiCardBrush" Color="#1E1C19" />
                     <SolidColorBrush x:Key="ShrutiSunkenBrush" Color="#0F0E0C" />
@@ -130,6 +156,9 @@
                     <SolidColorBrush x:Key="ShrutiMutedTextBrush" Color="#A9A49B" />
                     <SolidColorBrush x:Key="ShrutiAccentStrongBrush" Color="#F2B078" />
                     <SolidColorBrush x:Key="ShrutiCriticalBrush" Color="#E5605F" />
+                </ResourceDictionary>
+                <ResourceDictionary x:Key="HighContrast">
+                    <SolidColorBrush x:Key="ShrutiPopupBackgroundBrush" Color="{ThemeResource SystemColorWindowColor}" />
                 </ResourceDictionary>
             </ResourceDictionary.ThemeDictionaries>
         </ResourceDictionary>

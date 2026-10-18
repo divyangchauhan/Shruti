@@ -85,11 +85,20 @@ try {
         "VFS/ProgramFilesX64/Shruti/Shruti.App.WinUI.exe",
         "VFS/ProgramFilesX64/Shruti/Shruti.App.WinUI.pri",
         "VFS/ProgramFilesX64/Shruti/shruti_whisper.dll",
+        "VFS/ProgramFilesX64/Shruti/SpeechDetection/ggml-silero-v6.2.0.bin",
+        "VFS/ProgramFilesX64/Shruti/SpeechDetection/silero-vad-LICENSE.txt",
         "VFS/ProgramFilesX64/Shruti/vulkan-1.dll",
         "VFS/ProgramFilesX64/Shruti/msvcp140.dll",
         "VFS/ProgramFilesX64/Shruti/vcruntime140.dll",
         "VFS/ProgramFilesX64/Shruti/vcruntime140_1.dll",
-        "VFS/ProgramFilesX64/Shruti/vcomp140.dll"
+        "VFS/ProgramFilesX64/Shruti/vcomp140.dll",
+        "VFS/ProgramFilesX64/Shruti/CleanupRuntime/llama-server.exe",
+        "VFS/ProgramFilesX64/Shruti/CleanupRuntime/llama-server-impl.dll",
+        "VFS/ProgramFilesX64/Shruti/CleanupRuntime/llama.dll",
+        "VFS/ProgramFilesX64/Shruti/CleanupRuntime/ggml-cpu-x64.dll",
+        "VFS/ProgramFilesX64/Shruti/CleanupRuntime/vcruntime140.dll",
+        "VFS/ProgramFilesX64/Shruti/CleanupRuntime/msvcp140.dll",
+        "VFS/ProgramFilesX64/Shruti/CleanupRuntime/llama-LICENSE.txt"
     )
     foreach ($requiredEntry in $requiredEntries) {
         if ($entryNames -notcontains $requiredEntry) {

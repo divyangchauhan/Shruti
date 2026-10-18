@@ -1,5 +1,6 @@
 using Shruti.Core;
 using Shruti.Core.Dictation;
+using Shruti.Core.TranscriptQuality;
 
 namespace Shruti.Workflow.Dictation;
 
@@ -22,6 +23,10 @@ public sealed record DictationShellState(
     string? ErrorText = null,
     bool CanInsertPreview = false)
 {
+    public string RawTranscript { get; init; } = string.Empty;
+    public bool CanUseRawTranscript { get; init; }
+    public IReadOnlyList<TranscriptEdit> AppliedEdits { get; init; } = [];
+
     public static DictationShellState Initial { get; } = new(
         DictationSessionState.Idle,
         DictationInsertionMode.AutoInsert,

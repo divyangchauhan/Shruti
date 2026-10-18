@@ -8,6 +8,7 @@ using Shruti.Storage;
 using Shruti.Transcription.Abstractions;
 using Shruti.Transcription.WhisperCpp;
 using Shruti.Transcription.OpenVino;
+using Shruti.TranscriptQuality;
 
 namespace Shruti.App.WinUI;
 
@@ -54,19 +55,25 @@ public sealed class AppComposition
     public MainWindow CreateMainWindow()
     {
         appDataPaths.EnsureCreated();
+        var qualityPipeline = new TranscriptQualityPipeline(new SqliteVocabularyRepository(appDataPaths), new WindowsTextContextReader(), new SqliteSnippetRepository(appDataPaths));
         var coordinator = new DictationCoordinator(
             targetFocusService,
             audioCaptureService,
             textInsertionService,
             new RoutingTranscriptionProvider(
-                new TranscriptionProviderRegistry([whisperCppProvider, openVinoProvider])));
+                new TranscriptionProviderRegistry([whisperCppProvider, openVinoProvider])),
+            qualityPipeline,
+            new WhisperCppSpeechActivityDetector(Path.Combine(AppContext.BaseDirectory, "SpeechDetection", "ggml-silero-v6.2.0.bin")));
         var controller = new DictationShellController(
             coordinator,
             audioCaptureService,
             transcriptClipboard,
-            transcriptionOptionsProvider.CreateAsync);
+            transcriptionOptionsProvider.CreateAsync,
+            async cancellationToken => (await settingsRepository.LoadAsync(cancellationToken).ConfigureAwait(false)).TranscriptQuality with
+            { LocalRuntimePath = Path.Combine(AppContext.BaseDirectory, "CleanupRuntime", "llama-server.exe") },
+            new TranscriptHistoryRepository(appDataPaths).SaveAsync);
         var triggerRouter = new DictationTriggerRouter(controller);
-        return new MainWindow(
+        var window = new MainWindow(
             controller,
             audioCaptureService,
             settingsRepository,
@@ -78,5 +85,7 @@ public sealed class AppComposition
             platformModule.CreateGlobalTriggerService(),
             platformModule.CreateTrayIconService(),
             platformModule.CreateWindowVisibility());
+        window.Closed += (_, _) => qualityPipeline.Dispose();
+        return window;
     }
 }

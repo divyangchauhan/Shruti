@@ -1,3 +1,4 @@
+using Shruti.Core.TranscriptQuality;
 using System.Runtime.CompilerServices;
 using System.Threading.Channels;
 using Shruti.Core;
@@ -11,6 +12,66 @@ namespace Shruti.Tests;
 
 public sealed class DictationCoordinatorTests
 {
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task NoAudioOrSilence_DoesNotTranscribeRefineOrInsert(bool captureSilence)
+    {
+        var pipeline = new FakeQualityPipeline(false);
+        var services = TestServices.Create(quality: pipeline,
+            audioFrames: captureSilence ? [new AudioFrame(new byte[32000], TimeSpan.Zero)] : []);
+
+        DictationRunResult result = await services.Coordinator.RunOnceAsync(
+            DictationRequest.AutoInsert(CreateTranscriptionOptions()), default);
+
+        Assert.Equal(DictationRunOutcome.NoSpeech, result.Outcome);
+        Assert.Empty(result.Transcript!.Text);
+        Assert.Equal(0, services.TextInsertion.InsertCount);
+        Assert.Equal(0, services.Transcription.LastSession!.CompleteCount);
+        Assert.Equal(0, pipeline.RefineCount);
+        Assert.True(pipeline.Disposed);
+    }
+
+    [Theory]
+    [InlineData(false, DictationRunOutcome.NoSpeech)]
+    [InlineData(true, DictationRunOutcome.Inserted)]
+    public async Task SpeechDetection_ControlsWhetherRecognitionAndCleanupRun(bool hasSpeech, DictationRunOutcome outcome)
+    {
+        var pipeline = new FakeQualityPipeline(false);
+        var detector = new FakeSpeechDetector(hasSpeech);
+        var services = TestServices.Create(quality: pipeline, speechDetector: detector);
+
+        var result = await services.Coordinator.RunOnceAsync(DictationRequest.AutoInsert(CreateTranscriptionOptions()), default);
+
+        Assert.Equal(outcome, result.Outcome);
+        Assert.Equal(1, detector.Calls);
+        Assert.Equal(hasSpeech ? 1 : 0, services.Transcription.LastSession!.CompleteCount);
+        Assert.Equal(hasSpeech ? 1 : 0, pipeline.RefineCount);
+        Assert.Equal(hasSpeech ? 1 : 0, services.TextInsertion.InsertCount);
+    }
+
+    [Fact]
+    public async Task SpeechDetectionFailure_DoesNotTranscribeOrInsert()
+    {
+        var services = TestServices.Create(speechDetector: new FakeSpeechDetector(false, fail: true));
+        var result = await services.Coordinator.RunOnceAsync(DictationRequest.AutoInsert(CreateTranscriptionOptions()), default);
+        Assert.Equal(DictationRunOutcome.Failed, result.Outcome);
+        Assert.Equal(0, services.Transcription.LastSession!.CompleteCount);
+        Assert.Equal(0, services.TextInsertion.InsertCount);
+    }
+
+    private sealed class FakeSpeechDetector(bool speech, bool fail = false) : ISpeechActivityDetector
+    {
+        public int Calls { get; private set; }
+        public Task<bool> ContainsSpeechAsync(ReadOnlyMemory<byte> audio, CancellationToken cancellationToken)
+        {
+            Calls++;
+            cancellationToken.ThrowIfCancellationRequested();
+            Assert.Equal(8, audio.Length);
+            return fail ? throw new InvalidOperationException("fixture detection failure") : Task.FromResult(speech);
+        }
+    }
+
     [Fact]
     public async Task AutoInsert_RunCompletesAndInsertsTranscript()
     {
@@ -226,13 +287,68 @@ public sealed class DictationCoordinatorTests
             TranscriptionMode.Balanced);
     }
 
+    [Fact]
+    public async Task RefinementFailure_InsertsRawAndStillSucceeds()
+    {
+        var pipeline = new FakeQualityPipeline(throwRefinement: true);
+        var services = TestServices.Create(quality: pipeline);
+        var result = await services.Coordinator.RunOnceAsync(new DictationRequest(CreateTranscriptionOptions()), default);
+        Assert.True(result.Inserted);
+        Assert.True(result.RefinedTranscript!.UsedRawFallback);
+        Assert.Equal("hello from shruti", result.Transcript!.Text);
+        Assert.True(pipeline.Disposed);
+    }
+
+    [Fact]
+    public async Task Refinement_ReturnsRawAndFinalAndReportsRefiningState()
+    {
+        var pipeline = new FakeQualityPipeline(throwRefinement: false);
+        var services = TestServices.Create(quality: pipeline);
+        var result = await services.Coordinator.RunOnceAsync(new DictationRequest(CreateTranscriptionOptions()), default);
+        Assert.True(result.Inserted);
+        Assert.Equal("hello from shruti", result.RefinedTranscript!.Raw.Text);
+        Assert.Equal("Hello from Shruti.", result.Transcript!.Text);
+        Assert.Contains(result.StatusHistory, status => status.State == DictationSessionState.RefiningTranscript);
+        Assert.True(pipeline.Disposed);
+    }
+
+    [Fact]
+    public async Task RefinementTimeout_InsertsRawAndDisposesSession()
+    {
+        var pipeline = new FakeQualityPipeline(false, neverFinish: true);
+        var services = TestServices.Create(quality: pipeline);
+        var result = await services.Coordinator.RunOnceAsync(new DictationRequest(CreateTranscriptionOptions(),
+            qualitySettings: new() { RefinementTimeout = TimeSpan.FromMilliseconds(30) }), default);
+        Assert.True(result.Inserted);
+        Assert.True(result.RefinedTranscript!.UsedRawFallback);
+        Assert.True(pipeline.Disposed);
+    }
+
+    private sealed class FakeQualityPipeline(bool throwRefinement, bool neverFinish = false) : ITranscriptQualityPipeline, ITranscriptQualitySession
+    {
+        public bool Disposed { get; private set; }
+        public int RefineCount { get; private set; }
+        public RecognitionHints RecognitionHints => RecognitionHints.Empty;
+        public Task<ITranscriptQualitySession> BeginAsync(FocusTarget? target, TranscriptQualitySettings settings, CancellationToken token)
+            => Task.FromResult<ITranscriptQualitySession>(this);
+        public Task<RefinedTranscript> RefineAsync(TranscriptResult raw, CancellationToken token)
+        {
+            RefineCount++;
+            return neverFinish ? new TaskCompletionSource<RefinedTranscript>().Task
+                : throwRefinement ? throw new InvalidOperationException("fixture failure")
+                : Task.FromResult(new RefinedTranscript(raw, "Hello from Shruti.", [], false));
+        }
+        public ValueTask DisposeAsync() { Disposed = true; return ValueTask.CompletedTask; }
+    }
+
     private sealed class TestServices
     {
         private TestServices(
             FakeTargetFocusService targetFocus,
             FakeAudioCaptureService audioCapture,
             FakeTextInsertionService textInsertion,
-            FakeTranscriptionProvider transcription)
+            FakeTranscriptionProvider transcription, ITranscriptQualityPipeline? quality = null,
+            ISpeechActivityDetector? speechDetector = null)
         {
             TargetFocus = targetFocus;
             AudioCapture = audioCapture;
@@ -242,7 +358,7 @@ public sealed class DictationCoordinatorTests
                 targetFocus,
                 audioCapture,
                 textInsertion,
-                transcription);
+                transcription, quality, speechDetector);
         }
 
         public DictationCoordinator Coordinator { get; }
@@ -261,10 +377,13 @@ public sealed class DictationCoordinatorTests
             TextInsertionCapability? capability = null,
             TextInsertionResult? insertionResult = null,
             Action? onComplete = null,
-            bool reachMaximumAudioDurationAfterFirstPush = false)
+            bool reachMaximumAudioDurationAfterFirstPush = false,
+            ITranscriptQualityPipeline? quality = null,
+            IReadOnlyList<AudioFrame>? audioFrames = null,
+            ISpeechActivityDetector? speechDetector = null)
         {
             var targetFocus = new FakeTargetFocusService();
-            var audioCapture = new FakeAudioCaptureService(
+            var audioCapture = new FakeAudioCaptureService(audioFrames ??
             [
                 new AudioFrame(new byte[] { 1, 2, 3, 4 }, TimeSpan.Zero),
                 new AudioFrame(new byte[] { 5, 6, 7, 8 }, TimeSpan.FromMilliseconds(10))
@@ -282,7 +401,7 @@ public sealed class DictationCoordinatorTests
                 targetFocus,
                 audioCapture,
                 textInsertion,
-                transcription);
+                transcription, quality, speechDetector);
         }
     }
 
@@ -531,6 +650,7 @@ public sealed class DictationCoordinatorTests
         public int PushedAudioChunkCount { get; private set; }
 
         public int CancelCount { get; private set; }
+        public int CompleteCount { get; private set; }
 
         public ValueTask<TranscriptionAudioPushResult> PushAudioAsync(
             ReadOnlyMemory<byte> pcmAudio,
@@ -554,6 +674,7 @@ public sealed class DictationCoordinatorTests
 
         public Task<TranscriptResult> CompleteAsync(CancellationToken cancellationToken)
         {
+            CompleteCount++;
             cancellationToken.ThrowIfCancellationRequested();
             _onComplete?.Invoke();
             TranscriptResult result = TranscriptResult.FromText("hello from shruti");

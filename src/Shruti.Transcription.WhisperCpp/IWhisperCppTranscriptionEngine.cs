@@ -13,5 +13,5 @@ public interface IWhisperCppInferenceSession : IAsyncDisposable
 {
     Task<WhisperCppTranscriptionResult> TranscribeAsync(
         float[] samples,
-        CancellationToken cancellationToken);
+        CancellationToken cancellationToken, string? initialPrompt = null);
 }

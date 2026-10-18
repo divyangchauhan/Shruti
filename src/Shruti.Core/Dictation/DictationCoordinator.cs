@@ -1,6 +1,7 @@
 using Shruti.Core.Audio;
 using Shruti.Core.Platform;
 using Shruti.Transcription.Abstractions;
+using Shruti.Core.TranscriptQuality;
 
 namespace Shruti.Core.Dictation;
 
@@ -10,17 +11,23 @@ public sealed class DictationCoordinator
     private readonly IAudioCaptureService _audioCaptureService;
     private readonly ITextInsertionService _textInsertionService;
     private readonly ITranscriptionProvider _transcriptionProvider;
+    private readonly ITranscriptQualityPipeline? _transcriptQualityPipeline;
+    private readonly ISpeechActivityDetector? _speechActivityDetector;
 
     public DictationCoordinator(
         ITargetFocusService targetFocusService,
         IAudioCaptureService audioCaptureService,
         ITextInsertionService textInsertionService,
-        ITranscriptionProvider transcriptionProvider)
+        ITranscriptionProvider transcriptionProvider,
+        ITranscriptQualityPipeline? transcriptQualityPipeline = null,
+        ISpeechActivityDetector? speechActivityDetector = null)
     {
         _targetFocusService = targetFocusService ?? throw new ArgumentNullException(nameof(targetFocusService));
         _audioCaptureService = audioCaptureService ?? throw new ArgumentNullException(nameof(audioCaptureService));
         _textInsertionService = textInsertionService ?? throw new ArgumentNullException(nameof(textInsertionService));
         _transcriptionProvider = transcriptionProvider ?? throw new ArgumentNullException(nameof(transcriptionProvider));
+        _transcriptQualityPipeline = transcriptQualityPipeline;
+        _speechActivityDetector = speechActivityDetector;
     }
 
     public async Task<DictationRunResult> RunOnceAsync(
@@ -34,7 +41,10 @@ public sealed class DictationCoordinator
         ITranscriptionSession? transcriptionSession = null;
         IAudioCaptureSession? audioCaptureSession = null;
         Task? transcriptEventTask = null;
+        ITranscriptQualitySession? qualitySession = null;
+        bool qualityStartFailed = false;
         var maximumAudioDurationReached = false;
+        using var speechAudio = new MemoryStream();
 
         void Transition(DictationSessionState state, string message)
         {
@@ -51,8 +61,23 @@ public sealed class DictationCoordinator
             target = await _targetFocusService.CaptureCurrentTargetAsync(cancellationToken).ConfigureAwait(false);
             cancellationToken.ThrowIfCancellationRequested();
 
+            if (_transcriptQualityPipeline is not null)
+            {
+                try
+                {
+                    qualitySession = await _transcriptQualityPipeline.BeginAsync(target, request.QualitySettings,
+                        cancellationToken).ConfigureAwait(false);
+                }
+                catch (Exception) when (!cancellationToken.IsCancellationRequested)
+                {
+                    qualityStartFailed = true;
+                    System.Diagnostics.Trace.TraceWarning("Transcript quality session unavailable; using raw output.");
+                }
+            }
+
             transcriptionSession = await _transcriptionProvider
-                .CreateSessionAsync(request.TranscriptionOptions, cancellationToken)
+                .CreateSessionAsync(request.TranscriptionOptions with
+                { RecognitionHints = qualitySession?.RecognitionHints ?? request.TranscriptionOptions.RecognitionHints }, cancellationToken)
                 .ConfigureAwait(false);
 
             if (request.TranscriptProgress is not null)
@@ -76,6 +101,11 @@ public sealed class DictationCoordinator
                     .PushAudioAsync(frame.PcmAudio, cancellationToken)
                     .ConfigureAwait(false);
 
+                long maximumBytes = checked((long)Math.Ceiling(request.TranscriptionOptions.EffectiveMaximumAudioDuration.TotalSeconds *
+                    transcriptionSession.RequiredInputFormat.SampleRateHz * sizeof(short)));
+                int accepted = checked((int)Math.Min(frame.PcmAudio.Length, Math.Max(0, maximumBytes - speechAudio.Length)));
+                speechAudio.Write(frame.PcmAudio.Span[..accepted]);
+
                 if (pushResult.ReachedMaximumDuration)
                 {
                     maximumAudioDurationReached = true;
@@ -84,6 +114,16 @@ public sealed class DictationCoordinator
             }
 
             await audioCaptureSession.StopAsync(cancellationToken).ConfigureAwait(false);
+
+            ReadOnlyMemory<byte> capturedAudio = speechAudio.GetBuffer().AsMemory(0, checked((int)speechAudio.Length));
+            if (capturedAudio.IsEmpty || !Pcm16Signal.HasSignal(capturedAudio.Span) ||
+                (_speechActivityDetector is not null &&
+                    !await _speechActivityDetector.ContainsSpeechAsync(capturedAudio, cancellationToken).ConfigureAwait(false)))
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                await transcriptionSession.CancelAsync().ConfigureAwait(false);
+                return CompleteWithoutSpeech(target, statusHistory, Transition);
+            }
 
             Transition(
                 DictationSessionState.TranscribingFinalAudio,
@@ -98,15 +138,38 @@ public sealed class DictationCoordinator
 
             cancellationToken.ThrowIfCancellationRequested();
 
+            RefinedTranscript refined = RefinedTranscript.Unchanged(transcript, qualityStartFailed);
+            if (qualitySession is not null && !TranscriptText.IsEmptyOrNonSpeech(transcript.Text))
+            {
+                Transition(DictationSessionState.RefiningTranscript, "Refining transcript");
+                using var refinementCancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+                refinementCancellation.CancelAfter(request.QualitySettings.RefinementTimeout);
+                try
+                {
+                    refined = await qualitySession.RefineAsync(transcript, refinementCancellation.Token)
+                        .WaitAsync(refinementCancellation.Token).ConfigureAwait(false);
+                }
+                catch (Exception) when (!cancellationToken.IsCancellationRequested)
+                {
+                    refined = RefinedTranscript.Unchanged(transcript, fallback: true);
+                    System.Diagnostics.Trace.TraceWarning("Transcript refinement failed; using raw output.");
+                }
+            }
+
+            cancellationToken.ThrowIfCancellationRequested();
             var result = await CompleteAsync(
                 request,
                 target,
-                transcript,
+                TranscriptResult.FromText(refined.Text),
                 statusHistory,
                 Transition,
                 cancellationToken).ConfigureAwait(false);
 
-            return result;
+            return result with
+            {
+                RefinedTranscript = refined,
+                AudioDuration = TimeSpan.FromSeconds((double)speechAudio.Length / (transcriptionSession.RequiredInputFormat.SampleRateHz * sizeof(short)))
+            };
         }
         catch (OperationCanceledException)
         {
@@ -133,6 +196,11 @@ public sealed class DictationCoordinator
         }
         finally
         {
+            if (qualitySession is not null)
+            {
+                try { await qualitySession.DisposeAsync().ConfigureAwait(false); }
+                catch { System.Diagnostics.Trace.TraceWarning("Transcript quality session disposal failed."); }
+            }
             if (audioCaptureSession is not null)
             {
                 await audioCaptureSession.DisposeAsync().ConfigureAwait(false);
@@ -156,6 +224,11 @@ public sealed class DictationCoordinator
             }
         }
     }
+
+    public Task<DictationRunResult> InsertFinalizedTextAsync(
+        FocusTarget target, string text, TextInsertionOptions? insertionOptions,
+        IProgress<DictationStatus>? statusProgress, CancellationToken cancellationToken)
+        => InsertFinalizedTranscriptAsync(target, TranscriptResult.FromText(text), insertionOptions, statusProgress, cancellationToken);
 
     public async Task<DictationRunResult> InsertFinalizedTranscriptAsync(
         FocusTarget target,

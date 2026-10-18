@@ -116,9 +116,17 @@ public sealed class WhisperCppTranscriptionProviderTests : IDisposable
         var provider = new WhisperCppTranscriptionProvider(engine);
         TranscriptionSessionOptions options = CreateOptions(modelPath);
 
-        ITranscriptionSession first = await provider.CreateSessionAsync(options, CancellationToken.None);
+        ITranscriptionSession first = await provider.CreateSessionAsync(options with
+        { RecognitionHints = new(["Shruti"], "Shruti") }, CancellationToken.None);
+        await first.PushAudioAsync(new byte[] { 0, 64, 0, 192 }, CancellationToken.None);
+        await first.CompleteAsync(CancellationToken.None);
+        Assert.Equal("Shruti", engine.LastPrompt);
         await first.DisposeAsync();
-        ITranscriptionSession second = await provider.CreateSessionAsync(options, CancellationToken.None);
+        ITranscriptionSession second = await provider.CreateSessionAsync(options with
+        { RecognitionHints = new(["OpenVINO"], "OpenVINO") }, CancellationToken.None);
+        await second.PushAudioAsync(new byte[] { 0, 64, 0, 192 }, CancellationToken.None);
+        await second.CompleteAsync(CancellationToken.None);
+        Assert.Equal("OpenVINO", engine.LastPrompt);
         await second.DisposeAsync();
 
         Assert.Equal(1, engine.SessionCreationCount);
@@ -309,6 +317,7 @@ public sealed class WhisperCppTranscriptionProviderTests : IDisposable
         public WhisperCppBackendCapabilities Capabilities { get; }
 
         public float[]? LastSamples { get; private set; }
+        public string? LastPrompt { get; private set; }
 
         public WhisperCppTranscriptionSessionOptions? LastOptions { get; private set; }
 
@@ -339,12 +348,13 @@ public sealed class WhisperCppTranscriptionProviderTests : IDisposable
 
             public Task<WhisperCppTranscriptionResult> TranscribeAsync(
                 float[] samples,
-                CancellationToken cancellationToken)
+                CancellationToken cancellationToken, string? initialPrompt = null)
             {
                 cancellationToken.ThrowIfCancellationRequested();
                 lock (_owner._sync)
                 {
                     _owner.LastSamples = samples;
+                    _owner.LastPrompt = initialPrompt;
                     _owner.TranscriptionCount++;
                 }
 
@@ -408,7 +418,7 @@ public sealed class WhisperCppTranscriptionProviderTests : IDisposable
 
             public Task<WhisperCppTranscriptionResult> TranscribeAsync(
                 float[] samples,
-                CancellationToken cancellationToken)
+                CancellationToken cancellationToken, string? initialPrompt = null)
             {
                 _owner.Started.TrySetResult();
                 return _owner._completion.Task;

@@ -89,7 +89,7 @@ public sealed class WhisperCppNativeApi : IWhisperCppNativeApi
             _handle = handle;
         }
 
-        public int Transcribe(float[] samples, string language, int threadCount, CancellationToken cancellationToken)
+        public int Transcribe(float[] samples, string language, int threadCount, CancellationToken cancellationToken, string? initialPrompt = null)
         {
             ThrowIfDisposed();
             ArgumentNullException.ThrowIfNull(samples);
@@ -106,6 +106,7 @@ public sealed class WhisperCppNativeApi : IWhisperCppNativeApi
                     samples.Length,
                     language,
                     threadCount,
+                    initialPrompt,
                     AbortWhenCancellationRequested,
                     GCHandle.ToIntPtr(cancellationState));
             }
@@ -194,13 +195,14 @@ public sealed class WhisperCppNativeApi : IWhisperCppNativeApi
         [DllImport(LibraryName, EntryPoint = "shruti_whisper_free", CallingConvention = CallingConvention.Cdecl)]
         internal static extern void Free(IntPtr context);
 
-        [DllImport(LibraryName, EntryPoint = "shruti_whisper_transcribe", CallingConvention = CallingConvention.Cdecl)]
+        [DllImport(LibraryName, EntryPoint = "shruti_whisper_transcribe_with_prompt", CallingConvention = CallingConvention.Cdecl)]
         internal static extern int Transcribe(
             IntPtr context,
             [In] float[] samples,
             int sampleCount,
             [MarshalAs(UnmanagedType.LPUTF8Str)] string language,
             int threadCount,
+            [MarshalAs(UnmanagedType.LPUTF8Str)] string? initialPrompt,
             NativeAbortCallback abortCallback,
             IntPtr abortCallbackUserData);
 

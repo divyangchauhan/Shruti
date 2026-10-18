@@ -2,12 +2,47 @@ using Shruti.Workflow.Dictation;
 using Shruti.Core;
 using Shruti.Core.Dictation;
 using Shruti.Core.Platform;
+using Shruti.Core.TranscriptQuality;
+using Shruti.Transcription.Abstractions;
 using Xunit;
 
 namespace Shruti.Tests;
 
 public sealed class DictationShellControllerTests
 {
+    [Fact]
+    public async Task UseOriginal_KeepsRawForPreviewInsertionAndClearsItOnNextRun()
+    {
+        var services = MockDictationAppServices.Create();
+        var coordinator = new DictationCoordinator(services.TargetFocus, services.AudioCapture,
+            services.TextInsertion, services.Transcription, new PreviewQuality());
+        var controller = new DictationShellController(coordinator, services.AudioCapture, services.Clipboard);
+        await controller.StartAsync(DictationInsertionMode.PreviewFirst);
+        await controller.StopAsync();
+        string raw = controller.State.RawTranscript;
+        Assert.True(controller.State.CanUseRawTranscript);
+        controller.UseRawTranscript();
+        Assert.Equal(raw, controller.State.TranscriptPreview);
+        Assert.False(controller.State.CanUseRawTranscript);
+        await controller.InsertPreviewAsync(raw, allowReplacingSelection: false);
+        Assert.Equal(raw, services.TextInsertion.LastInsertedText);
+        Assert.Equal(raw, controller.State.RawTranscript);
+        await controller.StartAsync(DictationInsertionMode.PreviewFirst);
+        Assert.Empty(controller.State.RawTranscript);
+        Assert.Null(controller.LastResult);
+        await controller.CancelAsync();
+    }
+
+    private sealed class PreviewQuality : ITranscriptQualityPipeline, ITranscriptQualitySession
+    {
+        public RecognitionHints RecognitionHints => RecognitionHints.Empty;
+        public Task<ITranscriptQualitySession> BeginAsync(FocusTarget? target, TranscriptQualitySettings settings, CancellationToken token)
+            => Task.FromResult<ITranscriptQualitySession>(this);
+        public Task<RefinedTranscript> RefineAsync(TranscriptResult raw, CancellationToken token)
+            => Task.FromResult(new RefinedTranscript(raw, "Cleaned preview.", [new("fixture", 0, raw.Text.Length, "Cleaned preview.")], false));
+        public ValueTask DisposeAsync() => ValueTask.CompletedTask;
+    }
+
     [Theory]
     [InlineData("", DictationInsertionMode.AutoInsert)]
     [InlineData(" \r\n ", DictationInsertionMode.AutoInsert)]

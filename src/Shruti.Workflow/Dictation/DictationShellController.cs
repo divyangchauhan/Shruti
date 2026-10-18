@@ -2,6 +2,7 @@ using Shruti.Core;
 using Shruti.Core.Audio;
 using Shruti.Core.Dictation;
 using Shruti.Core.Platform;
+using Shruti.Core.TranscriptQuality;
 using Shruti.Transcription.Abstractions;
 
 namespace Shruti.Workflow.Dictation;
@@ -12,6 +13,8 @@ public sealed class DictationShellController
     private readonly IAudioCaptureControl _audioCaptureControl;
     private readonly ITranscriptClipboard _clipboard;
     private readonly Func<CancellationToken, Task<TranscriptionSessionOptions>> _transcriptionOptionsFactory;
+    private readonly Func<CancellationToken, Task<TranscriptQualitySettings>> _qualitySettingsFactory;
+    private readonly Func<DictationRunResult, Task>? _saveHistory;
     private readonly object _stateSync = new();
     private readonly object _runSync = new();
 
@@ -25,12 +28,16 @@ public sealed class DictationShellController
         DictationCoordinator coordinator,
         IAudioCaptureControl audioCaptureControl,
         ITranscriptClipboard clipboard,
-        Func<CancellationToken, Task<TranscriptionSessionOptions>>? transcriptionOptionsFactory = null)
+        Func<CancellationToken, Task<TranscriptionSessionOptions>>? transcriptionOptionsFactory = null,
+        Func<CancellationToken, Task<TranscriptQualitySettings>>? qualitySettingsFactory = null,
+        Func<DictationRunResult, Task>? saveHistory = null)
     {
         _coordinator = coordinator ?? throw new ArgumentNullException(nameof(coordinator));
         _audioCaptureControl = audioCaptureControl ?? throw new ArgumentNullException(nameof(audioCaptureControl));
         _clipboard = clipboard ?? throw new ArgumentNullException(nameof(clipboard));
         _transcriptionOptionsFactory = transcriptionOptionsFactory ?? MockDictationAppServices.CreateTranscriptionOptionsAsync;
+        _qualitySettingsFactory = qualitySettingsFactory ?? (_ => Task.FromResult(new TranscriptQualitySettings()));
+        _saveHistory = saveHistory;
         State = DictationShellState.Initial;
     }
 
@@ -74,6 +81,7 @@ public sealed class DictationShellController
         }
 
         var captureStarted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        LastResult = null;
 
         SetState(new DictationShellState(
             DictationSessionState.PreparingTarget,
@@ -225,6 +233,21 @@ public sealed class DictationShellController
         _audioOptions = _audioOptions with { DeviceId = deviceId };
     }
 
+    public void UseRawTranscript()
+    {
+        if (State.IsRunning || !State.CanUseRawTranscript) return;
+        UpdateState(state => state with
+        {
+            TranscriptPreview = state.RawTranscript,
+            CanUseRawTranscript = false,
+            AppliedEdits = [],
+            StatusText = "Original transcript",
+            UserMessage = state.LastOutcome == DictationRunOutcome.Inserted
+                ? "Original transcript is ready to copy. The inserted text has not been replaced."
+                : "Original transcript is ready to insert or copy."
+        });
+    }
+
     public async Task<bool> CopyTranscriptAsync(CancellationToken cancellationToken = default)
     {
         string text = State.TranscriptPreview;
@@ -313,14 +336,26 @@ public sealed class DictationShellController
         var options = new TextInsertionOptions(
             AllowReplacingSelection: allowReplacingSelection);
         DictationRunResult result = await Task.Run(() => _coordinator
-                .InsertFinalizedTranscriptAsync(
+                .InsertFinalizedTextAsync(
                     previousResult.Target,
-                    TranscriptResult.FromText(text),
+                    text,
                     options,
                     progress,
                     cancellationToken))
             .ConfigureAwait(false);
 
+        result = result with
+        {
+            Id = previousResult.Id,
+            CreatedAtUtc = previousResult.CreatedAtUtc,
+            AudioDuration = previousResult.AudioDuration,
+            RefinedTranscript = previousResult.RefinedTranscript is { } refined ? refined with { Text = text } : null
+        };
+        if (result.Inserted && _saveHistory is not null)
+        {
+            try { await _saveHistory(result).ConfigureAwait(false); }
+            catch { System.Diagnostics.Trace.TraceWarning("Could not update dictation history."); }
+        }
         LastResult = result;
         SetState(CreateCompletedState(result, State.InsertionMode));
     }
@@ -347,10 +382,12 @@ public sealed class DictationShellController
             var transcriptProgress = new SynchronousProgress<TranscriptEvent>(ApplyTranscriptEvent);
             TranscriptionSessionOptions transcriptionOptions = await _transcriptionOptionsFactory(activeRun.Token)
                 .ConfigureAwait(false);
+            var qualitySettings = await _qualitySettingsFactory(activeRun.Token).ConfigureAwait(false);
             var request = new DictationRequest(
                 transcriptionOptions,
                 insertionMode,
                 audioOptions: _audioOptions,
+                qualitySettings: qualitySettings with { Language = transcriptionOptions.Language },
                 statusProgress: progress,
                 transcriptProgress: transcriptProgress,
                 captureSessionStarted: session =>
@@ -374,6 +411,11 @@ public sealed class DictationShellController
                     .ConfigureAwait(false);
             }
 
+            if (_saveHistory is not null && result.Outcome is not (DictationRunOutcome.Failed or DictationRunOutcome.Cancelled or DictationRunOutcome.NoSpeech))
+            {
+                try { await _saveHistory(result).ConfigureAwait(false); }
+                catch { System.Diagnostics.Trace.TraceWarning("Could not save dictation history."); }
+            }
             LastResult = result;
             SetState(CreateCompletedState(result, insertionMode));
         }
@@ -520,7 +562,12 @@ public sealed class DictationShellController
             CanInsertPreview: result.RequiresPreview &&
                 result.Target is not null &&
                 !string.IsNullOrWhiteSpace(transcript) &&
-                result.InsertionResult?.Submitted is not true);
+                result.InsertionResult?.Submitted is not true)
+        {
+            RawTranscript = result.RefinedTranscript?.Raw.Text ?? transcript,
+            CanUseRawTranscript = result.RefinedTranscript is { } refined && refined.Raw.Text != transcript,
+            AppliedEdits = result.RefinedTranscript?.Edits ?? []
+        };
     }
 
     private static string FormatTarget(FocusTarget? target)
@@ -547,6 +594,7 @@ public sealed class DictationShellController
             DictationSessionState.Recording => "Recording audio.",
             DictationSessionState.Paused => "Recording is paused.",
             DictationSessionState.TranscribingFinalAudio => "Generating the transcript.",
+            DictationSessionState.RefiningTranscript => "Cleaning up the transcript.",
             DictationSessionState.InsertingText => "Restoring target and inserting text.",
             DictationSessionState.Complete => "Dictation complete.",
             DictationSessionState.Cancelled => "Dictation cancelled.",

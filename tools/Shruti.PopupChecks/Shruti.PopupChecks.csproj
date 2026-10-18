@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0-windows10.0.19041.0</TargetFramework>
+    <TargetPlatformMinVersion>10.0.19041.0</TargetPlatformMinVersion>
+    <UseWinUI>true</UseWinUI>
+    <DefineConstants>$(DefineConstants);DISABLE_XAML_GENERATED_MAIN</DefineConstants>
+    <WindowsPackageType>None</WindowsPackageType>
+    <ApplicationManifest>../../src/Shruti.App.WinUI/app.manifest</ApplicationManifest>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.WindowsAppSDK" />
+    <Compile Include="../../src/Shruti.App.WinUI/PopupAppearance.cs" Link="PopupAppearance.cs" />
+    <Page Include="../../src/Shruti.App.WinUI/Styles/PopupResources.xaml" Link="Styles/PopupResources.xaml" />
+    <Content Include="../../src/Shruti.App.WinUI/MainWindow.xaml" Link="Input/MainWindow.xaml" CopyToOutputDirectory="Always" />
+  </ItemGroup>
+</Project>

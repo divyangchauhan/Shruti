@@ -25,6 +25,7 @@ $nativeBuildDirectory = Join-Path $root "artifacts\whispercpp-native"
 $nativeLibraryPath = Join-Path $nativeBuildDirectory "$Configuration\shruti_whisper.dll"
 $openVinoNativeDirectory = Join-Path $root "artifacts\openvino-genai\$Configuration"
 $openVinoGenAiLibraryPath = Join-Path $openVinoNativeDirectory "openvino_genai_c.dll"
+$cleanupRuntimeDirectory = Join-Path $root 'artifacts\local-cleanup\Cpu'
 $packagePath = Join-Path $outputDirectory "Shruti-$Version-$Platform.msix"
 
 function Invoke-CheckedCommand {
@@ -281,8 +282,14 @@ if (-not (Test-Path $openVinoGenAiLibraryPath)) {
     throw "OpenVINO GenAI runtime missing at $openVinoNativeDirectory. Run this script without -SkipNativeBuild."
 }
 
-Remove-Item $publishDirectory -Recurse -Force -ErrorAction SilentlyContinue
-Remove-Item $stageDirectory -Recurse -Force -ErrorAction SilentlyContinue
+& (Join-Path $root 'scripts\prepare-local-cleanup-runtime.ps1')
+# Resolve generated directories before recursively replacing them.
+foreach ($generatedDirectory in @($publishDirectory, $stageDirectory)) {
+    $resolvedGeneratedDirectory = [IO.Path]::GetFullPath($generatedDirectory)
+    $allowedArtifactsRoot = [IO.Path]::GetFullPath((Join-Path $root 'artifacts')) + [IO.Path]::DirectorySeparatorChar
+    if (!$resolvedGeneratedDirectory.StartsWith($allowedArtifactsRoot, [StringComparison]::OrdinalIgnoreCase)) { throw 'Generated directory is outside artifacts.' }
+    if (Test-Path -LiteralPath $resolvedGeneratedDirectory) { Remove-Item -LiteralPath $resolvedGeneratedDirectory -Recurse -Force }
+}
 New-Item -ItemType Directory -Force -Path $publishDirectory, $stageDirectory, $outputDirectory | Out-Null
 
 Invoke-CheckedCommand "dotnet" @(
@@ -293,6 +300,9 @@ Invoke-CheckedCommand "dotnet" @(
     "-p:Platform=$Platform",
     "-p:WindowsPackageType=None",
     "-p:WindowsAppSDKSelfContained=true",
+    "-p:Version=$Version",
+    "-p:AssemblyVersion=$Version",
+    "-p:FileVersion=$Version",
     "-o", $publishDirectory
 )
 
@@ -315,6 +325,10 @@ $assetDirectory = Join-Path $stageDirectory "Assets"
 New-Item -ItemType Directory -Force -Path $appDirectory, $assetDirectory | Out-Null
 Copy-Item -Path (Join-Path $publishDirectory "*") -Destination $appDirectory -Recurse -Force
 Copy-Item -LiteralPath $appResourceIndex.FullName -Destination $appDirectory -Force
+Copy-Item -LiteralPath $cleanupRuntimeDirectory -Destination (Join-Path $appDirectory 'CleanupRuntime') -Recurse -Force
+foreach ($runtimeDependency in @('msvcp140.dll', 'vcruntime140.dll', 'vcruntime140_1.dll', 'vcomp140.dll')) {
+    Copy-Item -LiteralPath (Join-Path $appDirectory $runtimeDependency) -Destination (Join-Path $appDirectory 'CleanupRuntime') -Force
+}
 Get-ChildItem $appDirectory -Recurse -Filter "*.pdb" | Remove-Item -Force
 
 $packagedNativeLibrary = Join-Path $appDirectory "shruti_whisper.dll"

@@ -1,0 +1,103 @@
+using Shruti.Core.Platform;
+using Shruti.Core.TranscriptQuality;
+using Shruti.Transcription.Abstractions;
+
+namespace Shruti.TranscriptQuality;
+
+public sealed class TranscriptQualityPipeline : ITranscriptQualityPipeline, IDisposable
+{
+    private readonly IVocabularyRepository repository;
+    private readonly ISnippetRepository? _snippets;
+    private readonly ITextContextReader? contextReader;
+    private readonly ILocalTranscriptEditor _editor;
+    public TranscriptQualityPipeline(IVocabularyRepository repository, ITextContextReader? contextReader = null, ISnippetRepository? snippets = null)
+        : this(repository, contextReader, new LocalTranscriptEditor(), snippets) { }
+    internal TranscriptQualityPipeline(IVocabularyRepository repository, ITextContextReader? contextReader, ILocalTranscriptEditor editor, ISnippetRepository? snippets = null)
+    { this.repository = repository; this.contextReader = contextReader; _editor = editor; _snippets = snippets; }
+    public void Dispose() { if (_editor is IDisposable disposable) disposable.Dispose(); }
+
+    public async Task<ITranscriptQualitySession> BeginAsync(FocusTarget? target, TranscriptQualitySettings settings,
+        CancellationToken cancellationToken)
+    {
+        var vocabulary = await repository.ListVocabularyAsync(settings.Language, cancellationToken).ConfigureAwait(false);
+        var corrections = await repository.ListCorrectionsAsync(settings.Language, cancellationToken).ConfigureAwait(false);
+        TranscriptContext? context = null;
+        if (settings.EnableCursorContext && target is not null && contextReader is not null)
+            context = await contextReader.ReadAsync(target, cancellationToken).ConfigureAwait(false);
+        if (settings.EnableLocalModel && settings.CleanupMode == TranscriptCleanupMode.Light)
+            await _editor.PrepareAsync(settings, cancellationToken).ConfigureAwait(false);
+        var snippets = _snippets is null ? Array.Empty<TranscriptSnippet>() : await _snippets.ListAsync(settings.Language, cancellationToken).ConfigureAwait(false);
+        return new Session(vocabulary, corrections, context, settings, _editor, target?.ProcessName, snippets);
+    }
+
+    private sealed class Session : ITranscriptQualitySession
+    {
+        private TranscriptContext? _context;
+        private readonly IReadOnlyList<CorrectionRule> _corrections;
+        private readonly TranscriptQualitySettings _settings;
+        private bool _disposed;
+        private readonly IReadOnlyList<TranscriptSnippet> _snippets;
+        private readonly ILocalTranscriptEditor _editor;
+        private IReadOnlyList<string> _protectedTerms;
+        public RecognitionHints RecognitionHints { get; private set; }
+
+        public Session(IReadOnlyList<VocabularyEntry> vocabulary, IReadOnlyList<CorrectionRule> corrections,
+            TranscriptContext? context, TranscriptQualitySettings settings, ILocalTranscriptEditor editor, string? processName, IReadOnlyList<TranscriptSnippet> snippets)
+        {
+            _snippets = snippets;
+            _corrections = corrections; _context = context; _settings = settings; _editor = editor;
+            RecognitionHints = RecognitionHintBuilder.Build(vocabulary.Concat(snippets.Select(s => new VocabularyEntry(s.Id, s.Language, s.Phrase, DateTimeOffset.UnixEpoch))).ToArray(), context, corrections, settings.MaximumPromptTokens,
+                RecognitionHintBuilder.ApplicationTerms(processName));
+            _protectedTerms = vocabulary.Select(entry => entry.Term).Concat(corrections.Select(rule => rule.ReplacementText))
+                .Concat(RecognitionHintBuilder.ContextTerms(context)).Concat(RecognitionHints.Terms).Distinct(StringComparer.Ordinal).ToArray();
+        }
+
+        public async Task<RefinedTranscript> RefineAsync(TranscriptResult rawTranscript, CancellationToken cancellationToken)
+        {
+            ObjectDisposedException.ThrowIf(_disposed, this);
+            cancellationToken.ThrowIfCancellationRequested();
+            if (TranscriptText.IsEmptyOrNonSpeech(rawTranscript.Text))
+            {
+                _context = null;
+                _protectedTerms = [];
+                RecognitionHints = RecognitionHints.Empty;
+                return new RefinedTranscript(rawTranscript, string.Empty, [], false);
+            }
+            var edits = new List<TranscriptEdit>();
+            var expansion = new SnippetExpansion();
+            string masked = expansion.Protect(rawTranscript.Text, _snippets);
+            _protectedTerms = _protectedTerms.Concat(expansion.Tokens).ToArray();
+            string text = CorrectionMatcher.Apply(masked, _corrections);
+            Record(edits, "dictionary", masked, text);
+            string formatted = DeterministicRefiner.Refine(text, _protectedTerms, _context, _settings.CleanupMode, edits);
+            Record(edits, "formatting", text, formatted);
+            if (!expansion.Tokens.Contains(formatted) && !TranscriptText.IsEmptyOrNonSpeech(formatted) && _settings.EnableLocalModel && _settings.CleanupMode == TranscriptCleanupMode.Light)
+            {
+                string[] protectedTerms = _protectedTerms.Concat(TranscriptEditValidator.InferProtectedTerms(formatted)).Distinct(StringComparer.Ordinal).ToArray();
+                var proposed = await _editor.ProposeAsync(formatted, protectedTerms,
+                    _context?.AppCategory ?? TranscriptAppCategory.Other, _settings, cancellationToken).ConfigureAwait(false);
+                if (TranscriptEditValidator.TryApply(formatted, proposed, protectedTerms, out string cleaned, out var applied))
+                {
+                    formatted = DeterministicRefiner.SentenceCase(cleaned.Trim(), _protectedTerms);
+                    edits.AddRange(applied);
+                    Record(edits, "sentence-case", cleaned, formatted);
+                }
+                else System.Diagnostics.Trace.TraceWarning("Local transcript edits rejected; keeping deterministic output.");
+            }
+            string expanded = expansion.Restore(formatted);
+            if (expansion.Count > 0) edits.Add(new("snippet", 0, rawTranscript.Text.Length, expanded));
+            string final = DeterministicRefiner.Join(expanded, _context, _protectedTerms.Concat(expansion.Values).ToArray());
+            Record(edits, "cursor-join", expanded, final);
+            _context = null;
+            _protectedTerms = [];
+            RecognitionHints = RecognitionHints.Empty;
+            return new RefinedTranscript(rawTranscript, final, edits, false);
+        }
+
+        internal static void Record(List<TranscriptEdit> edits, string rule, string before, string after)
+        {
+            if (before != after) edits.Add(new(rule, 0, before.Length, after));
+        }
+        public ValueTask DisposeAsync() { _context = null; _protectedTerms = []; RecognitionHints = RecognitionHints.Empty; _disposed = true; return ValueTask.CompletedTask; }
+    }
+}
