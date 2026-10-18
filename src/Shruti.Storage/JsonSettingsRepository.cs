@@ -126,6 +126,8 @@ public sealed class JsonSettingsRepository : ISettingsRepository
             AllowSlowTranscription = settings.AllowSlowTranscription,
             HasCompletedOnboarding = settings.HasCompletedOnboarding,
             ShowFloatingBar = settings.ShowFloatingBar,
+            ShowFloatingBarOnAllMonitors = settings.ShowFloatingBarOnAllMonitors,
+            FloatingBarMonitorId = string.IsNullOrWhiteSpace(settings.FloatingBarMonitorId) ? null : settings.FloatingBarMonitorId,
             TriggerConfiguration = triggerConfiguration with
             {
                 EnableFloatingWindowShortcut = false,

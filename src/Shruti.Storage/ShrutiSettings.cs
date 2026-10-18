@@ -31,6 +31,10 @@ public sealed record ShrutiSettings
 
     public bool ShowFloatingBar { get; init; } = true;
 
+    public bool ShowFloatingBarOnAllMonitors { get; init; }
+
+    public string? FloatingBarMonitorId { get; init; }
+
     public TriggerConfiguration TriggerConfiguration { get; init; } = new(
         EnableGlobalHotkey: false,
         EnablePushToTalk: true,

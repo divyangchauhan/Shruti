@@ -179,7 +179,7 @@ public sealed class MockAudioCaptureService : IAudioCaptureService, IAudioCaptur
 
         private static byte[] CreateFrame()
         {
-            return [1, 0, 1, 0, 1, 0, 1, 0];
+            return [0, 64, 0, 192, 0, 64, 0, 192];
         }
     }
 }

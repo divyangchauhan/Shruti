@@ -86,6 +86,35 @@ void shruti_whisper_free(shruti_whisper_context * context) {
     delete context;
 }
 
+int shruti_whisper_detect_speech(const char * model_path, const float * samples, int sample_count) {
+    if (model_path == nullptr || samples == nullptr || sample_count <= 0) return -1;
+    whisper_vad_context * detector = nullptr;
+    whisper_vad_segments * segments = nullptr;
+    try {
+        auto context_params = whisper_vad_default_context_params();
+        context_params.use_gpu = false;
+        context_params.n_threads = 2;
+        detector = whisper_vad_init_from_file_with_params(model_path, context_params);
+        if (detector == nullptr) return -2;
+        auto params = whisper_vad_default_params();
+        // Retain short words. Do not trim or rewrite speech-bearing recordings.
+        params.min_speech_duration_ms = 100;
+        segments = whisper_vad_segments_from_samples(detector, params, samples, sample_count);
+        if (segments == nullptr) {
+            whisper_vad_free(detector);
+            return -3;
+        }
+        int result = whisper_vad_segments_n_segments(segments) > 0 ? 1 : 0;
+        whisper_vad_free_segments(segments);
+        whisper_vad_free(detector);
+        return result;
+    } catch (...) {
+        if (segments != nullptr) whisper_vad_free_segments(segments);
+        if (detector != nullptr) whisper_vad_free(detector);
+        return -4;
+    }
+}
+
 int shruti_whisper_transcribe_with_prompt(
     shruti_whisper_context * context,
     const float * samples,

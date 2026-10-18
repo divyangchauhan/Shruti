@@ -16,7 +16,10 @@ Shruti is available on the Microsoft Store and remains under active development.
 - Local `whisper.cpp` transcription after recording finishes.
 - Auto-insert, preview-before-insert, and copy-only dictation modes.
 - Direct text insertion with clipboard fallback when direct insertion is unavailable.
-- A default `Ctrl+Win+Space` hold-to-dictate shortcut, tray control, and a fixed floating dictation pill at the bottom center of the screen. Use Settings to show or hide the pill. It cannot be dragged. Closing the main window keeps Shruti running in the Windows notification area; launching Shruti again restores the running instance instead of opening a duplicate. Right-click the tray icon and choose **Exit Shruti** to stop the process. `Ctrl+Win+Space` overlaps Windows' input-language shortcut, so the text injector clears active shortcut modifiers before sending the final transcript.
+- A default `Ctrl+Win+Space` hold-to-dictate shortcut, tray control, and a floating dictation bar. Settings can show the bar on one selected monitor or all monitors. Closing the main window keeps Shruti running in the Windows notification area; launching Shruti again restores the running instance. Right-click the tray icon and choose **Exit Shruti** to stop it.
+- Local transcription history with search, original/final text, and deletion controls. Pending previews appear on Transcriptions.
+- Insights based on your saved history, a personal Dictionary, and spoken Snippets that expand to saved text.
+- Local transcript formatting and optional AI cleanup. The AI model requires a separate download; transcription and cleanup run on your computer.
 - Local model download, verification, import, and removal primitives.
 - System, light, and dark theme preferences.
 
@@ -32,7 +35,7 @@ Internet access is needed to download models. After download, transcription runs
 
 ## How It Works
 
-1. Start dictation from the app, a configured trigger, the tray, or the floating microphone control.
+1. Start dictation with a configured shortcut, the tray, or the floating microphone control.
 2. Shruti captures the current foreground target before recording.
 3. Audio is normalized to 16 kHz mono PCM and transcribed locally.
 4. The floating pill shows audio levels while recording, then animated dots during processing.

@@ -300,6 +300,9 @@ Invoke-CheckedCommand "dotnet" @(
     "-p:Platform=$Platform",
     "-p:WindowsPackageType=None",
     "-p:WindowsAppSDKSelfContained=true",
+    "-p:Version=$Version",
+    "-p:AssemblyVersion=$Version",
+    "-p:FileVersion=$Version",
     "-o", $publishDirectory
 )
 

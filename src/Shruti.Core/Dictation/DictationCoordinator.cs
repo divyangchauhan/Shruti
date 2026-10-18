@@ -12,19 +12,22 @@ public sealed class DictationCoordinator
     private readonly ITextInsertionService _textInsertionService;
     private readonly ITranscriptionProvider _transcriptionProvider;
     private readonly ITranscriptQualityPipeline? _transcriptQualityPipeline;
+    private readonly ISpeechActivityDetector? _speechActivityDetector;
 
     public DictationCoordinator(
         ITargetFocusService targetFocusService,
         IAudioCaptureService audioCaptureService,
         ITextInsertionService textInsertionService,
         ITranscriptionProvider transcriptionProvider,
-        ITranscriptQualityPipeline? transcriptQualityPipeline = null)
+        ITranscriptQualityPipeline? transcriptQualityPipeline = null,
+        ISpeechActivityDetector? speechActivityDetector = null)
     {
         _targetFocusService = targetFocusService ?? throw new ArgumentNullException(nameof(targetFocusService));
         _audioCaptureService = audioCaptureService ?? throw new ArgumentNullException(nameof(audioCaptureService));
         _textInsertionService = textInsertionService ?? throw new ArgumentNullException(nameof(textInsertionService));
         _transcriptionProvider = transcriptionProvider ?? throw new ArgumentNullException(nameof(transcriptionProvider));
         _transcriptQualityPipeline = transcriptQualityPipeline;
+        _speechActivityDetector = speechActivityDetector;
     }
 
     public async Task<DictationRunResult> RunOnceAsync(
@@ -41,6 +44,7 @@ public sealed class DictationCoordinator
         ITranscriptQualitySession? qualitySession = null;
         bool qualityStartFailed = false;
         var maximumAudioDurationReached = false;
+        using var speechAudio = new MemoryStream();
 
         void Transition(DictationSessionState state, string message)
         {
@@ -97,6 +101,11 @@ public sealed class DictationCoordinator
                     .PushAudioAsync(frame.PcmAudio, cancellationToken)
                     .ConfigureAwait(false);
 
+                long maximumBytes = checked((long)Math.Ceiling(request.TranscriptionOptions.EffectiveMaximumAudioDuration.TotalSeconds *
+                    transcriptionSession.RequiredInputFormat.SampleRateHz * sizeof(short)));
+                int accepted = checked((int)Math.Min(frame.PcmAudio.Length, Math.Max(0, maximumBytes - speechAudio.Length)));
+                speechAudio.Write(frame.PcmAudio.Span[..accepted]);
+
                 if (pushResult.ReachedMaximumDuration)
                 {
                     maximumAudioDurationReached = true;
@@ -105,6 +114,16 @@ public sealed class DictationCoordinator
             }
 
             await audioCaptureSession.StopAsync(cancellationToken).ConfigureAwait(false);
+
+            ReadOnlyMemory<byte> capturedAudio = speechAudio.GetBuffer().AsMemory(0, checked((int)speechAudio.Length));
+            if (capturedAudio.IsEmpty || !Pcm16Signal.HasSignal(capturedAudio.Span) ||
+                (_speechActivityDetector is not null &&
+                    !await _speechActivityDetector.ContainsSpeechAsync(capturedAudio, cancellationToken).ConfigureAwait(false)))
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                await transcriptionSession.CancelAsync().ConfigureAwait(false);
+                return CompleteWithoutSpeech(target, statusHistory, Transition);
+            }
 
             Transition(
                 DictationSessionState.TranscribingFinalAudio,
@@ -146,7 +165,11 @@ public sealed class DictationCoordinator
                 Transition,
                 cancellationToken).ConfigureAwait(false);
 
-            return result with { RefinedTranscript = refined };
+            return result with
+            {
+                RefinedTranscript = refined,
+                AudioDuration = TimeSpan.FromSeconds((double)speechAudio.Length / (transcriptionSession.RequiredInputFormat.SampleRateHz * sizeof(short)))
+            };
         }
         catch (OperationCanceledException)
         {

@@ -1,6 +1,6 @@
 # Privacy policy
 
-Effective date: October 13, 2026
+Effective date: October 18, 2026
 
 This policy covers Shruti, the Windows dictation app developed by Divyang
 Chauhan.
@@ -11,14 +11,15 @@ Shruti processes microphone audio and converts it to text on your computer.
 It does not send your audio or transcripts to the developer or a cloud
 transcription service. You do not need an account to use dictation.
 
-The current dictation workflow processes audio in memory and does not
-automatically save microphone recordings or a transcript history to disk.
-The latest transcript can remain visible in the app until it is replaced or
-the app exits.
+Shruti processes audio in memory and does not automatically save microphone
+recordings. It saves non-empty dictations in a local transcript history,
+including the original and final text, time, recording duration, word and edit
+counts, and destination process name when available. The Transcriptions page
+lets you delete individual entries or clear the history. Insights summarizes
+that local history; it does not upload it.
 
-Optional transcript cleanup also runs on your computer. Shruti keeps both the
-original and cleaned text for the latest dictation so you can recover the
-original. It does not save this recovery data as a transcript history.
+Optional transcript cleanup also runs on your computer. Both the original and
+cleaned text remain available in your local history until you delete them.
 
 ## Keyboard, active applications, and clipboard
 
@@ -48,9 +49,10 @@ choices, and transcription performance measurements on your computer. Its
 default data location is `%LOCALAPPDATA%\Shruti`. Windows packaging can redirect
 local application data into the app's package storage.
 
-Your Dictionary vocabulary and explicit correction rules are saved in a local
-SQLite database. You can remove entries in Settings. Cleanup diagnostics record
-rule names or failures, without recording transcript text or cursor context.
+Your Dictionary vocabulary, explicit correction rules, snippets, and transcript
+history are saved in a local SQLite database. You can remove entries on their
+respective pages. Cleanup diagnostics record rule names or failures, without
+recording transcript text or cursor context.
 
 The app displays local diagnostic information to help explain failures. This
 can include the target process name, window identifiers, processing device,
@@ -85,8 +87,8 @@ require an explicit save action. Reviewing a suggested spelling correction does
 not save it until you confirm the rule.
 
 To remove remaining local data, exit Shruti and delete its data folder. This
-removes saved preferences and models, which must be configured or downloaded
-again. Uninstalling the app may leave data outside its package storage, so
+removes saved preferences, vocabulary, snippets, history, and models. Preferences
+and models must be configured or downloaded again. Uninstalling the app may leave data outside its package storage, so
 check `%LOCALAPPDATA%\Shruti` as well. Delete any copies you saved elsewhere
 separately. Removing Shruti's files does not remove text already inserted into
 other apps or retained in clipboard history or backups.

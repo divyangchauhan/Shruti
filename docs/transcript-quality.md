@@ -3,6 +3,29 @@
 Development branch: `feature/transcript-quality`, based on main commit
 `9c4e48ca4c36a092e12a0b6fa1400978185f0f9d`. The original dirty checkout is separate.
 
+## No-speech handling
+
+Dictation checks captured PCM before asking the recognition provider to finalize.
+Empty audio, digital silence, and fixed DC offsets return `NoSpeech` immediately.
+A bundled Silero VAD v6.2.0 model checks the remaining audio on CPU, regardless of
+the selected recognition backend. If it finds no speech, recognition and cleanup
+are skipped and insertion is never called. Detector failure fails the run without
+inserting text. Speech-bearing audio is kept intact rather than trimmed.
+
+`scripts/prepare-speech-detection-model.ps1` downloads the 885,098-byte model from
+a pinned upstream revision and checks SHA-256. The signed package contains the
+model and MIT license. There is no runtime download or new setting.
+
+`scripts/test-speech-detection.ps1 -NativeDirectory artifacts/whispercpp-native/Release`
+checks the actual native detector. The local validation passed digital silence,
+steady hum, white noise, a click, and all 15 synthetic speech fixtures including
+quiet speech and a single word. These checks do not establish performance on every
+microphone or noise condition. Reports are under `artifacts/quality`.
+
+The quality session also returns empty text for empty or non-speech ASR annotations
+without calling the cleanup editor. This prevents direct callers from turning
+empty input into text.
+
 ## Review order
 
 The work is split into six local commits with matching branch references. These
@@ -97,7 +120,8 @@ deadline returns raw text and keeps dictation successful. Utterances longer than
 1,800 characters currently use deterministic cleanup. These checks do not prove
 that every accepted edit preserves meaning.
 
-Only the latest dictation has recovery data. Use original changes the preview.
+Use original changes the latest dictation preview. Saved history now retains both
+original recognition and final text for each non-empty dictation.
 If text was already auto-inserted, it does not automatically undo that insertion.
 Review dictionary correction opens a suggestion in the Dictionary control. It
 requires confirmation before saving. Suggestions only cover one word spelling
@@ -182,3 +206,37 @@ DLL in the package matches the rebuilt DLL. The unsigned development MSIX SHA256
 is `dc49923789b3d400f4de8dd1fead611669bb0bb4ea89565f278c9e4d71c6593d`.
 The larger human corpus script parses successfully but has not been run here
 because FFmpeg is unavailable. Interactive installed-app checks remain pending.
+
+## Transcription library
+
+Transcriptions is the opening page. It groups saved dictations by local date,
+with search, copy, original/final text inspection, per-entry deletion, and clear
+history. History starts with this version; previous dictations are not recreated.
+Preview insertion updates the same history entry rather than counting twice.
+No-speech, failed, cancelled, and empty results are not saved.
+
+The `transcript_history` SQLite table stores the final text, original recognition,
+UTC timestamp, destination process name when available, captured audio duration,
+word count, and edit count. It does not store audio, window titles, or cursor
+context. History deletion removes those entries from Insights too. Insights shows
+words produced, dictation count, recording minutes, transcript edit count, daily
+activity, and usage by destination process. Words produced includes snippet text.
+Edit counts describe recorded processing edits, not individual corrected words.
+There are no rankings, inferred voice profiles, estimated time savings, or team
+features.
+
+Dictionary is a separate searchable page with vocabulary and correction filters.
+Existing SQLite entries remain intact. Add and edit dialogs save only on explicit
+Save. The language code chooses the entries used by the matching recognition
+language, normally `en`.
+
+Snippets have their own SQLite table. A spoken whole phrase expands to saved text,
+including inside a sentence. Matching ignores case, prefers the longest phrase,
+and does not replace text within quoted strings, URLs, or code tokens. A phrase
+spoken alone tolerates ASR's final punctuation and inserts exactly the saved
+contents. Protected placeholders keep cleanup away from snippet bodies; bodies
+are restored after cleanup and are not recursively expanded. Cursor joining may
+add boundary spaces or remove punctuation already present after the caret.
+
+All pages follow the app's theme. The new navigation and dialogs require a visual
+check in the packaged Windows app in addition to build and unit tests.

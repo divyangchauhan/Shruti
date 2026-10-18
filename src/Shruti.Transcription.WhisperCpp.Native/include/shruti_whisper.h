@@ -37,6 +37,9 @@ SHRUTI_WHISPER_API shruti_whisper_context * shruti_whisper_create_with_backend(
     int gpu_device);
 SHRUTI_WHISPER_API void shruti_whisper_free(shruti_whisper_context * context);
 
+// 1 = speech, 0 = no speech, negative = detector failure. Input is 16 kHz mono.
+SHRUTI_WHISPER_API int shruti_whisper_detect_speech(const char * model_path, const float * samples, int sample_count);
+
 SHRUTI_WHISPER_API int shruti_whisper_transcribe(
     shruti_whisper_context * context,
     const float * samples,

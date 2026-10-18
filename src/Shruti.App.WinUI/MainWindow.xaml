@@ -140,22 +140,29 @@
                     <RowDefinition Height="Auto" />
                 </Grid.RowDefinitions>
                 <StackPanel Spacing="4">
-                    <Button
-                        x:Name="HomeNavButton"
-                        AutomationProperties.Name="Dictation"
-                        Style="{StaticResource NavButtonStyle}"
-                        Tag="Home"
-                        Click="NavigationButton_Click">
-                        <Grid Width="184">
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="Auto" />
-                                <ColumnDefinition Width="*" />
-                                <ColumnDefinition Width="Auto" />
-                            </Grid.ColumnDefinitions>
-                            <FontIcon FontFamily="Segoe Fluent Icons" FontSize="18" Glyph="&#xE720;" />
-                            <TextBlock Grid.Column="1" Margin="12,0,0,0" VerticalAlignment="Center" Text="Dictation" />
-                            <Ellipse x:Name="ListeningNavDot" Grid.Column="2" Width="7" Height="7" Fill="{ThemeResource ShrutiAccentVividBrush}" Visibility="Collapsed" />
-                        </Grid>
+                    <Button x:Name="HistoryNavButton" AutomationProperties.Name="Transcriptions" Style="{StaticResource NavButtonStyle}" Tag="History" Click="NavigationButton_Click">
+                        <StackPanel Orientation="Horizontal" Spacing="12">
+                            <FontIcon FontFamily="Segoe Fluent Icons" FontSize="18" Glyph="&#xE8A5;" />
+                            <TextBlock VerticalAlignment="Center" Text="Transcriptions" />
+                        </StackPanel>
+                    </Button>
+                    <Button x:Name="InsightsNavButton" AutomationProperties.Name="Insights" Style="{StaticResource NavButtonStyle}" Tag="Insights" Click="NavigationButton_Click">
+                        <StackPanel Orientation="Horizontal" Spacing="12">
+                            <FontIcon FontFamily="Segoe Fluent Icons" FontSize="18" Glyph="&#xE9D9;" />
+                            <TextBlock VerticalAlignment="Center" Text="Insights" />
+                        </StackPanel>
+                    </Button>
+                    <Button x:Name="DictionaryNavButton" AutomationProperties.Name="Dictionary" Style="{StaticResource NavButtonStyle}" Tag="Dictionary" Click="NavigationButton_Click">
+                        <StackPanel Orientation="Horizontal" Spacing="12">
+                            <FontIcon FontFamily="Segoe Fluent Icons" FontSize="18" Glyph="&#xE82D;" />
+                            <TextBlock VerticalAlignment="Center" Text="Dictionary" />
+                        </StackPanel>
+                    </Button>
+                    <Button x:Name="SnippetsNavButton" AutomationProperties.Name="Snippets" Style="{StaticResource NavButtonStyle}" Tag="Snippets" Click="NavigationButton_Click">
+                        <StackPanel Orientation="Horizontal" Spacing="12">
+                            <FontIcon FontFamily="Segoe Fluent Icons" FontSize="18" Glyph="&#xE8C8;" />
+                            <TextBlock VerticalAlignment="Center" Text="Snippets" />
+                        </StackPanel>
                     </Button>
                     <Button
                         x:Name="ModelsNavButton"
@@ -201,113 +208,12 @@
         </Border>
 
         <Grid Grid.Row="1" Grid.Column="1" Background="{ThemeResource ShrutiPageBrush}">
-            <ScrollViewer x:Name="HomePage" VerticalScrollBarVisibility="Auto">
-                <StackPanel Padding="48,36,48,48" Spacing="0">
-                    <StackPanel Padding="0,24,0,36" HorizontalAlignment="Stretch" Spacing="18">
-                        <Grid Width="112" Height="112">
-                            <Ellipse
-                                x:Name="MicPulseRing"
-                                Width="96"
-                                Height="96"
-                                HorizontalAlignment="Center"
-                                VerticalAlignment="Center"
-                                Opacity="0"
-                                Stroke="{ThemeResource ShrutiAccentVividBrush}"
-                                StrokeThickness="2">
-                                <Ellipse.RenderTransform>
-                                    <ScaleTransform x:Name="MicPulseScale" CenterX="48" CenterY="48" />
-                                </Ellipse.RenderTransform>
-                            </Ellipse>
-                            <Button
-                                x:Name="PrimaryDictationButton"
-                                Width="96"
-                                Height="96"
-                                HorizontalAlignment="Center"
-                                VerticalAlignment="Center"
-                                AutomationProperties.Name="Start dictation"
-                                Background="{ThemeResource ShrutiCardBrush}"
-                                BorderBrush="{ThemeResource ShrutiBorderStrongBrush}"
-                                BorderThickness="1"
-                                CornerRadius="48"
-                                Foreground="{ThemeResource ShrutiTextSecondaryBrush}"
-                                Click="PrimaryDictationButton_Click">
-                                <Grid>
-                                    <FontIcon x:Name="PrimaryButtonIcon" FontFamily="Segoe Fluent Icons" FontSize="40" Glyph="&#xE720;" />
-                                    <TextBlock x:Name="PrimaryButtonLabel" Text="Start dictation" Visibility="Collapsed" />
-                                </Grid>
-                            </Button>
-                        </Grid>
-
-                        <StackPanel x:Name="AudioWaveformPanel" Height="28" HorizontalAlignment="Center" Orientation="Horizontal" Spacing="3" />
-                        <ProgressBar x:Name="AudioLevelBar" Maximum="100" Minimum="0" Value="0" Visibility="Collapsed" />
-
-                        <StackPanel HorizontalAlignment="Center" Spacing="5">
-                            <TextBlock
-                                x:Name="StatusText"
-                                HorizontalAlignment="Center"
-                                AutomationProperties.LiveSetting="Polite"
-                                FontFamily="Segoe UI Variable Display, Segoe UI"
-                                FontSize="20"
-                                FontWeight="SemiBold"
-                                Text="Press your shortcut to dictate anywhere" />
-                            <TextBlock
-                                x:Name="StatusSubText"
-                                HorizontalAlignment="Center"
-                                Style="{StaticResource MutedTextStyle}"
-                                Text="Whisper tiny.en · on this PC" />
-                        </StackPanel>
-
-                        <StackPanel HorizontalAlignment="Center" Orientation="Horizontal" Spacing="10">
-                            <Border Height="30" Padding="12,0" Background="{ThemeResource ShrutiSunkenBrush}" BorderBrush="{ThemeResource ShrutiBorderSubtleBrush}" BorderThickness="1" CornerRadius="15">
-                                <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
-                                    <FontIcon FontFamily="Segoe Fluent Icons" FontSize="14" Glyph="&#xE765;" />
-                                    <TextBlock x:Name="HoldShortcutText" Style="{StaticResource MonoTextStyle}" Text="Ctrl+Win+Space" />
-                                </StackPanel>
-                            </Border>
-                            <Border x:Name="MicrophoneReadinessPill" Height="30" Padding="12,0" Background="Transparent" BorderBrush="{ThemeResource ShrutiBorderSubtleBrush}" BorderThickness="1" CornerRadius="15">
-                                <TextBlock x:Name="MicrophoneReadinessText" VerticalAlignment="Center" FontSize="12" FontWeight="SemiBold" Foreground="{ThemeResource ShrutiTextSecondaryBrush}" Text="Checking microphone" />
-                            </Border>
-                            <Button
-                                x:Name="PauseButton"
-                                Height="30"
-                                Padding="12,0"
-                                AutomationProperties.Name="Pause recording"
-                                Background="Transparent"
-                                BorderBrush="{ThemeResource ShrutiBorderSubtleBrush}"
-                                BorderThickness="1"
-                                CornerRadius="15"
-                                Click="PauseButton_Click">
-                                <TextBlock x:Name="PauseButtonLabel" FontSize="12" FontWeight="SemiBold" Text="Pause" />
-                            </Button>
-                            <Button
-                                x:Name="CancelButton"
-                                Height="30"
-                                Padding="12,0"
-                                AutomationProperties.Name="Cancel dictation"
-                                Background="Transparent"
-                                BorderBrush="{ThemeResource ShrutiBorderSubtleBrush}"
-                                BorderThickness="1"
-                                CornerRadius="15"
-                                Click="CancelButton_Click">
-                                <TextBlock FontSize="12" FontWeight="SemiBold" Text="Cancel" />
-                            </Button>
-                        </StackPanel>
-                        <TextBlock x:Name="StateText" Text="Idle" Visibility="Collapsed" />
-                        <TextBlock x:Name="TargetText" Text="No target captured" Visibility="Collapsed" />
-                        <TextBlock x:Name="StatusPillText" Text="Ready" Visibility="Collapsed" />
-                    </StackPanel>
-
-                    <Grid Margin="0,0,0,14">
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="*" />
-                            <ColumnDefinition Width="Auto" />
-                        </Grid.ColumnDefinitions>
-                        <TextBlock FontSize="16" FontWeight="SemiBold" Text="Recent" />
-                        <TextBlock Grid.Column="1" Style="{StaticResource CaptionTextStyle}" Text="Copied straight to where you were typing" />
-                    </Grid>
-
-                    <Border x:Name="CurrentTranscriptCard" Padding="18,16" Style="{StaticResource CardBorderStyle}" Visibility="Collapsed">
+            <Grid x:Name="HistoryContainer" Visibility="Collapsed">
+                <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="*" /></Grid.RowDefinitions>
+                <ScrollViewer x:Name="PendingTranscriptPanel" MaxHeight="300" Margin="40,24,40,0" VerticalScrollBarVisibility="Auto" Visibility="Collapsed">
+                    <Border Padding="18,16" Style="{StaticResource CardBorderStyle}">
                         <StackPanel Spacing="10">
+                            <TextBlock FontSize="16" FontWeight="SemiBold" Text="Review transcript" />
                             <TextBox
                                 x:Name="TranscriptPreviewBox"
                                 MinHeight="72"
@@ -350,16 +256,12 @@
                             <TextBlock x:Name="ErrorText" AutomationProperties.LiveSetting="Assertive" Foreground="{ThemeResource ShrutiDangerBrush}" TextWrapping="Wrap" Visibility="Collapsed" />
                         </StackPanel>
                     </Border>
-
-                    <Border x:Name="EmptyRecentCard" Padding="0,38" Background="Transparent" CornerRadius="16">
-                        <StackPanel HorizontalAlignment="Center" Spacing="8">
-                            <FontIcon HorizontalAlignment="Center" FontFamily="Segoe Fluent Icons" FontSize="28" Foreground="{ThemeResource ShrutiTextTertiaryBrush}" Glyph="&#xE720;" />
-                            <TextBlock Style="{StaticResource MutedTextStyle}" Text="Your transcriptions will show up here." />
-                        </StackPanel>
-                    </Border>
-                </StackPanel>
-            </ScrollViewer>
-
+                </ScrollViewer>
+                <local:HistoryControl x:Name="HistoryPage" Grid.Row="1" />
+            </Grid>
+            <local:InsightsControl x:Name="InsightsPage" Visibility="Collapsed" />
+            <local:DictionaryControl x:Name="DictionaryEditor" Visibility="Collapsed" />
+            <local:SnippetsControl x:Name="SnippetsPage" Visibility="Collapsed" />
             <ScrollViewer x:Name="ModelsPage" Visibility="Collapsed" VerticalScrollBarVisibility="Auto">
                 <StackPanel Padding="48,36,48,48" Spacing="0">
                     <StackPanel Margin="0,0,0,22" Spacing="4">
@@ -500,6 +402,14 @@
                             <StackPanel Padding="0,16" Spacing="10">
                                 <ToggleSwitch x:Name="PushToTalkCheckBox" Header="Hold-to-dictate shortcut" IsOn="True" Toggled="TriggerConfigurationToggle_Toggled" />
                                 <ToggleSwitch x:Name="FloatingBarCheckBox" Header="Show floating dictation bar" IsOn="True" Toggled="FloatingBarCheckBox_Toggled" />
+                                <StackPanel Spacing="12">
+                                    <ComboBox x:Name="FloatingBarDisplayModeComboBox" Header="Show the bar on" HorizontalAlignment="Stretch" SelectionChanged="FloatingBarDisplayPreference_SelectionChanged">
+                                        <ComboBoxItem Content="One monitor" />
+                                        <ComboBoxItem Content="All monitors" />
+                                    </ComboBox>
+                                    <ComboBox x:Name="FloatingBarMonitorComboBox" Header="Monitor" HorizontalAlignment="Stretch" SelectionChanged="FloatingBarDisplayPreference_SelectionChanged" />
+                                    <TextBlock x:Name="FloatingBarMonitorStatusText" Style="{StaticResource CaptionTextStyle}" TextWrapping="Wrap" Visibility="Collapsed" />
+                                </StackPanel>
                                 <TextBlock Style="{StaticResource CaptionTextStyle}" TextWrapping="Wrap" Text="Fixed at the bottom center of the screen, above the taskbar." />
                                 <ToggleSwitch x:Name="TrayMenuCheckBox" Header="Tray menu commands" IsOn="True" Toggled="TriggerConfigurationToggle_Toggled" />
                                 <ToggleSwitch x:Name="GlobalHotkeyCheckBox" Header="Single-press global trigger" IsOn="False" Toggled="TriggerConfigurationToggle_Toggled" />
@@ -517,19 +427,6 @@
                         </StackPanel>
                     </Border>
 
-                    <Border Margin="0,14,0,0" Padding="20,18" Background="{ThemeResource ShrutiSuccessSoftBrush}" CornerRadius="16">
-                        <Grid ColumnSpacing="14">
-                            <Grid.ColumnDefinitions><ColumnDefinition Width="Auto" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
-                            <Border Width="36" Height="36" Background="{ThemeResource ShrutiCardBrush}" CornerRadius="10">
-                                <FontIcon HorizontalAlignment="Center" VerticalAlignment="Center" FontFamily="Segoe Fluent Icons" FontSize="18" Foreground="{ThemeResource ShrutiSuccessBrush}" Glyph="&#xE72E;" />
-                            </Border>
-                            <StackPanel Grid.Column="1" Spacing="3"><TextBlock FontWeight="SemiBold" Text="Everything stays on this PC" /><TextBlock Style="{StaticResource MutedTextStyle}" FontSize="12" Text="Shruti never sends your audio or text off your device. There is no account and no cloud." /></StackPanel>
-                        </Grid>
-                    </Border>
-
-                    <Border Padding="20" Style="{StaticResource CardBorderStyle}">
-                        <local:DictionaryControl x:Name="DictionaryEditor" />
-                    </Border>
 
                     <TextBlock Margin="0,12,0,0" Style="{StaticResource SectionLabelStyle}" Text="Diagnostics" />
                     <Border Padding="20" Style="{StaticResource CardBorderStyle}">

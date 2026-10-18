@@ -2,6 +2,7 @@
 
 int main() {
     const char * system_info = shruti_whisper_system_info();
+    if (shruti_whisper_detect_speech(nullptr, nullptr, 0) != -1) return 3;
     // Exercise the versioned ABI without loading a model. Invalid input must fail safely.
     if (shruti_whisper_transcribe_with_prompt(nullptr, nullptr, 0, "en", 1, "Shruti", nullptr, nullptr) != -1) {
         return 2;

@@ -81,9 +81,11 @@ public sealed class SqliteVocabularyRepository(AppDataPaths paths) : IVocabulary
         await using var command = connection.CreateCommand();
         command.CommandText = replacement is null ? """
             INSERT INTO vocabulary_entries VALUES ($id,$language,$text,$normalized,$created)
+            ON CONFLICT(id) DO UPDATE SET language=excluded.language, term=excluded.term, normalized_term=excluded.normalized_term
             ON CONFLICT(language,normalized_term) DO UPDATE SET term=excluded.term
             """ : """
             INSERT INTO correction_rules VALUES ($id,$language,$text,$normalized,$replacement,$created)
+            ON CONFLICT(id) DO UPDATE SET language=excluded.language, heard_text=excluded.heard_text, normalized_heard_text=excluded.normalized_heard_text, replacement_text=excluded.replacement_text
             ON CONFLICT(language,normalized_heard_text) DO UPDATE SET replacement_text=excluded.replacement_text, heard_text=excluded.heard_text
             """;
         command.Parameters.AddWithValue("$id", id.ToString("D"));

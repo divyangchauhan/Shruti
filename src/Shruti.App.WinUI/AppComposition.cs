@@ -55,21 +55,23 @@ public sealed class AppComposition
     public MainWindow CreateMainWindow()
     {
         appDataPaths.EnsureCreated();
-        var qualityPipeline = new TranscriptQualityPipeline(new SqliteVocabularyRepository(appDataPaths), new WindowsTextContextReader());
+        var qualityPipeline = new TranscriptQualityPipeline(new SqliteVocabularyRepository(appDataPaths), new WindowsTextContextReader(), new SqliteSnippetRepository(appDataPaths));
         var coordinator = new DictationCoordinator(
             targetFocusService,
             audioCaptureService,
             textInsertionService,
             new RoutingTranscriptionProvider(
                 new TranscriptionProviderRegistry([whisperCppProvider, openVinoProvider])),
-            qualityPipeline);
+            qualityPipeline,
+            new WhisperCppSpeechActivityDetector(Path.Combine(AppContext.BaseDirectory, "SpeechDetection", "ggml-silero-v6.2.0.bin")));
         var controller = new DictationShellController(
             coordinator,
             audioCaptureService,
             transcriptClipboard,
             transcriptionOptionsProvider.CreateAsync,
             async cancellationToken => (await settingsRepository.LoadAsync(cancellationToken).ConfigureAwait(false)).TranscriptQuality with
-            { LocalRuntimePath = Path.Combine(AppContext.BaseDirectory, "CleanupRuntime", "llama-server.exe") });
+            { LocalRuntimePath = Path.Combine(AppContext.BaseDirectory, "CleanupRuntime", "llama-server.exe") },
+            new TranscriptHistoryRepository(appDataPaths).SaveAsync);
         var triggerRouter = new DictationTriggerRouter(controller);
         var window = new MainWindow(
             controller,

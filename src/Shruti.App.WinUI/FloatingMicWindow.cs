@@ -35,9 +35,10 @@ public sealed class FloatingMicWindow : Window
     private int _regionWidth;
     private int _regionHeight;
 
-    public FloatingMicWindow(IWindowsWindowVisibility visibility)
+    public FloatingMicWindow(IWindowsWindowVisibility visibility, IntPtr monitor)
     {
         _visibility = visibility;
+        _monitor = monitor;
         Title = "Shruti dictation";
         _root = new Border
         {
@@ -49,7 +50,7 @@ public sealed class FloatingMicWindow : Window
             RequestedTheme = ElementTheme.Dark
         };
         Content = _root;
-        var menu = new MenuFlyout();
+        var menu = PopupAppearance.CreateMenuFlyout();
         var settings = new MenuFlyoutItem { Text = "Settings" };
         settings.Click += (_, _) => SettingsRequested?.Invoke(this, EventArgs.Empty);
         var hide = new MenuFlyoutItem { Text = "Hide floating bar" };
@@ -81,7 +82,6 @@ public sealed class FloatingMicWindow : Window
         Native.DwmSetWindowAttribute(_handle, 33, ref doNotRound, sizeof(int));
         int noBorder = -2;
         Native.DwmSetWindowAttribute(_handle, 34, ref noBorder, sizeof(int));
-        SelectMonitor();
         _timer.Tick += (_, _) =>
         {
             // Resizing the non-activating capsule can invalidate XAML's pointer
@@ -130,7 +130,6 @@ public sealed class FloatingMicWindow : Window
     {
         if (state.IsRunning && !_state.IsRunning)
         {
-            SelectMonitor();
             _noticeUntil = default;
         }
         if (!state.IsRunning && _state.IsRunning && state.LastOutcome == DictationRunOutcome.NoSpeech)
@@ -253,17 +252,21 @@ public sealed class FloatingMicWindow : Window
         return button;
     }
 
-    private void SelectMonitor() => _monitor = Native.MonitorFromWindow(Native.GetForegroundWindow(), 2);
+    public void SetMonitor(IntPtr monitor)
+    {
+        _monitor = monitor;
+        Place();
+    }
 
     private void Place()
     {
         var info = new Native.MonitorInfo { Size = Marshal.SizeOf<Native.MonitorInfo>() };
         if (!Native.GetMonitorInfo(_monitor, ref info))
         {
-            SelectMonitor();
-            if (!Native.GetMonitorInfo(_monitor, ref info)) return;
+            // The owner will reconcile windows when the display configuration changes.
+            return;
         }
-        Native.GetDpiForMonitor(_monitor, 0, out uint dpi, out _);
+        if (Native.GetDpiForMonitor(_monitor, 0, out uint dpi, out _) != 0 || dpi == 0) dpi = 96;
         FloatingPillBounds bounds = FloatingPillPlacement.BottomCenter(info.Work.Left, info.Work.Top, info.Work.Right, info.Work.Bottom, _width, _height, dpi);
         Native.SetWindowPos(_handle, (IntPtr)(-1), bounds.X, bounds.Y, bounds.Width, bounds.Height, 0x0010);
         _root.UpdateLayout();
@@ -306,8 +309,6 @@ public sealed class FloatingMicWindow : Window
         [DllImport("comctl32.dll", SetLastError = true)][return: MarshalAs(UnmanagedType.Bool)] public static extern bool SetWindowSubclass(IntPtr hwnd, SubclassProc proc, UIntPtr id, IntPtr data);
         [DllImport("comctl32.dll")][return: MarshalAs(UnmanagedType.Bool)] public static extern bool RemoveWindowSubclass(IntPtr hwnd, SubclassProc proc, UIntPtr id);
         [DllImport("comctl32.dll")] public static extern IntPtr DefSubclassProc(IntPtr hwnd, uint message, IntPtr wParam, IntPtr lParam);
-        [DllImport("user32.dll")] public static extern IntPtr GetForegroundWindow();
-        [DllImport("user32.dll")] public static extern IntPtr MonitorFromWindow(IntPtr hwnd, uint flags);
         [DllImport("user32.dll", EntryPoint = "GetMonitorInfoW")][return: MarshalAs(UnmanagedType.Bool)] public static extern bool GetMonitorInfo(IntPtr monitor, ref MonitorInfo info);
         [DllImport("shcore.dll")] public static extern int GetDpiForMonitor(IntPtr monitor, int type, out uint x, out uint y);
         [DllImport("user32.dll")][return: MarshalAs(UnmanagedType.Bool)] public static extern bool SetWindowPos(IntPtr hwnd, IntPtr after, int x, int y, int cx, int cy, uint flags);

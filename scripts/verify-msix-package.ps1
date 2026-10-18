@@ -85,6 +85,8 @@ try {
         "VFS/ProgramFilesX64/Shruti/Shruti.App.WinUI.exe",
         "VFS/ProgramFilesX64/Shruti/Shruti.App.WinUI.pri",
         "VFS/ProgramFilesX64/Shruti/shruti_whisper.dll",
+        "VFS/ProgramFilesX64/Shruti/SpeechDetection/ggml-silero-v6.2.0.bin",
+        "VFS/ProgramFilesX64/Shruti/SpeechDetection/silero-vad-LICENSE.txt",
         "VFS/ProgramFilesX64/Shruti/vulkan-1.dll",
         "VFS/ProgramFilesX64/Shruti/msvcp140.dll",
         "VFS/ProgramFilesX64/Shruti/vcruntime140.dll",

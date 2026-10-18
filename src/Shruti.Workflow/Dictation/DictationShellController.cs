@@ -14,6 +14,7 @@ public sealed class DictationShellController
     private readonly ITranscriptClipboard _clipboard;
     private readonly Func<CancellationToken, Task<TranscriptionSessionOptions>> _transcriptionOptionsFactory;
     private readonly Func<CancellationToken, Task<TranscriptQualitySettings>> _qualitySettingsFactory;
+    private readonly Func<DictationRunResult, Task>? _saveHistory;
     private readonly object _stateSync = new();
     private readonly object _runSync = new();
 
@@ -28,13 +29,15 @@ public sealed class DictationShellController
         IAudioCaptureControl audioCaptureControl,
         ITranscriptClipboard clipboard,
         Func<CancellationToken, Task<TranscriptionSessionOptions>>? transcriptionOptionsFactory = null,
-        Func<CancellationToken, Task<TranscriptQualitySettings>>? qualitySettingsFactory = null)
+        Func<CancellationToken, Task<TranscriptQualitySettings>>? qualitySettingsFactory = null,
+        Func<DictationRunResult, Task>? saveHistory = null)
     {
         _coordinator = coordinator ?? throw new ArgumentNullException(nameof(coordinator));
         _audioCaptureControl = audioCaptureControl ?? throw new ArgumentNullException(nameof(audioCaptureControl));
         _clipboard = clipboard ?? throw new ArgumentNullException(nameof(clipboard));
         _transcriptionOptionsFactory = transcriptionOptionsFactory ?? MockDictationAppServices.CreateTranscriptionOptionsAsync;
         _qualitySettingsFactory = qualitySettingsFactory ?? (_ => Task.FromResult(new TranscriptQualitySettings()));
+        _saveHistory = saveHistory;
         State = DictationShellState.Initial;
     }
 
@@ -341,7 +344,18 @@ public sealed class DictationShellController
                     cancellationToken))
             .ConfigureAwait(false);
 
-        result = result with { RefinedTranscript = previousResult.RefinedTranscript };
+        result = result with
+        {
+            Id = previousResult.Id,
+            CreatedAtUtc = previousResult.CreatedAtUtc,
+            AudioDuration = previousResult.AudioDuration,
+            RefinedTranscript = previousResult.RefinedTranscript is { } refined ? refined with { Text = text } : null
+        };
+        if (result.Inserted && _saveHistory is not null)
+        {
+            try { await _saveHistory(result).ConfigureAwait(false); }
+            catch { System.Diagnostics.Trace.TraceWarning("Could not update dictation history."); }
+        }
         LastResult = result;
         SetState(CreateCompletedState(result, State.InsertionMode));
     }
@@ -397,6 +411,11 @@ public sealed class DictationShellController
                     .ConfigureAwait(false);
             }
 
+            if (_saveHistory is not null && result.Outcome is not (DictationRunOutcome.Failed or DictationRunOutcome.Cancelled or DictationRunOutcome.NoSpeech))
+            {
+                try { await _saveHistory(result).ConfigureAwait(false); }
+                catch { System.Diagnostics.Trace.TraceWarning("Could not save dictation history."); }
+            }
             LastResult = result;
             SetState(CreateCompletedState(result, insertionMode));
         }

@@ -10,6 +10,37 @@ namespace Shruti.Tests;
 public sealed class JsonSettingsRepositoryTests : IDisposable
 {
     [Fact]
+    public async Task FloatingBarMonitors_PersistSelectionAcrossModeChangesAndOtherSettingsUpdates()
+    {
+        var paths = new AppDataPaths(_rootPath);
+        var repository = new JsonSettingsRepository(paths);
+        await repository.SaveAsync(ShrutiSettings.Default with
+        {
+            ShowFloatingBarOnAllMonitors = true,
+            FloatingBarMonitorId = @"\\?\DISPLAY#external-monitor"
+        }, default);
+        var loaded = await new JsonSettingsRepository(paths).LoadAsync(default);
+        Assert.True(loaded.ShowFloatingBarOnAllMonitors);
+        Assert.Equal(@"\\?\DISPLAY#external-monitor", loaded.FloatingBarMonitorId);
+        await repository.SaveAsync(loaded with { ShowFloatingBarOnAllMonitors = false, ThemePreference = AppThemePreference.Dark }, default);
+        loaded = await new JsonSettingsRepository(paths).LoadAsync(default);
+        Assert.False(loaded.ShowFloatingBarOnAllMonitors);
+        Assert.Equal(@"\\?\DISPLAY#external-monitor", loaded.FloatingBarMonitorId);
+    }
+
+    [Fact]
+    public async Task FloatingBarMonitors_OlderSettingsUseOnePrimaryMonitor()
+    {
+        var paths = new AppDataPaths(_rootPath);
+        paths.EnsureCreated();
+        await File.WriteAllTextAsync(paths.SettingsFilePath, "{\"showFloatingBar\":true}");
+        var loaded = await new JsonSettingsRepository(paths).LoadAsync(default);
+        Assert.True(loaded.ShowFloatingBar);
+        Assert.False(loaded.ShowFloatingBarOnAllMonitors);
+        Assert.Null(loaded.FloatingBarMonitorId);
+    }
+
+    [Fact]
     public async Task QualityPreferences_RoundTripAndClampPromptAndTimeout()
     {
         var repository = new JsonSettingsRepository(new AppDataPaths(_rootPath));

@@ -23,6 +23,8 @@ public static class PackagedNativeProbe {
         if (entry == IntPtr.Zero) throw new InvalidOperationException("Backend capability export is missing.");
         if (GetProcAddress(module, "shruti_whisper_transcribe_with_prompt") == IntPtr.Zero)
             throw new InvalidOperationException("Managed recognition-hint ABI export is missing.");
+        if (GetProcAddress(module, "shruti_whisper_detect_speech") == IntPtr.Zero)
+            throw new InvalidOperationException("Local speech-detection ABI export is missing.");
         return ((AvailableBackends)Marshal.GetDelegateForFunctionPointer(entry, typeof(AvailableBackends)))();
     }
 }

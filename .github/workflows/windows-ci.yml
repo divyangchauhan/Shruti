@@ -62,6 +62,9 @@ jobs:
           - TranscriptQualityTests
           - VocabularyTests
           - TranscriptEditValidatorTests
+          - EmptyTranscriptQualityTests
+          - TranscriptLibraryTests
+          - FloatingBarMonitorTests
 
     steps:
       - name: Check out repository

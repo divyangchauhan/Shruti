@@ -3,7 +3,6 @@ using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Automation;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Media;
-using Microsoft.UI.Xaml.Media.Animation;
 using System.Runtime.InteropServices;
 using Shruti.Workflow.Dictation;
 using Shruti.Core;
@@ -23,7 +22,6 @@ namespace Shruti.App.WinUI;
 
 public sealed partial class MainWindow : Window
 {
-    private const int WaveformBarCount = 28;
     private const double PreferredWindowWidthDip = 1080;
     private const double PreferredWindowHeightDip = 720;
     private const double DefaultDpi = 96;
@@ -46,10 +44,9 @@ public sealed partial class MainWindow : Window
     private readonly CancellationTokenSource _triggerDispatchCancellation = new();
     private readonly SemaphoreSlim _settingsGate = new(1, 1);
     private readonly IntPtr _windowHandle;
-    private readonly List<Border> _waveformBars = [];
 
-    private Storyboard? _micPulseStoryboard;
-    private FloatingMicWindow? _floatingMicWindow;
+    private readonly FloatingBarManager _floatingBars;
+    private bool _isUpdatingFloatingMonitorControls;
     private Task? _triggerDispatchTask;
     private bool _allowClose;
     private bool _isDisposed;
@@ -64,7 +61,7 @@ public sealed partial class MainWindow : Window
     private bool _isOnboardingModelOperation;
     private int _onboardingStep;
     private ComputeBackend _resolvedBackend = ComputeBackend.Cpu;
-    private string _currentPage = "Home";
+    private string _currentPage = "History";
     private IReadOnlyList<InstalledModel> _installedModels = [];
     private IReadOnlyDictionary<string, IReadOnlySet<ComputeBackend>> _availableBackendsByModel =
         new Dictionary<string, IReadOnlySet<ComputeBackend>>(StringComparer.Ordinal);
@@ -98,6 +95,13 @@ public sealed partial class MainWindow : Window
         _triggerService = triggerService ?? throw new ArgumentNullException(nameof(triggerService));
         _trayIconService = trayIconService ?? throw new ArgumentNullException(nameof(trayIconService));
         _windowVisibility = windowVisibility ?? throw new ArgumentNullException(nameof(windowVisibility));
+        _floatingBars = new FloatingBarManager(_windowVisibility);
+        _floatingBars.TriggerRequested += async (_, _) =>
+            await RaiseTriggerAsync(DictationTriggerKind.FloatingButton, "floating-pill");
+        _floatingBars.CancelRequested += async (_, _) => await _controller.CancelAsync();
+        _floatingBars.DismissRequested += (_, _) => FloatingBarCheckBox.IsOn = false;
+        _floatingBars.SettingsRequested += (_, _) => { ShowMainWindow(); ShowPage("Settings"); };
+        _floatingBars.DisplaysChanged += (_, _) => RefreshFloatingMonitorControls();
         _windowHandle = WindowNative.GetWindowHandle(this);
         _windowMessageHost = new WindowsWindowMessageHost(_windowHandle);
         _triggerDispatcher = new DictationTriggerDispatcher(_triggerService, _triggerRouter);
@@ -112,13 +116,12 @@ public sealed partial class MainWindow : Window
         Root.ActualThemeChanged += Root_ActualThemeChanged;
         ResizeForCurrentDisplay();
         ConfigureAppTitleBar();
-        InitializeWaveform();
 
         InsertionModeComboBox.SelectedIndex = 0;
         ThemeComboBox.SelectedIndex = 0;
         BackendPreferenceComboBox.SelectedIndex = 0;
         PopulateModelSelectionComboBox();
-        ShowPage("Home");
+        ShowPage("History");
         ConfigureNativeTriggers();
         StartTriggerDispatch();
         UpdateView();
@@ -145,21 +148,6 @@ public sealed partial class MainWindow : Window
         AppWindow.Resize(new SizeInt32(
             checked((int)Math.Round(desiredWidth * fitScale)),
             checked((int)Math.Round(desiredHeight * fitScale))));
-    }
-
-    private async void PrimaryDictationButton_Click(object sender, RoutedEventArgs e)
-    {
-        await RaiseTriggerAsync(DictationTriggerKind.AppButton, "main-window");
-    }
-
-    private async void CancelButton_Click(object sender, RoutedEventArgs e)
-    {
-        await _controller.CancelAsync();
-    }
-
-    private async void PauseButton_Click(object sender, RoutedEventArgs e)
-    {
-        await _controller.PauseAsync();
     }
 
     private async void RetryButton_Click(object sender, RoutedEventArgs e)
@@ -528,7 +516,6 @@ public sealed partial class MainWindow : Window
     {
         UpdateAppTitleBarTheme();
         UpdateComputeButtons();
-        SetNavigationButtonState(HomeNavButton, string.Equals(_currentPage, "Home", StringComparison.OrdinalIgnoreCase));
         SetNavigationButtonState(ModelsNavButton, string.Equals(_currentPage, "Models", StringComparison.OrdinalIgnoreCase));
         SetNavigationButtonState(SettingsNavButton, string.Equals(_currentPage, "Settings", StringComparison.OrdinalIgnoreCase));
         RenderModelCatalog();
@@ -618,22 +605,31 @@ public sealed partial class MainWindow : Window
 
     private bool WindowMessageHost_MessageReceived(WindowsWindowMessage message)
     {
+        // Display and device notifications can arrive before Windows finishes arranging monitors.
+        if (message.Id is 0x007E or 0x0219) // WM_DISPLAYCHANGE, WM_DEVICECHANGE
+            _floatingBars.ScheduleDisplayRefresh();
         return _triggerService.HandleWindowMessage(message.Id, message.WParam) ||
             _trayIconService.HandleWindowMessage(message);
     }
 
     private void Controller_StateChanged(object? sender, EventArgs e)
     {
-        _ = DispatcherQueue.TryEnqueue(UpdateView);
+        _ = DispatcherQueue.TryEnqueue(() =>
+        {
+            UpdateView();
+            if (!_controller.State.IsRunning)
+            {
+                if (_currentPage == "History") _ = HistoryPage.RefreshAsync();
+                if (_currentPage == "Insights") _ = InsightsPage.RefreshAsync();
+            }
+        });
     }
 
     private void Controller_AudioLevelChanged(object? sender, AudioLevelFrame level)
     {
         DispatcherQueue.TryEnqueue(() =>
         {
-            AudioLevelBar.Value = Math.Clamp(level.Peak * 100, AudioLevelBar.Minimum, AudioLevelBar.Maximum);
-            UpdateAudioWaveform(level.Peak);
-            _floatingMicWindow?.UpdateAudioLevel(level.Peak);
+            _floatingBars.UpdateAudioLevel(level.Peak);
         });
     }
 
@@ -659,7 +655,6 @@ public sealed partial class MainWindow : Window
             if (devices.Count == 0)
             {
                 AudioDeviceComboBox.PlaceholderText = "No microphone available";
-                MicrophoneReadinessText.Text = "No microphone found";
                 TriggerStatusText.Text = DiagnosticFailureText.MicrophoneRecovery;
                 return;
             }
@@ -670,12 +665,10 @@ public sealed partial class MainWindow : Window
             SelectAudioDevice(selectedDeviceId);
             _audioDevicesLoaded = true;
             AudioDeviceComboBox.IsEnabled = !_controller.State.IsRunning;
-            MicrophoneReadinessText.Text = "Ready";
         }
         catch (Exception ex)
         {
             AudioDeviceComboBox.PlaceholderText = "Microphone unavailable";
-            MicrophoneReadinessText.Text = "Unavailable";
             TriggerStatusText.Text = DiagnosticFailureText.MicrophoneRecovery;
             AutomationProperties.SetHelpText(AudioDeviceComboBox, DiagnosticTextRedactor.Redact(ex.Message));
         }
@@ -777,8 +770,8 @@ public sealed partial class MainWindow : Window
     private void UseOriginalButton_Click(object sender, RoutedEventArgs e) => _controller.UseRawTranscript();
     private void ReviewCorrectionButton_Click(object sender, RoutedEventArgs e)
     {
+        ShowPage("Dictionary");
         DictionaryEditor.ReviewPreviewCorrection(_controller.State.RawTranscript, TranscriptPreviewBox.Text);
-        ShowPage("Settings");
         DictionaryEditor.StartBringIntoView();
     }
 
@@ -786,10 +779,6 @@ public sealed partial class MainWindow : Window
     {
         DictationShellState state = _controller.State;
 
-        StateText.Text = FormatState(state.SessionState);
-        StatusText.Text = FormatPrimaryStatus(state);
-        StatusSubText.Text = FormatSecondaryStatus(state);
-        TargetText.Text = state.TargetDescription;
         UserMessageText.Text = state.UserMessage;
         TranscriptPreviewBox.Text = state.TranscriptPreview;
         UseOriginalButton.Visibility = state.CanUseRawTranscript ? Visibility.Visible : Visibility.Collapsed;
@@ -801,21 +790,6 @@ public sealed partial class MainWindow : Window
             ? Visibility.Collapsed
             : Visibility.Visible;
 
-        PrimaryButtonLabel.Text = state.IsRunning ? "Stop dictation" : "Start dictation";
-        PrimaryButtonIcon.Glyph = state.IsRunning ? "\uE71A" : "\uE720";
-        ApplyMicrophoneVisualState(state);
-        AutomationProperties.SetName(PrimaryDictationButton, PrimaryButtonLabel.Text);
-        AutomationProperties.SetHelpText(PrimaryDictationButton, state.IsRunning
-            ? "Stop recording and finalize the current dictation."
-            : "Start recording from the selected microphone.");
-        PrimaryDictationButton.IsEnabled = state.CanStart || state.CanStop;
-        CancelButton.IsEnabled = state.CanCancel;
-        CancelButton.Visibility = state.CanCancel ? Visibility.Visible : Visibility.Collapsed;
-        PauseButtonLabel.Text = state.IsPaused ? "Resume" : "Pause";
-        AutomationProperties.SetName(PauseButton, state.IsPaused ? "Resume recording" : "Pause recording");
-        PauseButton.IsEnabled = state.CanPause;
-        PauseButton.Visibility = state.IsRunning ? Visibility.Visible : Visibility.Collapsed;
-        MicrophoneReadinessPill.Visibility = state.IsRunning ? Visibility.Collapsed : Visibility.Visible;
         RetryButton.IsEnabled = state.CanRetry;
         RetryButton.Visibility = state.CanRetry ? Visibility.Visible : Visibility.Collapsed;
         CopyButton.IsEnabled = state.CanCopy;
@@ -834,26 +808,10 @@ public sealed partial class MainWindow : Window
         TranscriptPreviewBox.IsReadOnly = !state.CanInsertPreview;
         InsertionModeComboBox.IsEnabled = !state.IsRunning;
         AudioDeviceComboBox.IsEnabled = !state.IsRunning && _audioDevicesLoaded;
-        if (!state.IsRunning)
-        {
-            AudioLevelBar.Value = 0;
-            UpdateAudioWaveform(0);
-        }
-
-        StatusPillText.Text = state.SessionState == DictationSessionState.Idle
-            ? "Ready"
-            : FormatState(state.SessionState);
-        ListeningNavDot.Visibility = state.IsRunning ? Visibility.Visible : Visibility.Collapsed;
-        bool hasRecent = !string.IsNullOrWhiteSpace(state.TranscriptPreview) ||
-            state.CanRetry ||
-            state.CanCopy ||
-            state.CanInsertPreview;
-        CurrentTranscriptCard.Visibility = hasRecent ? Visibility.Visible : Visibility.Collapsed;
-        EmptyRecentCard.Visibility = hasRecent ? Visibility.Collapsed : Visibility.Visible;
-        AutomationProperties.SetName(StateText, $"State: {FormatState(state.SessionState)}");
-        AutomationProperties.SetName(StatusText, $"Status: {FormatPrimaryStatus(state)}");
+        PendingTranscriptPanel.Visibility = !state.IsRunning &&
+            (state.CanInsertPreview || state.CanRetry || !string.IsNullOrWhiteSpace(errorText))
+            ? Visibility.Visible : Visibility.Collapsed;
         AutomationProperties.SetName(UserMessageText, state.UserMessage);
-        AutomationProperties.SetName(TargetText, $"Target: {state.TargetDescription}");
         DiagnosticsSnapshotText.Text = FormatDiagnosticsSnapshot(_controller.LastResult);
 
         _trayIconService.UpdateDictationState(state.IsRunning);
@@ -870,192 +828,57 @@ public sealed partial class MainWindow : Window
     private void UpdateFloatingBar()
     {
         if (_isDisposed || !_settingsLoaded) return;
-        if (!FloatingBarCheckBox.IsOn || _isEditingShortcut || !_settings.HasCompletedOnboarding)
+        FloatingBarDisplayModeComboBox.IsEnabled = FloatingBarCheckBox.IsOn;
+        FloatingBarMonitorComboBox.IsEnabled = FloatingBarCheckBox.IsOn;
+        _floatingBars.Update(_controller.State, _pushToTalkGesture,
+            FloatingBarCheckBox.IsOn && !_isEditingShortcut && _settings.HasCompletedOnboarding,
+            _settings.ShowFloatingBarOnAllMonitors, _settings.FloatingBarMonitorId);
+    }
+
+    private void RefreshFloatingMonitorControls()
+    {
+        if (_isDisposed) return;
+        _isUpdatingFloatingMonitorControls = true;
+        try
         {
-            _floatingMicWindow?.Hide();
-            return;
-        }
-        if (_floatingMicWindow is null)
-        {
-            _floatingMicWindow = new FloatingMicWindow(_windowVisibility);
-            _floatingMicWindow.TriggerRequested += async (_, _) =>
-                await RaiseTriggerAsync(DictationTriggerKind.FloatingButton, "floating-pill");
-            _floatingMicWindow.CancelRequested += async (_, _) => await _controller.CancelAsync();
-            _floatingMicWindow.DismissRequested += (_, _) => FloatingBarCheckBox.IsOn = false;
-            _floatingMicWindow.SettingsRequested += (_, _) =>
+            FloatingBarDisplayModeComboBox.SelectedIndex = _settings.ShowFloatingBarOnAllMonitors ? 1 : 0;
+            FloatingBarMonitorComboBox.Items.Clear();
+            var primary = new ComboBoxItem { Content = "Primary monitor", Tag = "" };
+            FloatingBarMonitorComboBox.Items.Add(primary);
+            ComboBoxItem selected = primary;
+            bool found = string.IsNullOrEmpty(_settings.FloatingBarMonitorId);
+            foreach (var monitor in _floatingBars.Monitors)
             {
-                ShowMainWindow();
-                ShowPage("Settings");
-            };
-        }
-        _floatingMicWindow.Show(_controller.State, _pushToTalkGesture);
-    }
-
-    private string FormatPrimaryStatus(DictationShellState state)
-    {
-        if (!state.IsRunning && state.LastOutcome == DictationRunOutcome.NoSpeech)
-        {
-            return "No speech detected";
-        }
-        string shortcut = string.IsNullOrWhiteSpace(_triggerService.Configuration.PushToTalkKey)
-            ? "your shortcut"
-            : _triggerService.Configuration.PushToTalkKey;
-        return state.SessionState switch
-        {
-            DictationSessionState.Recording => "Listening…",
-            DictationSessionState.Paused => "Paused",
-            DictationSessionState.TranscribingFinalAudio => "Catching up…",
-            DictationSessionState.RefiningTranscript => "Cleaning up transcript",
-            DictationSessionState.InsertingText => "Adding your words…",
-            DictationSessionState.PreparingTarget => "Getting ready…",
-            DictationSessionState.RequestingMicrophone => "Checking your microphone…",
-            DictationSessionState.Failed => "Something needs attention",
-            DictationSessionState.Cancelled => "Dictation cancelled",
-            _ => $"Hold {shortcut} to dictate anywhere"
-        };
-    }
-
-    private string FormatSecondaryStatus(DictationShellState state)
-    {
-        if (!state.IsRunning && state.LastOutcome == DictationRunOutcome.NoSpeech)
-        {
-            return "Check your microphone, then try speaking again. Nothing was inserted.";
-        }
-        ModelCatalogEntry model = _transcriptionOptionsProvider.GetSelectedModelEntry(_settings);
-        string compute = (_settings.BackendPreference == ComputeBackend.Auto
-            ? "automatic compute"
-            : _settings.BackendPreference.ToString().ToUpperInvariant());
-        return state.SessionState switch
-        {
-            DictationSessionState.Recording => "Speak naturally — your audio stays on this PC",
-            DictationSessionState.Paused => "Resume when you're ready",
-            DictationSessionState.TranscribingFinalAudio => $"Transcribing with {model.DisplayName} · nothing leaves this PC",
-            DictationSessionState.RefiningTranscript => "Formatting and cleanup run on this PC",
-            DictationSessionState.InsertingText => "Returning your text to the app where you were typing",
-            DictationSessionState.Failed => state.UserMessage,
-            _ => $"{model.DisplayName} · on this PC · {compute}"
-        };
-    }
-
-    private void InitializeWaveform()
-    {
-        AudioWaveformPanel.Children.Clear();
-        _waveformBars.Clear();
-        for (int index = 0; index < WaveformBarCount; index++)
-        {
-            double idleHeight = 4 + ((index * 7) % 5);
-            var bar = new Border
+                var item = new ComboBoxItem { Content = monitor.Name, Tag = monitor.Id };
+                FloatingBarMonitorComboBox.Items.Add(item);
+                if (string.Equals(monitor.Id, _settings.FloatingBarMonitorId, StringComparison.OrdinalIgnoreCase))
+                {
+                    selected = item;
+                    found = true;
+                }
+            }
+            if (!found)
             {
-                Width = 3,
-                Height = idleHeight,
-                VerticalAlignment = VerticalAlignment.Center,
-                Background = GetBrush("ShrutiBorderStrongBrush"),
-                CornerRadius = new CornerRadius(2),
-                Opacity = 0
-            };
-            _waveformBars.Add(bar);
-            AudioWaveformPanel.Children.Add(bar);
+                selected = new ComboBoxItem { Content = "Saved monitor is disconnected", Tag = _settings.FloatingBarMonitorId };
+                FloatingBarMonitorComboBox.Items.Add(selected);
+            }
+            FloatingBarMonitorComboBox.SelectedItem = selected;
+            FloatingBarMonitorComboBox.Visibility = _settings.ShowFloatingBarOnAllMonitors ? Visibility.Collapsed : Visibility.Visible;
+            FloatingBarMonitorStatusText.Text = "Using the primary monitor until your saved monitor reconnects.";
+            FloatingBarMonitorStatusText.Visibility = !found && !_settings.ShowFloatingBarOnAllMonitors ? Visibility.Visible : Visibility.Collapsed;
         }
+        finally { _isUpdatingFloatingMonitorControls = false; }
     }
 
-    private void UpdateAudioWaveform(double peak)
+    private async void FloatingBarDisplayPreference_SelectionChanged(object sender, SelectionChangedEventArgs e)
     {
-        bool active = _controller.State.SessionState == DictationSessionState.Recording;
-        double normalizedPeak = Math.Clamp(peak, 0, 1);
-        for (int index = 0; index < _waveformBars.Count; index++)
+        if (!_settingsLoaded || _isApplyingSettings || _isUpdatingFloatingMonitorControls) return;
+        await PersistSettingsAsync();
+        if (!_isDisposed)
         {
-            double shape = 0.35 + (Math.Abs(Math.Sin(index * 1.73)) * 0.65);
-            _waveformBars[index].Height = active
-                ? Math.Max(4, 5 + (normalizedPeak * 23 * shape))
-                : 4 + ((index * 7) % 5);
-            _waveformBars[index].Background = GetBrush(
-                active ? "ShrutiAccentVividBrush" : "ShrutiBorderStrongBrush");
-            _waveformBars[index].Opacity = active ? 1 : 0;
+            RefreshFloatingMonitorControls();
+            UpdateFloatingBar();
         }
-    }
-
-    private void ApplyMicrophoneVisualState(DictationShellState state)
-    {
-        string backgroundKey;
-        string foregroundKey;
-        string borderKey;
-        bool pulse = false;
-        switch (state.SessionState)
-        {
-            case DictationSessionState.Recording:
-                backgroundKey = "ShrutiAccentVividBrush";
-                foregroundKey = "ShrutiAccentForegroundBrush";
-                borderKey = "ShrutiAccentVividBrush";
-                pulse = true;
-                break;
-            case DictationSessionState.Paused:
-                backgroundKey = "ShrutiWarningSoftBrush";
-                foregroundKey = "ShrutiWarningBrush";
-                borderKey = "ShrutiWarningSoftBrush";
-                break;
-            case DictationSessionState.Failed:
-                backgroundKey = "ShrutiDangerSoftBrush";
-                foregroundKey = "ShrutiDangerBrush";
-                borderKey = "ShrutiDangerSoftBrush";
-                break;
-            case DictationSessionState.TranscribingFinalAudio:
-            case DictationSessionState.RefiningTranscript:
-            case DictationSessionState.InsertingText:
-                backgroundKey = "ShrutiCardBrush";
-                foregroundKey = "ShrutiAccentBrush";
-                borderKey = "ShrutiBorderStrongBrush";
-                break;
-            default:
-                backgroundKey = "ShrutiCardBrush";
-                foregroundKey = "ShrutiTextSecondaryBrush";
-                borderKey = "ShrutiBorderStrongBrush";
-                break;
-        }
-
-        PrimaryDictationButton.Background = GetBrush(backgroundKey);
-        PrimaryDictationButton.Foreground = GetBrush(foregroundKey);
-        PrimaryDictationButton.BorderBrush = GetBrush(borderKey);
-        if (pulse)
-        {
-            StartMicPulse();
-        }
-        else
-        {
-            StopMicPulse();
-        }
-    }
-
-    private void StartMicPulse()
-    {
-        if (_micPulseStoryboard is not null)
-        {
-            return;
-        }
-
-        var duration = new Duration(TimeSpan.FromSeconds(1.6));
-        var scaleX = new DoubleAnimation { From = 1, To = 1.35, Duration = duration };
-        var scaleY = new DoubleAnimation { From = 1, To = 1.35, Duration = duration };
-        var opacity = new DoubleAnimation { From = 0.38, To = 0, Duration = duration };
-        Storyboard.SetTarget(scaleX, MicPulseScale);
-        Storyboard.SetTarget(scaleY, MicPulseScale);
-        Storyboard.SetTarget(opacity, MicPulseRing);
-        Storyboard.SetTargetProperty(scaleX, "ScaleX");
-        Storyboard.SetTargetProperty(scaleY, "ScaleY");
-        Storyboard.SetTargetProperty(opacity, "Opacity");
-        _micPulseStoryboard = new Storyboard { RepeatBehavior = RepeatBehavior.Forever };
-        _micPulseStoryboard.Children.Add(scaleX);
-        _micPulseStoryboard.Children.Add(scaleY);
-        _micPulseStoryboard.Children.Add(opacity);
-        _micPulseStoryboard.Begin();
-    }
-
-    private void StopMicPulse()
-    {
-        _micPulseStoryboard?.Stop();
-        _micPulseStoryboard = null;
-        MicPulseScale.ScaleX = 1;
-        MicPulseScale.ScaleY = 1;
-        MicPulseRing.Opacity = 0;
     }
 
     private SolidColorBrush GetBrush(string key)
@@ -1657,9 +1480,6 @@ public sealed partial class MainWindow : Window
             await _triggerService.ConfigureAsync(configuration, CancellationToken.None);
             _trayIconService.SetDictationCommandsEnabled(configuration.EnableTrayMenu);
             _trayIconService.SetVisible(isVisible: true);
-            HoldShortcutText.Text = string.IsNullOrWhiteSpace(configuration.PushToTalkKey)
-                ? "Hold shortcut"
-                : configuration.PushToTalkKey;
             UpdateView();
             TriggerStatusText.Text = "Triggers are active.";
             if (persist)
@@ -1696,9 +1516,6 @@ public sealed partial class MainWindow : Window
         _pushToTalkGesture = configuration.PushToTalkKey ?? string.Empty;
         ShortcutCaptureDialog.SetKeycaps(GlobalShortcutKeys, _globalHotkeyGesture);
         ShortcutCaptureDialog.SetKeycaps(PushToTalkShortcutKeys, _pushToTalkGesture);
-        HoldShortcutText.Text = string.IsNullOrWhiteSpace(configuration.PushToTalkKey)
-            ? "Hold shortcut"
-            : configuration.PushToTalkKey;
     }
 
     private async Task EnsureSettingsLoadedAsync()
@@ -1762,6 +1579,7 @@ public sealed partial class MainWindow : Window
     private void ApplySettingsToControls(ShrutiSettings settings)
     {
         FloatingBarCheckBox.IsOn = settings.ShowFloatingBar;
+        RefreshFloatingMonitorControls();
         SelectComboBoxItem(InsertionModeComboBox, settings.InsertionMode.ToString());
         SelectComboBoxItem(ThemeComboBox, ToElementTheme(settings.ThemePreference).ToString());
         SelectComboBoxItem(BackendPreferenceComboBox, settings.BackendPreference.ToString());
@@ -1809,6 +1627,8 @@ public sealed partial class MainWindow : Window
                 AllowSlowTranscription = AllowSlowTranscriptionCheckBox.IsChecked == true,
                 HasCompletedOnboarding = _settings.HasCompletedOnboarding,
                 ShowFloatingBar = FloatingBarCheckBox.IsOn,
+                ShowFloatingBarOnAllMonitors = FloatingBarDisplayModeComboBox.SelectedIndex == 1,
+                FloatingBarMonitorId = (FloatingBarMonitorComboBox.SelectedItem as ComboBoxItem)?.Tag is string monitorId && monitorId.Length > 0 ? monitorId : null,
                 TriggerConfiguration = GetTriggerConfigurationFromControls()
             };
             _transcriptionOptionsProvider.ApplySettings(_settings);
@@ -2220,29 +2040,31 @@ public sealed partial class MainWindow : Window
 
     private void ShowPage(string page)
     {
-        bool isHome = string.Equals(page, "Home", StringComparison.OrdinalIgnoreCase);
         bool isModels = string.Equals(page, "Models", StringComparison.OrdinalIgnoreCase);
         bool isSettings = string.Equals(page, "Settings", StringComparison.OrdinalIgnoreCase);
-        if (!isHome && !isModels && !isSettings)
+        bool isLibrary = page is "History" or "Insights" or "Dictionary" or "Snippets";
+        if (!isModels && !isSettings && !isLibrary)
         {
-            isHome = true;
-            page = "Home";
+            page = "History";
         }
 
         _currentPage = page;
 
-        HomePage.Visibility = isHome ? Visibility.Visible : Visibility.Collapsed;
+        foreach (var item in new (string Name, LibraryPage Page, Button Button)[] {
+            ("History", HistoryPage, HistoryNavButton), ("Insights", InsightsPage, InsightsNavButton),
+            ("Dictionary", DictionaryEditor, DictionaryNavButton), ("Snippets", SnippetsPage, SnippetsNavButton) })
+        {
+            bool selected = item.Name == page;
+            item.Page.Visibility = selected ? Visibility.Visible : Visibility.Collapsed;
+            SetNavigationButtonState(item.Button, selected);
+            if (selected) _ = item.Page.RefreshAsync();
+        }
+        HistoryContainer.Visibility = page == "History" ? Visibility.Visible : Visibility.Collapsed;
         ModelsPage.Visibility = isModels ? Visibility.Visible : Visibility.Collapsed;
         SettingsPanel.Visibility = isSettings ? Visibility.Visible : Visibility.Collapsed;
 
-        SetNavigationButtonState(HomeNavButton, isHome);
         SetNavigationButtonState(ModelsNavButton, isModels);
         SetNavigationButtonState(SettingsNavButton, isSettings);
-
-        if (isHome && _settingsLoaded)
-        {
-            UpdateView();
-        }
 
         if (isModels && _settingsLoaded)
         {
@@ -2291,8 +2113,7 @@ public sealed partial class MainWindow : Window
         }
 
         _isDisposed = true;
-        _floatingMicWindow?.CloseForApplicationExit();
-        _floatingMicWindow = null;
+        _floatingBars.Dispose();
         _controller.AudioLevelChanged -= Controller_AudioLevelChanged;
         _triggerDispatchCancellation.Cancel();
         _targetFocusService.Dispose();
