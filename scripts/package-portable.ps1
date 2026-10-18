@@ -63,7 +63,12 @@ Transcription history, dictionary entries, and snippets are saved locally. Manag
 Optional AI cleanup requires a separate model download and runs locally.
 '@ | Set-Content -LiteralPath (Join-Path $output 'PORTABLE.txt') -Encoding utf8
 $zip = Join-Path $channelOutput "Shruti-$Version-x64.zip"
-Compress-Archive -LiteralPath $output -DestinationPath $zip -Force
+# ZipFile writes forward slashes in both local and central directory headers.
+# Compress-Archive can write backslashes in local headers for empty directories,
+# which WinGet's archive validator rejects.
+Add-Type -AssemblyName System.IO.Compression.FileSystem
+if (Test-Path -LiteralPath $zip) { Remove-Item -LiteralPath $zip -Force }
+[IO.Compression.ZipFile]::CreateFromDirectory($output, $zip, [IO.Compression.CompressionLevel]::Optimal, $true)
 $hash = (Get-FileHash -LiteralPath $zip -Algorithm SHA256).Hash.ToLowerInvariant()
 "$hash  $([IO.Path]::GetFileName($zip))" | Set-Content -LiteralPath (Join-Path $channelOutput 'SHA256SUMS.txt') -Encoding ascii
 [pscustomobject]@{ Package = $zip; Version = $Version; SourceCommit = $sourceCommit; Sha256 = $hash }
