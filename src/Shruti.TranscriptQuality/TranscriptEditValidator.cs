@@ -23,7 +23,7 @@ internal static class TranscriptEditValidator
         var ordered = edits.OrderBy(edit => edit.Start).ToArray();
         for (int i = 1; i < ordered.Length; i++)
             if (ordered[i].Start < ordered[i - 1].Start + ordered[i - 1].Length) return false;
-        foreach (var edit in ordered.Reverse()) result = result.Remove(edit.Start, edit.Length).Insert(edit.Start, edit.Replacement);
+        foreach (var edit in Enumerable.Reverse(ordered)) result = result.Remove(edit.Start, edit.Length).Insert(edit.Start, edit.Replacement);
         if (string.IsNullOrWhiteSpace(result) || result.Length > original.Length * 1.35 + 8) { result = original; return false; }
         // Keep every protected occurrence, not just membership in a set.
         string[] fixedTokens = Regex.Matches(original,
@@ -39,7 +39,7 @@ internal static class TranscriptEditValidator
         int changedWords = WordDistance(original, result);
         if (changedWords > Math.Max(2, Math.Ceiling(wordCount * 0.35))) { result = original; return false; }
         // Returned edits replay in order without shifting later offsets.
-        applied = ordered.Reverse().ToArray();
+        applied = Enumerable.Reverse(ordered).ToArray();
         return true;
     }
 

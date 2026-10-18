@@ -1,4 +1,6 @@
 $ErrorActionPreference = 'Stop'
+# A Windows PowerShell child launched from pwsh can inherit only pwsh module paths.
+$env:PSModulePath = (Join-Path $PSHOME 'Modules') + [IO.Path]::PathSeparator + $env:PSModulePath
 $root = Split-Path -Parent $PSScriptRoot
 $directory = Join-Path $root 'artifacts/speech-detection'
 $modelPath = Join-Path $directory 'ggml-silero-v6.2.0.bin'
