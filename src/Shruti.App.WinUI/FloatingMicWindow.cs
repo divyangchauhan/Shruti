@@ -101,7 +101,8 @@ public sealed class FloatingMicWindow : Window
             if (_mode == "notice" && DateTimeOffset.UtcNow >= _noticeUntil) Render();
             if (_tick % 8 == 0) Place();
         };
-        AppWindow.Closing += (_, args) => { if (!_closing) { args.Cancel = true; DismissRequested?.Invoke(this, EventArgs.Empty); } };
+        // The manager owns this window's lifetime. A system close request leaves the preference alone.
+        AppWindow.Closing += (_, args) => args.Cancel = !_closing;
         Closed += (_, _) =>
         {
             _timer.Stop();
