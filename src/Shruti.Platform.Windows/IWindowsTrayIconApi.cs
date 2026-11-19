@@ -12,6 +12,8 @@ public interface IWindowsTrayIconApi
 
     void SetCommandState(bool isDictationRunning, bool areDictationCommandsEnabled);
 
+    void SetDarkTheme(bool darkTheme);
+
     WindowsTrayCommand? ShowMenu(
         IntPtr windowHandle,
         bool isDictationRunning,

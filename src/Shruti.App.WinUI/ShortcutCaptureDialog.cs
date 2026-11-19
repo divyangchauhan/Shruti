@@ -1,7 +1,6 @@
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Automation;
 using Microsoft.UI.Xaml.Controls;
-using Microsoft.UI.Xaml.Media;
 using Shruti.Core.Diagnostics;
 using Shruti.Platform.Windows;
 
@@ -14,7 +13,7 @@ internal sealed class ShortcutCaptureDialog : ContentDialog
     private readonly bool _allowSingleKey;
     private readonly Func<string, Task> _save;
     private readonly StackPanel _keys = new() { Orientation = Orientation.Horizontal, Spacing = 6, HorizontalAlignment = HorizontalAlignment.Center };
-    private readonly TextBlock _status = new() { TextWrapping = TextWrapping.Wrap, TextAlignment = TextAlignment.Center };
+    private readonly TextBlock _status = new() { FontSize = 13, TextWrapping = TextWrapping.Wrap, TextAlignment = TextAlignment.Center };
     private readonly InfoBar _error = new() { Severity = InfoBarSeverity.Error, IsClosable = false };
     private readonly Button _record = new() { Content = "Record again", HorizontalAlignment = HorizontalAlignment.Center };
     private WindowsShortcutCapture? _capture;
@@ -29,46 +28,41 @@ internal sealed class ShortcutCaptureDialog : ContentDialog
         _save = save;
         XamlRoot = root;
         RequestedTheme = ((FrameworkElement)owner.Content).ActualTheme;
-        Title = holdToTalk ? "Change hold-to-dictate shortcut" : "Change single-press shortcut";
+        Title = holdToTalk ? "Hold-to-dictate shortcut" : "Press-to-toggle shortcut";
         PrimaryButtonText = "Save shortcut";
         CloseButtonText = "Cancel";
         DefaultButton = ContentDialogButton.None;
         IsPrimaryButtonEnabled = false;
 
-        var body = new StackPanel { Spacing = 20, MinWidth = 360, MaxWidth = 440 };
-        body.Children.Add(new TextBlock
-        {
-            Text = holdToTalk ? "Hold this shortcut while you speak. Release it to finish." : "Press this shortcut to start or stop dictation.",
-            TextWrapping = TextWrapping.Wrap
-        });
-        var currentRow = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8 };
-        currentRow.Children.Add(new TextBlock { Text = "Current", VerticalAlignment = VerticalAlignment.Center, Opacity = 0.7 });
+        var body = new StackPanel { Spacing = 14, MinWidth = 300, MaxWidth = 420 };
+        var currentRow = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 12 };
+        currentRow.Children.Add(new TextBlock { Text = "Current shortcut", VerticalAlignment = VerticalAlignment.Center });
         var currentKeys = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 4 };
         SetKeycaps(currentKeys, current);
         currentRow.Children.Add(currentKeys);
         body.Children.Add(currentRow);
-        var captureArea = new StackPanel { Spacing = 16, VerticalAlignment = VerticalAlignment.Center };
+        var captureArea = new StackPanel { Spacing = 10, VerticalAlignment = VerticalAlignment.Center };
+        captureArea.Children.Add(new FontIcon { Glyph = "\uE765", FontSize = 24, HorizontalAlignment = HorizontalAlignment.Center });
         captureArea.Children.Add(_keys);
         captureArea.Children.Add(_status);
         body.Children.Add(new Border
         {
-            Padding = new Thickness(20, 28, 20, 28),
-            MinHeight = 136,
+            Style = (Style)Application.Current.Resources["LibraryCardStyle"],
+            Padding = new Thickness(20),
+            MinHeight = 128,
             CornerRadius = new CornerRadius(12),
-            BorderThickness = new Thickness(1),
-            BorderBrush = (Brush)Application.Current.Resources["AccentFillColorDefaultBrush"],
-            Background = (Brush)Application.Current.Resources["ControlFillColorSecondaryBrush"],
             Child = captureArea
         });
         body.Children.Add(_record);
         body.Children.Add(_error);
         body.Children.Add(new TextBlock
         {
-            Text = (holdToTalk ? "Use Ctrl + Win, or a modifier and a key such as Ctrl + Space. Press Esc to cancel." : "Use a modifier and a key, such as Ctrl + Space. Press Esc to cancel.") +
-                (holdToTalk ? " A function key or Right Ctrl can also be used alone." : ""),
+            Text = holdToTalk
+                ? "Try Ctrl + Win, Ctrl + Space, a function key, or Right Ctrl. Press Esc to cancel."
+                : "Combine a modifier with another key, such as Ctrl + Space. Press Esc to cancel.",
             TextWrapping = TextWrapping.Wrap,
-            FontSize = 12,
-            Opacity = 0.7
+            FontSize = 13,
+            Opacity = 0.85
         });
         Content = body;
         AutomationProperties.SetLiveSetting(_status, Microsoft.UI.Xaml.Automation.Peers.AutomationLiveSetting.Polite);
@@ -96,11 +90,10 @@ internal sealed class ShortcutCaptureDialog : ContentDialog
         {
             panel.Children.Add(new Border
             {
-                Padding = new Thickness(8, 4, 8, 4),
+                Style = (Style)Application.Current.Resources["LibraryCardStyle"],
+                Padding = new Thickness(8, 3, 8, 3),
                 CornerRadius = new CornerRadius(5),
-                BorderThickness = new Thickness(1),
-                BorderBrush = (Brush)Application.Current.Resources["ControlStrokeColorDefaultBrush"],
-                Background = (Brush)Application.Current.Resources["ControlFillColorDefaultBrush"],
+                BorderThickness = new Thickness(1, 1, 1, 2),
                 Child = new TextBlock { Text = key == "RightControl" ? "Right Ctrl" : key, FontSize = 13 }
             });
         }
@@ -116,6 +109,7 @@ internal sealed class ShortcutCaptureDialog : ContentDialog
         _keys.Children.Clear();
         _keys.Children.Add(new TextBlock { Text = "Press your shortcut", FontSize = 20, FontWeight = Microsoft.UI.Text.FontWeights.SemiBold });
         _status.Text = "Listening for keys…";
+        _record.Visibility = Visibility.Collapsed;
         _record.IsEnabled = false;
         try
         {
@@ -125,6 +119,7 @@ internal sealed class ShortcutCaptureDialog : ContentDialog
         catch (Exception exception)
         {
             ShowError(exception.Message);
+            _record.Visibility = Visibility.Visible;
             _record.IsEnabled = true;
         }
     }
@@ -146,6 +141,7 @@ internal sealed class ShortcutCaptureDialog : ContentDialog
                 return;
             }
             _gesture = recorder.Gesture;
+            _record.Visibility = Visibility.Visible;
             _record.IsEnabled = true;
             IsPrimaryButtonEnabled = _gesture is not null;
             _status.Text = _gesture is null ? "Try another shortcut." : "Ready to save";
@@ -162,6 +158,7 @@ internal sealed class ShortcutCaptureDialog : ContentDialog
         IsPrimaryButtonEnabled = false;
         _keys.Children.Clear();
         _status.Text = "Capture paused. Select Record again to continue.";
+        _record.Visibility = Visibility.Visible;
         _record.IsEnabled = true;
     }
 

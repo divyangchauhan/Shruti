@@ -7,6 +7,7 @@
         <ResourceDictionary>
             <ResourceDictionary.MergedDictionaries>
                 <XamlControlsResources xmlns="using:Microsoft.UI.Xaml.Controls" />
+                <ResourceDictionary Source="Styles/LibraryResources.xaml" />
             </ResourceDictionary.MergedDictionaries>
             <Style TargetType="ComboBox">
                 <Setter Property="local:PopupAppearance.UseOpaqueBackground" Value="True" />
@@ -22,6 +23,10 @@
                 <Setter Property="FontSize" Value="15" />
                 <Setter Property="Foreground" Value="{ThemeResource ShrutiTextPrimaryBrush}" />
                 <Setter Property="TextWrapping" Value="Wrap" />
+            </Style>
+            <Style x:Key="DictationIconTileStyle" TargetType="Border">
+                <Setter Property="Background" Value="{ThemeResource ShrutiAccentSoftBrush}" />
+                <Setter Property="CornerRadius" Value="12" />
             </Style>
             <Style x:Key="LibraryCardStyle" TargetType="Border">
                 <Setter Property="Background" Value="{ThemeResource ShrutiCardBrush}" />

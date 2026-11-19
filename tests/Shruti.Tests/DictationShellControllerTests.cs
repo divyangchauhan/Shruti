@@ -186,6 +186,19 @@ public sealed class DictationShellControllerTests
     }
 
     [Fact]
+    public async Task CopyPreviewTextAsync_CopiesTheEditedDraft()
+    {
+        var services = MockDictationAppServices.Create();
+        var controller = services.CreateShellController();
+        await controller.StartAsync(DictationInsertionMode.PreviewFirst);
+        await controller.StopAsync();
+
+        Assert.True(await controller.CopyPreviewTextAsync("Edited before copying."));
+        Assert.Equal("Edited before copying.", services.Clipboard.LastCopiedText);
+        Assert.Equal("Edited before copying.", controller.State.TranscriptPreview);
+    }
+
+    [Fact]
     public async Task CopyTranscriptAsync_WhenClipboardWriteFailsLeavesRecoverableState()
     {
         var services = MockDictationAppServices.Create();

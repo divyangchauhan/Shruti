@@ -82,7 +82,10 @@ public sealed partial class MainWindow : Window
         IWindowsWindowVisibility windowVisibility)
     {
         InitializeComponent();
+        TriggerStatusText.RegisterPropertyChangedCallback(TextBlock.TextProperty, (_, _) =>
+            TriggerStatusText.Visibility = string.IsNullOrEmpty(TriggerStatusText.Text) ? Visibility.Collapsed : Visibility.Visible);
         AppIcon.Apply(AppWindow);
+        HistoryPage.ModelsRequested += (_, _) => ShowPage("Models");
 
         _controller = controller ?? throw new ArgumentNullException(nameof(controller));
         _audioCaptureService = audioCaptureService ?? throw new ArgumentNullException(nameof(audioCaptureService));
@@ -94,10 +97,12 @@ public sealed partial class MainWindow : Window
         _targetFocusService = targetFocusService ?? throw new ArgumentNullException(nameof(targetFocusService));
         _triggerService = triggerService ?? throw new ArgumentNullException(nameof(triggerService));
         _trayIconService = trayIconService ?? throw new ArgumentNullException(nameof(trayIconService));
+        _trayIconService.SetDarkTheme(Root.ActualTheme == ElementTheme.Dark);
         _windowVisibility = windowVisibility ?? throw new ArgumentNullException(nameof(windowVisibility));
         _floatingBars = new FloatingBarManager(_windowVisibility);
         _floatingBars.TriggerRequested += async (_, _) =>
             await RaiseTriggerAsync(DictationTriggerKind.FloatingButton, "floating-pill");
+        _floatingBars.ResumeRequested += async (_, _) => { if (_controller.State.IsPaused) await _controller.PauseAsync(); };
         _floatingBars.CancelRequested += async (_, _) => await _controller.CancelAsync();
         _floatingBars.DismissRequested += (_, _) => FloatingBarCheckBox.IsOn = false;
         _floatingBars.SettingsRequested += (_, _) => { ShowMainWindow(); ShowPage("Settings"); };
@@ -157,7 +162,7 @@ public sealed partial class MainWindow : Window
 
     private async void CopyButton_Click(object sender, RoutedEventArgs e)
     {
-        await _controller.CopyTranscriptAsync();
+        await _controller.CopyPreviewTextAsync(TranscriptPreviewBox.Text);
     }
 
     private async void InsertPreviewButton_Click(object sender, RoutedEventArgs e)
@@ -260,13 +265,15 @@ public sealed partial class MainWindow : Window
     private async void OnboardingMicrophoneButton_Click(object sender, RoutedEventArgs e)
     {
         OnboardingMicrophoneButton.IsEnabled = false;
+        OnboardingMicrophoneError.IsOpen = false;
+        OnboardingMicrophoneButton.Content = "Checking microphone";
         OnboardingMicStatusText.Text = "Checking access. Allow the Windows microphone prompt if it appears.";
         try
         {
             await LoadAudioDevicesAsync();
             if (!_audioDevicesLoaded)
             {
-                OnboardingMicStatusText.Text = DiagnosticFailureText.MicrophoneRecovery;
+                ShowOnboardingMicrophoneError();
                 return;
             }
 
@@ -284,12 +291,19 @@ public sealed partial class MainWindow : Window
         }
         catch (Exception)
         {
-            OnboardingMicStatusText.Text = DiagnosticFailureText.MicrophoneRecovery;
+            ShowOnboardingMicrophoneError();
         }
         finally
         {
             OnboardingMicrophoneButton.IsEnabled = true;
         }
+    }
+
+    private void ShowOnboardingMicrophoneError()
+    {
+        OnboardingMicStatusText.Text = string.Empty;
+        OnboardingMicrophoneError.IsOpen = true;
+        OnboardingMicrophoneButton.Content = "Retry microphone check";
     }
 
     private async void OnboardingModelActionButton_Click(object sender, RoutedEventArgs e)
@@ -343,6 +357,10 @@ public sealed partial class MainWindow : Window
             await _settingsRepository.SaveAsync(completed, CancellationToken.None);
             _settings = completed;
             OnboardingLayer.Visibility = Visibility.Collapsed;
+            AppNavigation.Visibility = Visibility.Visible;
+            AppPages.Visibility = Visibility.Visible;
+            ShowPage("History");
+            HistoryNavButton.Focus(FocusState.Programmatic);
             UpdateFloatingBar();
         }
         catch (Exception ex)
@@ -514,10 +532,11 @@ public sealed partial class MainWindow : Window
 
     private void Root_ActualThemeChanged(FrameworkElement sender, object args)
     {
+        _trayIconService.SetDarkTheme(Root.ActualTheme == ElementTheme.Dark);
         UpdateAppTitleBarTheme();
         UpdateComputeButtons();
-        SetNavigationButtonState(ModelsNavButton, string.Equals(_currentPage, "Models", StringComparison.OrdinalIgnoreCase));
-        SetNavigationButtonState(SettingsNavButton, string.Equals(_currentPage, "Settings", StringComparison.OrdinalIgnoreCase));
+        foreach (var button in new[] { HistoryNavButton, InsightsNavButton, DictionaryNavButton, SnippetsNavButton, ModelsNavButton, SettingsNavButton })
+            SetNavigationButtonState(button, Equals(button.Tag, _currentPage));
         RenderModelCatalog();
         UpdateView();
     }
@@ -678,6 +697,7 @@ public sealed partial class MainWindow : Window
     {
         if (AudioDeviceComboBox.SelectedItem is ComboBoxItem item && item.Tag is string deviceId)
         {
+            ToolTipService.SetToolTip(AudioDeviceComboBox, item.Content?.ToString());
             _controller.SetAudioInputDevice(deviceId);
             await PersistSettingsAsync();
         }
@@ -784,14 +804,44 @@ public sealed partial class MainWindow : Window
         UseOriginalButton.Visibility = state.CanUseRawTranscript ? Visibility.Visible : Visibility.Collapsed;
         ReviewCorrectionButton.Visibility = !state.IsRunning && state.RawTranscript.Length > 0 ? Visibility.Visible : Visibility.Collapsed;
 
+        PreviewTools.Visibility = state.CanUseRawTranscript || ReviewCorrectionButton.Visibility == Visibility.Visible
+            ? Visibility.Visible : Visibility.Collapsed;
         string errorText = FormatErrorText(state);
+        PreviewHeading.Text = state.LastOutcome switch
+        {
+            _ when state.CanInsertPreview => $"Insert into {state.TargetDescription}",
+            _ when !string.IsNullOrWhiteSpace(errorText) => state.CanCopy ? "Recover transcript" : "Dictation needs attention",
+            DictationRunOutcome.Inserted => "Text inserted",
+            DictationRunOutcome.CopyOnly => state.CanCopy ? "Copied to clipboard" : "No text to copy",
+            DictationRunOutcome.PreviewRequired => "Check the destination",
+            _ => state.CanCopy ? "Latest transcript" : "Dictation needs attention"
+        };
         ErrorText.Text = errorText;
-        ErrorText.Visibility = string.IsNullOrWhiteSpace(errorText)
+        ErrorNotice.Visibility = string.IsNullOrWhiteSpace(errorText)
             ? Visibility.Collapsed
             : Visibility.Visible;
 
         RetryButton.IsEnabled = state.CanRetry;
         RetryButton.Visibility = state.CanRetry ? Visibility.Visible : Visibility.Collapsed;
+        bool completed = string.IsNullOrWhiteSpace(errorText) && state.CanCopy &&
+            state.LastOutcome is DictationRunOutcome.CopyOnly or DictationRunOutcome.Inserted;
+        if (state.CanInsertPreview || completed)
+            CopyButton.ClearValue(FrameworkElement.StyleProperty);
+        else
+            CopyButton.Style = (Style)Application.Current.Resources["LibraryPrimaryButton"];
+        if (completed)
+            RetryButton.Style = (Style)Application.Current.Resources["LibraryPrimaryButton"];
+        else
+            RetryButton.ClearValue(FrameworkElement.StyleProperty);
+        Grid.SetColumn(CopyButton, completed ? 0 : 1);
+        Grid.SetColumn(RetryButton, completed ? 1 : 0);
+        if (completed)
+            UserMessageText.Text = state.LastOutcome == DictationRunOutcome.CopyOnly
+                ? "Paste the transcript in the field where you want to write."
+                : $"Inserted into {state.TargetDescription}.";
+        bool alreadyCopied = completed && state.LastOutcome == DictationRunOutcome.CopyOnly;
+        CopyButton.Content = alreadyCopied ? "Copy again" : state.CanInsertPreview ? "Copy" : "Copy transcript";
+        AutomationProperties.SetName(CopyButton, alreadyCopied ? "Copy transcript again" : "Copy transcript");
         CopyButton.IsEnabled = state.CanCopy;
         CopyButton.Visibility = state.CanCopy ? Visibility.Visible : Visibility.Collapsed;
         InsertPreviewButton.IsEnabled = state.CanInsertPreview;
@@ -811,8 +861,8 @@ public sealed partial class MainWindow : Window
         PendingTranscriptPanel.Visibility = !state.IsRunning &&
             (state.CanInsertPreview || state.CanRetry || !string.IsNullOrWhiteSpace(errorText))
             ? Visibility.Visible : Visibility.Collapsed;
-        AutomationProperties.SetName(UserMessageText, state.UserMessage);
-        DiagnosticsSnapshotText.Text = FormatDiagnosticsSnapshot(_controller.LastResult);
+        AutomationProperties.SetName(UserMessageText, UserMessageText.Text);
+        UpdateDiagnostics(_controller.LastResult);
 
         _trayIconService.UpdateDictationState(state.IsRunning);
         UpdateFloatingBar();
@@ -978,149 +1028,118 @@ public sealed partial class MainWindow : Window
         {
             ModelListPanel.Children.Add(CreateModelCard(model));
         }
+        if (visibleModels.Count == 0)
+        {
+            ModelListPanel.Children.Add(new TextBlock
+            {
+                Text = "No speech models match this processor.",
+                Margin = new Thickness(18),
+                Style = (Style)Root.Resources["MutedTextStyle"]
+            });
+        }
     }
 
     private Border CreateModelCard(ModelCatalogEntry model)
     {
-        InstalledModel? installed = FindInstalledModel(model.Id);
-        bool isInstalled = installed is not null;
+        bool isInstalled = FindInstalledModel(model.Id) is not null;
         bool isSelected = string.Equals(_settings.SelectedModelId, model.Id, StringComparison.Ordinal);
-        ComputeBackend compute = isSelected
-            ? _settings.BackendPreference == ComputeBackend.Auto
-                ? _resolvedBackend
-                : _settings.BackendPreference
-            : _modelBackendFilter != ComputeBackend.Auto && GetAvailableBackends(model).Contains(_modelBackendFilter)
-                ? _modelBackendFilter
-                : model.SupportedBackends.FirstOrDefault(ComputeBackend.Cpu);
+        var row = new Grid { ColumnSpacing = 16 };
+        row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
 
-        var card = new Border
-        {
-            Style = (Style)Root.Resources["CardBorderStyle"],
-            Padding = new Thickness(20, 16, 20, 16),
-            BorderBrush = GetBrush(isSelected ? "ShrutiAccentBrush" : "ShrutiBorderSubtleBrush")
-        };
-        var grid = new Grid { ColumnSpacing = 16 };
-        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-
-        var details = new StackPanel { Spacing = 5 };
-        var titleRow = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8 };
-        titleRow.Children.Add(new TextBlock
+        var details = new StackPanel { Spacing = 4, VerticalAlignment = VerticalAlignment.Center };
+        var title = new TextBlock
         {
             Text = model.DisplayName,
             FontSize = 16,
-            FontWeight = Microsoft.UI.Text.FontWeights.SemiBold
-        });
-        if (isSelected)
+            FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
+            TextWrapping = TextWrapping.Wrap
+        };
+        details.Children.Add(title);
+        var metadata = new TextBlock
         {
-            titleRow.Children.Add(CreateBadge("Active", "ShrutiAccentBrush", "ShrutiAccentSoftBrush"));
-        }
-        else if (isInstalled)
-        {
-            titleRow.Children.Add(CreateBadge("✓ Installed", "ShrutiSuccessBrush", "ShrutiSuccessSoftBrush"));
-        }
-
-        (string computeForeground, string computeBackground) = GetComputeBrushKeys(compute);
-        titleRow.Children.Add(CreateBadge(compute.ToString().ToUpperInvariant(), computeForeground, computeBackground));
-        details.Children.Add(titleRow);
-        details.Children.Add(new TextBlock
-        {
-            Text = FormatModelDetails(model),
-            FontSize = 12,
-            FontFamily = new FontFamily("Cascadia Code, Consolas"),
+            Text = isSelected && !isInstalled ? $"Selected  ·  {FormatModelDetails(model)}" : FormatModelDetails(model),
+            FontSize = 13,
             Style = (Style)Root.Resources["MutedTextStyle"]
-        });
-        grid.Children.Add(details);
+        };
+        details.Children.Add(metadata);
+        row.Children.Add(details);
 
         var actions = new StackPanel
         {
             Orientation = Orientation.Horizontal,
-            Spacing = 8,
-            VerticalAlignment = VerticalAlignment.Center
+            VerticalAlignment = VerticalAlignment.Center,
+            Spacing = 8
         };
         Grid.SetColumn(actions, 1);
-
-        if (isSelected)
+        row.Children.Add(actions);
+        if (!isInstalled)
+        {
+            if (!model.IsBundle)
+            {
+                var import = new Button
+                {
+                    Tag = model.Id,
+                    Style = (Style)Application.Current.Resources["SubtleButtonStyle"],
+                    Content = "Import",
+                    IsEnabled = !_isModelOperationRunning
+                };
+                AutomationProperties.SetName(import, $"Import {model.DisplayName}");
+                ToolTipService.SetToolTip(import, "Import a local model file");
+                import.Click += ImportModelButton_Click;
+                actions.Children.Add(import);
+            }
+            var download = new Button
+            {
+                Tag = model.Id,
+                Content = "Download",
+                IsEnabled = (model.DownloadUri is not null || model.IsBundle) && !_isModelOperationRunning
+            };
+            if (isSelected)
+            {
+                download.Background = GetBrush("ShrutiAccentBrush");
+                download.Foreground = GetBrush("ShrutiAccentForegroundBrush");
+            }
+            AutomationProperties.SetName(download, $"Download {model.DisplayName}");
+            ToolTipService.SetToolTip(download, $"Download and verify {model.DisplayName}.");
+            download.Click += DownloadModelButton_Click;
+            actions.Children.Add(download);
+        }
+        else if (isSelected)
         {
             actions.Children.Add(CreateBadge("In use", "ShrutiAccentBrush", "ShrutiAccentSoftBrush"));
         }
-        else if (!isInstalled)
+        else
         {
-            var selectButton = new Button
+            var remove = new Button
             {
-                Content = "Set active",
                 Tag = model.Id,
-                IsEnabled = isInstalled && !_isModelOperationRunning
-            };
-            ToolTipService.SetToolTip(selectButton, isInstalled
-                ? $"Use {model.DisplayName} for dictation."
-                : "Install this model before selecting it.");
-            selectButton.Click += SelectModelButton_Click;
-            actions.Children.Add(selectButton);
-        }
-
-        if (!isInstalled)
-        {
-            var downloadButton = new Button
-            {
-                Content = "Download",
-                Tag = model.Id,
-                IsEnabled = (model.DownloadUri is not null || model.IsBundle) && !_isModelOperationRunning
-            };
-            ToolTipService.SetToolTip(downloadButton, model.DownloadUri is null && !model.IsBundle
-                ? "This catalog entry does not have a download URL."
-                : $"Download and verify {model.DisplayName}.");
-            downloadButton.Click += DownloadModelButton_Click;
-            actions.Children.Add(downloadButton);
-
-            if (!model.IsBundle)
-            {
-                var importButton = new Button
-                {
-                    Content = "Import",
-                    Tag = model.Id,
-                    IsEnabled = !_isModelOperationRunning
-                };
-                ToolTipService.SetToolTip(importButton, $"Import a local file for {model.DisplayName} and verify it.");
-                importButton.Click += ImportModelButton_Click;
-                actions.Children.Add(importButton);
-            }
-        }
-        else if (!isSelected)
-        {
-            var removeButton = new Button
-            {
-                Content = new FontIcon
-                {
-                    FontFamily = new FontFamily("Segoe Fluent Icons"),
-                    FontSize = 15,
-                    Glyph = "\uE74D"
-                },
-                Tag = model.Id,
-                IsEnabled = !_isModelOperationRunning,
-                Width = 32,
-                Height = 32,
-                Padding = new Thickness(0)
-            };
-            AutomationProperties.SetName(removeButton, $"Remove {model.DisplayName}");
-            ToolTipService.SetToolTip(removeButton, $"Remove {model.DisplayName} from local storage.");
-            removeButton.Click += RemoveModelButton_Click;
-            actions.Children.Add(removeButton);
-
-            var selectButton = new Button
-            {
-                Content = "Set active",
-                Tag = model.Id,
+                Style = (Style)Application.Current.Resources["SubtleButtonStyle"],
+                Content = "Remove",
                 IsEnabled = !_isModelOperationRunning
             };
-            ToolTipService.SetToolTip(selectButton, $"Use {model.DisplayName} for dictation.");
-            selectButton.Click += SelectModelButton_Click;
-            actions.Children.Add(selectButton);
+            AutomationProperties.SetName(remove, $"Remove {model.DisplayName}");
+            ToolTipService.SetToolTip(remove, "Remove local model");
+            remove.Click += RemoveModelButton_Click;
+            actions.Children.Add(remove);
+            var select = new Button
+            {
+                Tag = model.Id,
+                Content = "Set active",
+                IsEnabled = !_isModelOperationRunning
+            };
+            AutomationProperties.SetName(select, $"Use {model.DisplayName}");
+            ToolTipService.SetToolTip(select, $"Use {model.DisplayName} for dictation.");
+            select.Click += SelectModelButton_Click;
+            actions.Children.Add(select);
         }
-
-        grid.Children.Add(actions);
-        card.Child = grid;
-        return card;
+        return new Border
+        {
+            Child = row,
+            Padding = new Thickness(18, 13, 18, 13),
+            BorderBrush = GetBrush("ShrutiBorderSubtleBrush"),
+            BorderThickness = new Thickness(0, ModelListPanel.Children.Count > 0 ? 1 : 0, 0, 0)
+        };
     }
 
     private Border CreateBadge(string text, string foregroundKey, string backgroundKey)
@@ -1391,7 +1410,6 @@ public sealed partial class MainWindow : Window
     {
         ModelCatalogEntry selected = _transcriptionOptionsProvider.GetSelectedModelEntry(_settings);
         InstalledModel? installed = FindInstalledModel(selected.Id);
-        SettingsActiveModelNameText.Text = "Active model";
         string compute = _settings.BackendPreference == ComputeBackend.Auto
             ? _resolvedBackend.ToString().ToUpperInvariant()
             : _settings.BackendPreference.ToString().ToUpperInvariant();
@@ -1407,7 +1425,8 @@ public sealed partial class MainWindow : Window
             model.SupportedBackends
                 .Where(backend => backend != ComputeBackend.Auto)
                 .DefaultIfEmpty(ComputeBackend.Cpu));
-        return $"{model.LanguageHint.ToUpperInvariant()} · {FormatBytes(model.SizeBytes)} · {model.FileFormat} · {backends}";
+        string language = model.LanguageHint == "en" ? "English" : model.LanguageHint.ToUpperInvariant();
+        return $"{FormatBytes(model.SizeBytes)} · {language} · {backends.ToUpperInvariant()}";
     }
 
     private static string FormatBytes(long bytes)
@@ -1449,7 +1468,7 @@ public sealed partial class MainWindow : Window
         }
 
         TriggerStatusText.Text = errors.Count == 0
-            ? "Triggers are active."
+            ? string.Empty
             : string.Join(" ", errors);
     }
 
@@ -1481,7 +1500,8 @@ public sealed partial class MainWindow : Window
             _trayIconService.SetDictationCommandsEnabled(configuration.EnableTrayMenu);
             _trayIconService.SetVisible(isVisible: true);
             UpdateView();
-            TriggerStatusText.Text = "Triggers are active.";
+            HistoryPage.SetShortcut(configuration);
+            TriggerStatusText.Text = string.Empty;
             if (persist)
             {
                 await PersistSettingsAsync();
@@ -1516,6 +1536,7 @@ public sealed partial class MainWindow : Window
         _pushToTalkGesture = configuration.PushToTalkKey ?? string.Empty;
         ShortcutCaptureDialog.SetKeycaps(GlobalShortcutKeys, _globalHotkeyGesture);
         ShortcutCaptureDialog.SetKeycaps(PushToTalkShortcutKeys, _pushToTalkGesture);
+        HistoryPage.SetShortcut(configuration);
     }
 
     private async Task EnsureSettingsLoadedAsync()
@@ -1745,6 +1766,8 @@ public sealed partial class MainWindow : Window
 
     private void ShowOnboarding()
     {
+        AppNavigation.Visibility = Visibility.Collapsed;
+        AppPages.Visibility = Visibility.Collapsed;
         OnboardingLayer.Visibility = Visibility.Visible;
         SetOnboardingStep(0);
     }
@@ -1776,19 +1799,74 @@ public sealed partial class MainWindow : Window
         OnboardingHotkeyStep.Visibility = _onboardingStep == 3 ? Visibility.Visible : Visibility.Collapsed;
         OnboardingDoneStep.Visibility = _onboardingStep == 4 ? Visibility.Visible : Visibility.Collapsed;
 
-        OnboardingMicStatusText.Text = "We will check your Windows microphone access.";
-        OnboardingHotkeyText.Text = string.IsNullOrWhiteSpace(_triggerService.Configuration.PushToTalkKey)
-            ? "Hold shortcut"
-            : _triggerService.Configuration.PushToTalkKey;
+        OnboardingMicStatusText.Text = string.Empty;
+        OnboardingMicrophoneError.IsOpen = false;
+        OnboardingMicrophoneButton.Content = "Check microphone";
+        UpdateSetupShortcut();
         UpdateOnboardingModelState();
 
-        Border[] dots = [OnboardingDot0, OnboardingDot1, OnboardingDot2, OnboardingDot3, OnboardingDot4];
-        for (int index = 0; index < dots.Length; index++)
+        string[] steps = ["Welcome", "Microphone", "Speech model", "Shortcut", "Finish"];
+        string[] icons = ["\uE9D9", "\uE720", "\uE81E", "\uE765", "\uE73E"];
+        SetupIllustration.Glyph = icons[_onboardingStep];
+        SetupSteps.Children.Clear();
+        for (int index = 0; index < steps.Length; index++)
         {
-            dots[index].Width = index == _onboardingStep ? 20 : 8;
-            dots[index].Background = GetBrush(
-                index <= _onboardingStep ? "ShrutiAccentBrush" : "ShrutiBorderStrongBrush");
+            bool current = index == _onboardingStep;
+            bool completed = index < _onboardingStep;
+            var foreground = GetBrush(current ? "ShrutiAccentBrush" : "ShrutiTextSecondaryBrush");
+            var row = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 10 };
+            var glyph = new FontIcon
+            {
+                FontFamily = new FontFamily("Segoe Fluent Icons"),
+                FontSize = 16,
+                Glyph = completed ? "\uE73E" : index == 4 && !current ? "\uE7C1" : icons[index],
+                Foreground = foreground
+            };
+            var label = new TextBlock
+            {
+                Text = steps[index],
+                Foreground = current ? GetBrush("ShrutiTextPrimaryBrush") : foreground,
+                FontWeight = current ? Microsoft.UI.Text.FontWeights.SemiBold : Microsoft.UI.Text.FontWeights.Normal
+            };
+            row.Children.Add(glyph);
+            row.Children.Add(label);
+            var item = new Border
+            {
+                Child = row,
+                Padding = new Thickness(12, 10, 12, 10),
+                CornerRadius = new CornerRadius(8),
+                Background = current ? GetBrush("ShrutiAccentSoftBrush") : null
+            };
+            AutomationProperties.SetName(item, $"{steps[index]}, {(current ? "current step" : completed ? "completed" : "upcoming")}");
+            SetupSteps.Children.Add(item);
         }
+
+        Button[] actions = [SetupWelcomeAction, OnboardingMicrophoneButton, OnboardingModelActionButton, SetupShortcutAction, SetupFinishAction];
+        actions[_onboardingStep].Focus(FocusState.Programmatic);
+    }
+
+    private void UpdateSetupShortcut()
+    {
+        var triggers = _triggerService.Configuration;
+        string? gesture = null;
+        if (triggers.EnablePushToTalk && !string.IsNullOrWhiteSpace(triggers.PushToTalkKey))
+        {
+            gesture = triggers.PushToTalkKey;
+            OnboardingHotkeyText.Text = "Click a text field in the app where you want to write. Hold these keys while you speak, then release to finish.";
+        }
+        else if (triggers.EnableGlobalHotkey && !string.IsNullOrWhiteSpace(triggers.HotkeyGesture))
+        {
+            gesture = triggers.HotkeyGesture;
+            OnboardingHotkeyText.Text = "Click a text field in the app where you want to write. Press these keys to start, then press them again to finish.";
+        }
+        else
+        {
+            OnboardingHotkeyText.Text = _settings.ShowFloatingBar
+                ? "Click a text field in the app where you want to write. Use the microphone on the floating bar to start. Select the check mark to finish."
+                : "Open Settings and choose a dictation shortcut to record while you write.";
+        }
+        OnboardingKeys.Visibility = gesture is null ? Visibility.Collapsed : Visibility.Visible;
+        ShortcutCaptureDialog.SetKeycaps(OnboardingKeys, gesture ?? string.Empty);
     }
 
     private void UpdateOnboardingModelState()
@@ -1796,9 +1874,10 @@ public sealed partial class MainWindow : Window
         ModelCatalogEntry model = _transcriptionOptionsProvider.GetSelectedModelEntry(_settings);
         bool installed = FindInstalledModel(model.Id) is not null;
         OnboardingModelNameText.Text = model.DisplayName;
-        OnboardingModelMetaText.Text = $"{FormatBytes(model.SizeBytes)} · {model.LanguageHint.ToUpperInvariant()} · on this PC";
+        OnboardingModelMetaText.Text = $"{FormatBytes(model.SizeBytes)} · {(model.LanguageHint == "en" ? "English" : model.LanguageHint)}";
+        if (installed) OnboardingModelMetaText.Text += " · Installed";
         OnboardingModelActionButton.Content = installed ? "Continue" : "Download";
-        OnboardingDoneText.Text = $"{model.DisplayName} is ready. Hold {(_triggerService.Configuration.PushToTalkKey ?? "your shortcut")} to dictate anywhere.";
+        OnboardingDoneText.Text = $"{model.DisplayName} is ready. Your dictations will appear in Transcriptions, where you can read and copy them.";
     }
 
     private async Task RefreshTranscriptionReadinessAsync()
@@ -1816,7 +1895,9 @@ public sealed partial class MainWindow : Window
                 (_settings.BackendPreference == ComputeBackend.Auto ? ComputeBackend.Cpu : _settings.BackendPreference);
 
             ModelSummaryText.Text = model.DisplayName;
-            BackendSummaryText.Text = "on this PC";
+            bool installed = FindInstalledModel(model.Id) is not null;
+            BackendSummaryText.Text = installed ? "Installed locally" : "Download required";
+            HistoryPage.SetModelInstalled(installed);
             ActiveBackendText.Text = readiness.CanProceed
                 ? $"{readiness.Provider?.DisplayName ?? model.ProviderId} / {backend} / {device}"
                 : $"{model.ProviderId} / {backend} / unavailable";
@@ -1894,22 +1975,42 @@ public sealed partial class MainWindow : Window
         return DiagnosticTextRedactor.Redact(state.ErrorText);
     }
 
-    private static string FormatDiagnosticsSnapshot(DictationRunResult? result)
+    private void UpdateDiagnostics(DictationRunResult? result)
     {
+        DiagnosticsSnapshotText.Visibility = result is null ? Visibility.Collapsed : Visibility.Visible;
         if (result is null)
         {
-            return "Run dictation to populate a redacted diagnostics snapshot.";
+            DiagnosticsOutcomeText.Style = (Style)Root.Resources["MutedTextStyle"];
+            DiagnosticsOutcomeText.Text = "Dictate once to see diagnostic details here.";
+            DiagnosticsSnapshotText.Text = string.Empty;
+            return;
         }
 
         RedactedDiagnosticsSnapshot snapshot = RedactedDiagnosticsSnapshot.FromResult(result);
+        DiagnosticsOutcomeText.Style = (Style)Root.Resources["SectionLabelStyle"];
+        DiagnosticsOutcomeText.Text = result.Outcome switch
+        {
+            DictationRunOutcome.Inserted when result.Inserted => "Text inserted into the target.",
+            DictationRunOutcome.Inserted => "Shruti could not confirm insertion. Check the target field.",
+            DictationRunOutcome.PreviewRequired when result.InsertionResult?.Submitted == true =>
+                "Shruti sent the text. Check the target field before trying again.",
+            DictationRunOutcome.PreviewRequired => "Review your text in Transcriptions before inserting it.",
+            DictationRunOutcome.CopyOnly when !string.IsNullOrWhiteSpace(result.Transcript?.Text) =>
+                "Text copied to the clipboard. Paste it into the field where you want it.",
+            DictationRunOutcome.CopyOnly => "Copy-only mode finished with no text to copy.",
+            DictationRunOutcome.Cancelled => "Dictation cancelled.",
+            DictationRunOutcome.NoSpeech => "Shruti did not detect speech.",
+            DictationRunOutcome.Failed => snapshot.FailureSummary,
+            _ => "Dictation finished."
+        };
+
         string targetProcess = string.IsNullOrWhiteSpace(snapshot.TargetProcessName)
-            ? "none"
-            : snapshot.TargetProcessName;
+            ? "not captured"
+            : DiagnosticTextRedactor.Redact(snapshot.TargetProcessName);
 
         var lines = new List<string>
         {
-            $"State: {FormatState(snapshot.SessionState)}",
-            $"Outcome: {snapshot.Outcome}",
+            $"Session state: {(result.StatusHistory.Count > 0 ? FormatState(snapshot.SessionState) : "not captured")}",
             $"Target process: {targetProcess}",
             snapshot.TargetWindowTitleRedacted
                 ? "Target window title: omitted"
@@ -1941,9 +2042,12 @@ public sealed partial class MainWindow : Window
         AddDiagnosticLine(lines, snapshot.InsertionDiagnostics, "clipboardWriteOutcome", "Clipboard write");
         AddDiagnosticLine(lines, snapshot.InsertionDiagnostics, "clipboardRestoreOutcome", "Clipboard restore");
         AddDiagnosticLine(lines, snapshot.InsertionDiagnostics, "recoveryClipboardTextAvailable", "Recovery clipboard");
-        lines.Add($"Failure summary: {snapshot.FailureSummary}");
+        if (result.Outcome == DictationRunOutcome.PreviewRequired)
+        {
+            AddOptionalLine(lines, "Preview reason", snapshot.FailureSummary);
+        }
 
-        return string.Join(Environment.NewLine, lines);
+        DiagnosticsSnapshotText.Text = string.Join(Environment.NewLine, lines);
     }
 
     private static void AddOptionalLine(

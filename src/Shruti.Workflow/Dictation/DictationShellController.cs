@@ -248,14 +248,17 @@ public sealed class DictationShellController
         });
     }
 
-    public async Task<bool> CopyTranscriptAsync(CancellationToken cancellationToken = default)
+    public Task<bool> CopyTranscriptAsync(CancellationToken cancellationToken = default) =>
+        CopyPreviewTextAsync(State.TranscriptPreview, cancellationToken);
+
+    public async Task<bool> CopyPreviewTextAsync(string text, CancellationToken cancellationToken = default)
     {
-        string text = State.TranscriptPreview;
         if (string.IsNullOrWhiteSpace(text))
         {
             UpdateState(state => state with
             {
                 StatusText = "Nothing to copy",
+                TranscriptPreview = text,
                 UserMessage = "Run dictation before copying a transcript."
             });
             return false;
@@ -270,6 +273,7 @@ public sealed class DictationShellController
             UpdateState(state => state with
             {
                 StatusText = "Copy failed",
+                TranscriptPreview = text,
                 UserMessage = "Shruti could not copy the transcript.",
                 ErrorText = ex.Message
             });
@@ -279,6 +283,7 @@ public sealed class DictationShellController
         UpdateState(state => state with
         {
             StatusText = "Copied",
+            TranscriptPreview = text,
             UserMessage = "Transcript copied from the preview.",
             ErrorText = null
         });
