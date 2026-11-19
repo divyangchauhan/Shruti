@@ -111,6 +111,13 @@ public sealed partial class MainWindow : Window
         _windowMessageHost = new WindowsWindowMessageHost(_windowHandle);
         _triggerDispatcher = new DictationTriggerDispatcher(_triggerService, _triggerRouter);
 
+        HistoryPage.DictationRequested += async (_, _) =>
+        {
+            if (!_controller.State.IsRunning && FindInstalledModel(_settings.SelectedModelId) is null)
+                ShowPage("Models");
+            else
+                await RaiseTriggerAsync(DictationTriggerKind.AppButton, "transcriptions");
+        };
         _controller.StateChanged += Controller_StateChanged;
         _controller.AudioLevelChanged += Controller_AudioLevelChanged;
         _windowMessageHost.MessageReceived += WindowMessageHost_MessageReceived;
@@ -807,15 +814,8 @@ public sealed partial class MainWindow : Window
         PreviewTools.Visibility = state.CanUseRawTranscript || ReviewCorrectionButton.Visibility == Visibility.Visible
             ? Visibility.Visible : Visibility.Collapsed;
         string errorText = FormatErrorText(state);
-        PreviewHeading.Text = state.LastOutcome switch
-        {
-            _ when state.CanInsertPreview => $"Insert into {state.TargetDescription}",
-            _ when !string.IsNullOrWhiteSpace(errorText) => state.CanCopy ? "Recover transcript" : "Dictation needs attention",
-            DictationRunOutcome.Inserted => "Text inserted",
-            DictationRunOutcome.CopyOnly => state.CanCopy ? "Copied to clipboard" : "No text to copy",
-            DictationRunOutcome.PreviewRequired => "Check the destination",
-            _ => state.CanCopy ? "Latest transcript" : "Dictation needs attention"
-        };
+        PreviewHeading.Text = state.CanInsertPreview ? $"Insert into {state.TargetDescription}" :
+            state.CanCopy ? "Recover transcript" : "Dictation needs attention";
         ErrorText.Text = errorText;
         ErrorNotice.Visibility = string.IsNullOrWhiteSpace(errorText)
             ? Visibility.Collapsed
@@ -823,25 +823,11 @@ public sealed partial class MainWindow : Window
 
         RetryButton.IsEnabled = state.CanRetry;
         RetryButton.Visibility = state.CanRetry ? Visibility.Visible : Visibility.Collapsed;
-        bool completed = string.IsNullOrWhiteSpace(errorText) && state.CanCopy &&
-            state.LastOutcome is DictationRunOutcome.CopyOnly or DictationRunOutcome.Inserted;
-        if (state.CanInsertPreview || completed)
+        if (state.CanInsertPreview)
             CopyButton.ClearValue(FrameworkElement.StyleProperty);
         else
             CopyButton.Style = (Style)Application.Current.Resources["LibraryPrimaryButton"];
-        if (completed)
-            RetryButton.Style = (Style)Application.Current.Resources["LibraryPrimaryButton"];
-        else
-            RetryButton.ClearValue(FrameworkElement.StyleProperty);
-        Grid.SetColumn(CopyButton, completed ? 0 : 1);
-        Grid.SetColumn(RetryButton, completed ? 1 : 0);
-        if (completed)
-            UserMessageText.Text = state.LastOutcome == DictationRunOutcome.CopyOnly
-                ? "Paste the transcript in the field where you want to write."
-                : $"Inserted into {state.TargetDescription}.";
-        bool alreadyCopied = completed && state.LastOutcome == DictationRunOutcome.CopyOnly;
-        CopyButton.Content = alreadyCopied ? "Copy again" : state.CanInsertPreview ? "Copy" : "Copy transcript";
-        AutomationProperties.SetName(CopyButton, alreadyCopied ? "Copy transcript again" : "Copy transcript");
+        CopyButton.Content = state.CanInsertPreview ? "Copy" : "Copy transcript";
         CopyButton.IsEnabled = state.CanCopy;
         CopyButton.Visibility = state.CanCopy ? Visibility.Visible : Visibility.Collapsed;
         InsertPreviewButton.IsEnabled = state.CanInsertPreview;
@@ -858,14 +844,34 @@ public sealed partial class MainWindow : Window
         TranscriptPreviewBox.IsReadOnly = !state.CanInsertPreview;
         InsertionModeComboBox.IsEnabled = !state.IsRunning;
         AudioDeviceComboBox.IsEnabled = !state.IsRunning && _audioDevicesLoaded;
+        SaveAudioSwitch.IsEnabled = !state.IsRunning;
+        HistoryPage.UpdateRecordingAction(state, _controller.LastResult?.RecordingSaveFailed == true);
         PendingTranscriptPanel.Visibility = !state.IsRunning &&
-            (state.CanInsertPreview || state.CanRetry || !string.IsNullOrWhiteSpace(errorText))
+            (state.CanInsertPreview || state.LastOutcome is DictationRunOutcome.Failed or DictationRunOutcome.PreviewRequired || !string.IsNullOrWhiteSpace(errorText))
             ? Visibility.Visible : Visibility.Collapsed;
         AutomationProperties.SetName(UserMessageText, UserMessageText.Text);
         UpdateDiagnostics(_controller.LastResult);
 
         _trayIconService.UpdateDictationState(state.IsRunning);
         UpdateFloatingBar();
+    }
+
+    private async void SaveAudioSwitch_Toggled(object sender, RoutedEventArgs e)
+    {
+        if (!_settingsLoaded || _isApplyingSettings) return;
+        _controller.KeepRecordings = SaveAudioSwitch.IsOn;
+        await PersistSettingsAsync();
+    }
+
+    private async void OpenRecordingsFolder_Click(object sender, RoutedEventArgs e)
+    {
+        try
+        {
+            var folder = await Windows.Storage.StorageFolder.GetFolderFromPathAsync(AppDataPaths.CreateDefault().RecordingsDirectory);
+            if (await Windows.System.Launcher.LaunchFolderAsync(folder)) return;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or System.Runtime.InteropServices.COMException) { }
+        TriggerStatusText.Text = "Couldn't open the recordings folder.";
     }
 
     private async void FloatingBarCheckBox_Toggled(object sender, RoutedEventArgs e)
@@ -1606,6 +1612,8 @@ public sealed partial class MainWindow : Window
         SelectComboBoxItem(BackendPreferenceComboBox, settings.BackendPreference.ToString());
         SelectModelComboBoxItem(settings.SelectedModelId);
         AllowSlowTranscriptionCheckBox.IsChecked = settings.AllowSlowTranscription;
+        SaveAudioSwitch.IsOn = settings.AudioRetentionPolicy == AudioRetentionPolicy.Keep;
+        _controller.KeepRecordings = SaveAudioSwitch.IsOn;
         ApplyTriggerConfigurationToControls(settings.TriggerConfiguration);
         UpdateComputeButtons();
     }
@@ -1643,7 +1651,7 @@ public sealed partial class MainWindow : Window
                 SelectedModelId = selectedModelId,
                 InsertionMode = GetSelectedInsertionMode(),
                 ThemePreference = GetSelectedThemePreference(),
-                AudioRetentionPolicy = AudioRetentionPolicy.DeleteAfterTranscription,
+                AudioRetentionPolicy = SaveAudioSwitch.IsOn ? AudioRetentionPolicy.Keep : AudioRetentionPolicy.DeleteAfterTranscription,
                 BackendPreference = backendPreference,
                 AllowSlowTranscription = AllowSlowTranscriptionCheckBox.IsChecked == true,
                 HasCompletedOnboarding = _settings.HasCompletedOnboarding,
@@ -1712,7 +1720,7 @@ public sealed partial class MainWindow : Window
             GetCatalogAvailableBackends(),
             filtersModels: true);
         UpdateComputeButtonGroup(
-            [SettingsBackendAutoButton, SettingsBackendNpuButton, SettingsBackendGpuButton, SettingsBackendCpuButton],
+            [ProcessorAutoButton, ProcessorNpuButton, ProcessorGpuButton, ProcessorCpuButton],
             selected,
             GetAvailableBackends(_transcriptionOptionsProvider.GetSelectedModelEntry(_settings)),
             filtersModels: false);
@@ -1969,7 +1977,9 @@ public sealed partial class MainWindow : Window
     {
         if (state.LastOutcome == DictationRunOutcome.Failed && _controller.LastResult is { } result)
         {
-            return DiagnosticFailureText.ForDictationResult(result);
+            return result.Transcript is not null && state.InsertionMode == DictationInsertionMode.CopyOnly
+                ? "Couldn't copy the transcript to the clipboard."
+                : DiagnosticFailureText.ForDictationResult(result);
         }
 
         return DiagnosticTextRedactor.Redact(state.ErrorText);

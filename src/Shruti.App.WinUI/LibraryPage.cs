@@ -9,12 +9,14 @@ namespace Shruti.App.WinUI;
 
 public abstract class LibraryPage : UserControl
 {
-    protected readonly StackPanel Body = new() { Spacing = 22, MaxWidth = 1100, HorizontalAlignment = HorizontalAlignment.Stretch };
+    protected readonly StackPanel Body = new() { Spacing = 22, HorizontalAlignment = HorizontalAlignment.Stretch };
     protected readonly StackPanel Actions = new() { Orientation = Orientation.Horizontal, Spacing = 8, HorizontalAlignment = HorizontalAlignment.Right, VerticalAlignment = VerticalAlignment.Center };
     protected readonly TextBlock Message = Text("");
     private bool _filtersOpened;
     protected LibraryPage(string title, string? subtitle)
     {
+        HorizontalContentAlignment = HorizontalAlignment.Stretch;
+        VerticalContentAlignment = VerticalAlignment.Stretch;
         var titles = new StackPanel { Spacing = 5 };
         var heading = Heading(title, 32);
         AutomationProperties.SetHeadingLevel(heading, AutomationHeadingLevel.Level1);
@@ -26,7 +28,7 @@ public abstract class LibraryPage : UserControl
         Message.RegisterPropertyChangedCallback(TextBlock.TextProperty, (_, _) =>
             Message.Visibility = string.IsNullOrEmpty(Message.Text) ? Visibility.Collapsed : Visibility.Visible);
         Body.Children.Add(Message);
-        Content = new ScrollViewer { Content = Body, Padding = new Thickness(40, 36, 40, 48), HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled };
+        Content = new ScrollViewer { Content = Body, HorizontalContentAlignment = HorizontalAlignment.Stretch, Padding = new Thickness(40, 36, 40, 48), HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled };
         Loaded += async (_, _) => await RefreshAsync();
     }
 
@@ -42,7 +44,9 @@ public abstract class LibraryPage : UserControl
 
     protected static TextBlock Heading(string value, double size) => new()
     {
-        Text = value, FontSize = size, FontWeight = FontWeights.SemiBold,
+        Text = value,
+        FontSize = size,
+        FontWeight = FontWeights.SemiBold,
         Style = (Style)Application.Current.Resources["LibraryTextStyle"]
     };
 
@@ -77,7 +81,9 @@ public abstract class LibraryPage : UserControl
 
     protected Border IconTile(string glyph, double size = 38) => new()
     {
-        Width = size, Height = size, VerticalAlignment = VerticalAlignment.Center,
+        Width = size,
+        Height = size,
+        VerticalAlignment = VerticalAlignment.Center,
         Style = (Style)Application.Current.Resources["LibraryAccentTile"],
         Child = new FontIcon { Glyph = glyph, FontSize = size >= 48 ? 23 : 16, Style = (Style)Application.Current.Resources["LibraryAccentIcon"] }
     };
@@ -202,8 +208,12 @@ public abstract class LibraryPage : UserControl
     {
         var dialog = new ContentDialog
         {
-            XamlRoot = XamlRoot, RequestedTheme = ActualTheme, Title = title,
-            Content = Text(detail), PrimaryButtonText = "Delete", CloseButtonText = "Cancel",
+            XamlRoot = XamlRoot,
+            RequestedTheme = ActualTheme,
+            Title = title,
+            Content = Text(detail),
+            PrimaryButtonText = "Delete",
+            CloseButtonText = "Cancel",
             DefaultButton = ContentDialogButton.Close
         };
         ApplyDialogAccent(dialog, confirmDeletion: true);
@@ -270,9 +280,13 @@ public abstract class LibraryPage : UserControl
         fields.Children.Add(error);
         var dialog = new ContentDialog
         {
-            XamlRoot = XamlRoot, RequestedTheme = ActualTheme, Title = title,
+            XamlRoot = XamlRoot,
+            RequestedTheme = ActualTheme,
+            Title = title,
             Content = new ScrollViewer { Content = fields, MaxHeight = 480 },
-            PrimaryButtonText = "Save", CloseButtonText = "Cancel", DefaultButton = ContentDialogButton.Primary
+            PrimaryButtonText = "Save",
+            CloseButtonText = "Cancel",
+            DefaultButton = ContentDialogButton.Primary
         };
         ApplyDialogAccent(dialog);
         dialog.Resources["ContentDialogMinWidth"] = Math.Clamp(XamlRoot.Size.Width - 48, 0, 528);
@@ -302,9 +316,14 @@ public abstract class LibraryPage : UserControl
 
     protected static TextBox Field(string label, string value = "", int maximum = 256, bool multiline = false) => new()
     {
-        Header = label, AcceptsReturn = multiline, Text = value, MaxLength = maximum,
+        Header = label,
+        AcceptsReturn = multiline,
+        Text = value,
+        MaxLength = maximum,
         TextWrapping = multiline ? TextWrapping.Wrap : TextWrapping.NoWrap,
-        MinWidth = 280, MinHeight = multiline ? 94 : 32, MaxHeight = multiline ? 200 : 90
+        MinWidth = 280,
+        MinHeight = multiline ? 94 : 32,
+        MaxHeight = multiline ? 200 : 90
     };
     protected static void Copy(string text)
     {

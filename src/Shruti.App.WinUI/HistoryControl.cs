@@ -1,6 +1,10 @@
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Shruti.Storage;
+using Shruti.Core;
+using Shruti.Core.Dictation;
+using Shruti.Workflow.Dictation;
+using Microsoft.UI.Xaml.Automation.Peers;
 using Shruti.Core.Triggers;
 using Microsoft.UI.Xaml.Automation;
 using Microsoft.UI.Text;
@@ -17,6 +21,9 @@ public sealed class HistoryControl : LibraryPage
     private readonly Border _emptyState;
     private readonly FrameworkElement _modelPrompt;
     public event EventHandler? ModelsRequested;
+    public event EventHandler? DictationRequested;
+    private readonly Button _record = new();
+    private readonly TextBlock _recordingNotice = Text("", 14);
     private readonly DropDownButton _options;
     private readonly Button _more;
     private int _generation;
@@ -26,7 +33,13 @@ public sealed class HistoryControl : LibraryPage
     {
         Body.Spacing = 14;
         _summary.Opacity = .8;
+        _recordingNotice.Visibility = Visibility.Collapsed;
+        AutomationProperties.SetLiveSetting(_recordingNotice, AutomationLiveSetting.Polite);
+        Body.Children.Add(_recordingNotice);
         Body.Children.Add(_summary);
+        _record.Style = (Style)Application.Current.Resources["LibraryPrimaryButton"];
+        _record.Click += (_, _) => DictationRequested?.Invoke(this, EventArgs.Empty);
+        Actions.Children.Add(_record);
         var menu = PopupAppearance.CreateMenuFlyout();
         menu.Placement = Microsoft.UI.Xaml.Controls.Primitives.FlyoutPlacementMode.BottomEdgeAlignedRight;
         var clear = new MenuFlyoutItem { Text = "Clear history" };
@@ -90,6 +103,18 @@ public sealed class HistoryControl : LibraryPage
             _reviewPanel = value;
             if (value is not null) Body.Children.Insert(Body.Children.IndexOf(_search), value);
         }
+    }
+
+    internal void UpdateRecordingAction(DictationShellState state, bool recordingSaveFailed)
+    {
+        bool recording = state.SessionState is DictationSessionState.Recording or DictationSessionState.Paused;
+        string label = recording ? "Stop dictation" : state.IsRunning ? "Working…" : "Start dictation";
+        _record.Content = label;
+        _record.IsEnabled = recording ? state.CanStop : state.CanStart && !state.CanInsertPreview;
+        ToolTipService.SetToolTip(_record, state.IsRunning ? state.StatusText : "Record here and copy the finished text to the clipboard.");
+        _recordingNotice.Text = recordingSaveFailed ? "Shruti couldn't save the audio file." :
+            state.LastOutcome == DictationRunOutcome.NoSpeech ? state.UserMessage : "";
+        _recordingNotice.Visibility = _recordingNotice.Text.Length > 0 ? Visibility.Visible : Visibility.Collapsed;
     }
 
     public void SetModelInstalled(bool installed)

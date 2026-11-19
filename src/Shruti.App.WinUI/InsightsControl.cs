@@ -137,13 +137,21 @@ public sealed class InsightsControl : LibraryPage
             Grid.SetRow(cell, i % 7 + 1);
             grid.Children.Add(cell);
         }
+        grid.SizeChanged += (_, e) =>
+        {
+            double weekWidth = (e.NewSize.Width - grid.ColumnDefinitions[0].Width.Value - 13 * grid.ColumnSpacing) / 13;
+            var height = new GridLength(Math.Clamp(Math.Floor(weekWidth), 16, 32));
+            foreach (var row in grid.RowDefinitions.Skip(1)) row.Height = height;
+        };
         activity.Children.Add(grid);
         var legend = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 10, VerticalAlignment = VerticalAlignment.Center };
         foreach (int count in new[] { 0, (peak + 1) / 2, peak }.Distinct())
         {
             var swatch = new Border
             {
-                Width = 11, Height = 11, VerticalAlignment = VerticalAlignment.Center,
+                Width = 11,
+                Height = 11,
+                VerticalAlignment = VerticalAlignment.Center,
                 Style = (Style)Application.Current.Resources[count == 0 ? "LibraryChartTrack" : "LibraryChartInk"],
                 Opacity = count == 0 ? 1 : .45 + .55 * count / peak
             };

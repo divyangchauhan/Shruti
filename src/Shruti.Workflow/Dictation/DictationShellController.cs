@@ -15,6 +15,7 @@ public sealed class DictationShellController
     private readonly Func<CancellationToken, Task<TranscriptionSessionOptions>> _transcriptionOptionsFactory;
     private readonly Func<CancellationToken, Task<TranscriptQualitySettings>> _qualitySettingsFactory;
     private readonly Func<DictationRunResult, Task>? _saveHistory;
+    private readonly Action<ReadOnlyMemory<byte>, AudioFormat>? _saveRecording;
     private readonly object _stateSync = new();
     private readonly object _runSync = new();
 
@@ -30,7 +31,8 @@ public sealed class DictationShellController
         ITranscriptClipboard clipboard,
         Func<CancellationToken, Task<TranscriptionSessionOptions>>? transcriptionOptionsFactory = null,
         Func<CancellationToken, Task<TranscriptQualitySettings>>? qualitySettingsFactory = null,
-        Func<DictationRunResult, Task>? saveHistory = null)
+        Func<DictationRunResult, Task>? saveHistory = null,
+        Action<ReadOnlyMemory<byte>, AudioFormat>? saveRecording = null)
     {
         _coordinator = coordinator ?? throw new ArgumentNullException(nameof(coordinator));
         _audioCaptureControl = audioCaptureControl ?? throw new ArgumentNullException(nameof(audioCaptureControl));
@@ -38,6 +40,7 @@ public sealed class DictationShellController
         _transcriptionOptionsFactory = transcriptionOptionsFactory ?? MockDictationAppServices.CreateTranscriptionOptionsAsync;
         _qualitySettingsFactory = qualitySettingsFactory ?? (_ => Task.FromResult(new TranscriptQualitySettings()));
         _saveHistory = saveHistory;
+        _saveRecording = saveRecording;
         State = DictationShellState.Initial;
     }
 
@@ -64,6 +67,10 @@ public sealed class DictationShellController
     }
 
     public DictationRunResult? LastResult { get; private set; }
+
+    public bool KeepRecordings { get; set; }
+
+    public DictationInsertionMode PreferredInsertionMode { get; private set; } = DictationInsertionMode.AutoInsert;
 
     public AudioCaptureOptions AudioOptions => _audioOptions;
 
@@ -215,6 +222,7 @@ public sealed class DictationShellController
             return;
         }
 
+        PreferredInsertionMode = insertionMode;
         UpdateState(state => state with
         {
             InsertionMode = insertionMode,
@@ -285,6 +293,7 @@ public sealed class DictationShellController
             StatusText = "Copied",
             TranscriptPreview = text,
             UserMessage = "Transcript copied from the preview.",
+            LastOutcome = state.LastOutcome == DictationRunOutcome.Failed ? DictationRunOutcome.CopyOnly : state.LastOutcome,
             ErrorText = null
         });
 
@@ -354,6 +363,7 @@ public sealed class DictationShellController
             Id = previousResult.Id,
             CreatedAtUtc = previousResult.CreatedAtUtc,
             AudioDuration = previousResult.AudioDuration,
+            RecordingSaveFailed = previousResult.RecordingSaveFailed,
             RefinedTranscript = previousResult.RefinedTranscript is { } refined ? refined with { Text = text } : null
         };
         if (result.Inserted && _saveHistory is not null)
@@ -403,23 +413,36 @@ public sealed class DictationShellController
                     {
                         StartLevelMonitor(session);
                     }
-                });
+                })
+            {
+                SaveRecording = KeepRecordings ? _saveRecording : null
+            };
 
             var result = await _coordinator
                 .RunOnceAsync(request, activeRun.Token)
                 .ConfigureAwait(false);
 
-            if (result.ShouldCopyToClipboard && !string.IsNullOrWhiteSpace(result.Transcript?.Text))
-            {
-                await _clipboard
-                    .CopyTextAsync(result.Transcript.Text, CancellationToken.None)
-                    .ConfigureAwait(false);
-            }
-
             if (_saveHistory is not null && result.Outcome is not (DictationRunOutcome.Failed or DictationRunOutcome.Cancelled or DictationRunOutcome.NoSpeech))
             {
                 try { await _saveHistory(result).ConfigureAwait(false); }
                 catch { System.Diagnostics.Trace.TraceWarning("Could not save dictation history."); }
+            }
+            if (result.ShouldCopyToClipboard && !string.IsNullOrWhiteSpace(result.Transcript?.Text))
+            {
+                try
+                {
+                    await _clipboard.CopyTextAsync(result.Transcript.Text, CancellationToken.None).ConfigureAwait(false);
+                }
+                catch (Exception ex)
+                {
+                    result = result with
+                    {
+                        Outcome = DictationRunOutcome.Failed,
+                        StatusHistory = [.. result.StatusHistory, new DictationStatus(DictationSessionState.Failed, "Copy failed")],
+                        Message = "Use Copy transcript to try again.",
+                        Error = ex
+                    };
+                }
             }
             LastResult = result;
             SetState(CreateCompletedState(result, insertionMode));

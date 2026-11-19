@@ -269,8 +269,8 @@
             <local:InsightsControl x:Name="InsightsPage" Visibility="Collapsed" />
             <local:DictionaryControl x:Name="DictionaryEditor" Visibility="Collapsed" />
             <local:SnippetsControl x:Name="SnippetsPage" Visibility="Collapsed" />
-            <ScrollViewer x:Name="ModelsPage" Visibility="Collapsed" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
-                <StackPanel Padding="40,36,40,48" MaxWidth="1120" Spacing="0">
+            <ScrollViewer x:Name="ModelsPage" Visibility="Collapsed" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" HorizontalContentAlignment="Stretch">
+                <StackPanel Padding="40,36,40,48" Spacing="0">
                     <TextBlock Text="Models" FontFamily="Segoe UI Variable Display, Segoe UI" FontWeight="SemiBold" FontSize="32" />
                     <TextBlock Margin="0,8,0,24" Style="{StaticResource MutedTextStyle}" Text="Start with tiny.en for the smallest download. Try a larger model if Shruti misses words you use." />
                     <Grid Margin="0,0,0,10" ColumnSpacing="12">
@@ -291,11 +291,47 @@
                     <Border Style="{StaticResource CardBorderStyle}" CornerRadius="12">
                         <StackPanel x:Name="ModelListPanel" />
                     </Border>
+                    <TextBlock Margin="0,28,0,12" FontSize="20" FontWeight="SemiBold" Text="Transcription processor" />
+                    <Border Style="{StaticResource CardBorderStyle}" Padding="18,0" CornerRadius="12">
+                        <StackPanel>
+                            <Grid Padding="0,14" ColumnSpacing="14">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="Auto" />
+                                </Grid.ColumnDefinitions>
+                                <StackPanel VerticalAlignment="Center" Spacing="3">
+                                    <TextBlock x:Name="SelectedModelStatusText" FontWeight="SemiBold" Text="Checking model" TextWrapping="Wrap" />
+                                    <TextBlock Style="{StaticResource MutedTextStyle}" Text="Auto chooses a processor for the selected model." />
+                                </StackPanel>
+                                <Border Grid.Column="1" VerticalAlignment="Center" Background="{ThemeResource ShrutiSunkenBrush}" Padding="3" CornerRadius="9">
+                                    <StackPanel Orientation="Horizontal" Spacing="2">
+                                        <Button x:Name="ProcessorAutoButton" Style="{StaticResource ComputeButtonStyle}" Tag="Auto" Click="BackendButton_Click" Content="Auto" />
+                                        <Button x:Name="ProcessorNpuButton" Style="{StaticResource ComputeButtonStyle}" Tag="Npu" Click="BackendButton_Click" Content="NPU" />
+                                        <Button x:Name="ProcessorGpuButton" Style="{StaticResource ComputeButtonStyle}" Tag="Gpu" Click="BackendButton_Click" Content="GPU" />
+                                        <Button x:Name="ProcessorCpuButton" Style="{StaticResource ComputeButtonStyle}" Tag="Cpu" Click="BackendButton_Click" Content="CPU" />
+                                    </StackPanel>
+                                </Border>
+                            </Grid>
+                            <Border Height="1" Background="{ThemeResource ShrutiBorderSubtleBrush}" />
+                            <CheckBox x:Name="AllowSlowTranscriptionCheckBox" Margin="0,10" Content="Allow slower-than-real-time transcription" Click="AllowSlowTranscriptionCheckBox_Click" />
+                        </StackPanel>
+                    </Border>
+                    <Grid Visibility="Collapsed">
+                        <ComboBox x:Name="ModelSelectionComboBox" SelectionChanged="ModelSelectionComboBox_SelectionChanged" />
+                        <ComboBox x:Name="BackendPreferenceComboBox" SelectionChanged="BackendPreferenceComboBox_SelectionChanged">
+                            <ComboBoxItem Content="Auto" Tag="Auto" />
+                            <ComboBoxItem Content="NPU" Tag="Npu" />
+                            <ComboBoxItem Content="GPU" Tag="Gpu" />
+                            <ComboBoxItem Content="CPU" Tag="Cpu" />
+                        </ComboBox>
+                        <TextBlock x:Name="ActiveBackendText" Text="Checking readiness" />
+                        <TextBlock x:Name="BackendReadinessText" AutomationProperties.LiveSetting="Polite" Text="Backend readiness has not been checked yet." />
+                    </Grid>
                     <local:TranscriptQualityControl x:Name="QualityControl" Margin="0,28,0,0" />
                 </StackPanel>
             </ScrollViewer>
 
-            <ScrollViewer x:Name="SettingsPanel" Visibility="Collapsed" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+            <ScrollViewer x:Name="SettingsPanel" Visibility="Collapsed" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" HorizontalContentAlignment="Stretch">
                 <ScrollViewer.Resources>
                     <ResourceDictionary>
                         <ResourceDictionary.ThemeDictionaries>
@@ -349,7 +385,7 @@
                         </Style>
                     </ResourceDictionary>
                 </ScrollViewer.Resources>
-                <StackPanel MaxWidth="1120" Padding="40,36,40,48">
+                <StackPanel Padding="40,36,40,48">
                     <TextBlock FontFamily="Segoe UI Variable Display, Segoe UI" FontSize="32" FontWeight="SemiBold" Text="Settings" />
                     <TextBlock Style="{StaticResource SettingSection}" Text="Dictation" />
                     <Border Style="{StaticResource CardBorderStyle}" Padding="18,0" CornerRadius="12">
@@ -416,9 +452,23 @@
                                 <FontIcon VerticalAlignment="Top" Margin="0,3,0,0" FontSize="18" FontFamily="Segoe Fluent Icons" Foreground="{ThemeResource ShrutiTextSecondaryBrush}" Glyph="&#xE720;" />
                                 <StackPanel Grid.Column="1" Spacing="3">
                                     <TextBlock FontWeight="SemiBold" Text="Microphone" TextWrapping="Wrap" />
-                                    <TextBlock Style="{StaticResource SettingDetail}" Text="Audio stays in memory while you dictate." />
                                     <ComboBox x:Name="AudioDeviceComboBox" Margin="0,5,0,0" HorizontalAlignment="Stretch" AutomationProperties.Name="Microphone" IsEnabled="False" PlaceholderText="Loading microphones" SelectionChanged="AudioDeviceComboBox_SelectionChanged" />
                                 </StackPanel>
+                            </Grid>
+                            <Border Height="1" Background="{ThemeResource ShrutiBorderSubtleBrush}" />
+                            <Grid Padding="0,14" ColumnSpacing="14">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="32" />
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="Auto" />
+                                </Grid.ColumnDefinitions>
+                                <FontIcon FontSize="18" Glyph="&#xE72E;" Foreground="{ThemeResource ShrutiTextSecondaryBrush}" />
+                                <StackPanel Grid.Column="1" VerticalAlignment="Center" Spacing="3">
+                                    <TextBlock FontWeight="SemiBold" Text="Save dictation audio" />
+                                    <TextBlock Style="{StaticResource SettingDetail}" Text="Keep a WAV file on this PC for each transcribed recording. When off, audio stays in memory." />
+                                    <HyperlinkButton Padding="0" Content="Open recordings folder" Click="OpenRecordingsFolder_Click" />
+                                </StackPanel>
+                                <ToggleSwitch x:Name="SaveAudioSwitch" Grid.Column="2" VerticalAlignment="Center" MinWidth="0" OnContent="" OffContent="" AutomationProperties.Name="Save dictation audio" Toggled="SaveAudioSwitch_Toggled" />
                             </Grid>
                         </StackPanel>
                     </Border>
@@ -502,54 +552,6 @@
                             </Grid>
                         </StackPanel>
                     </Border>
-                    <TextBlock Style="{StaticResource SettingSection}" Text="Models &amp; compute" />
-                    <Border Style="{StaticResource CardBorderStyle}" Padding="18,0" CornerRadius="12">
-                        <StackPanel>
-                            <Grid Padding="0,14" ColumnSpacing="14">
-                                <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="*" />
-                                    <ColumnDefinition Width="Auto" />
-                                </Grid.ColumnDefinitions>
-                                <StackPanel Spacing="3">
-                                    <TextBlock FontWeight="SemiBold" Text="Selected model" />
-                                    <TextBlock x:Name="SelectedModelStatusText" Style="{StaticResource SettingDetail}" Text="Checking model" />
-                                </StackPanel>
-                                <Button Grid.Column="1" VerticalAlignment="Center" Content="Manage models" Tag="Models" Click="NavigationButton_Click" />
-                            </Grid>
-                            <Border Height="1" Background="{ThemeResource ShrutiBorderSubtleBrush}" />
-                            <Grid Padding="0,14" ColumnSpacing="14">
-                                <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="*" />
-                                    <ColumnDefinition Width="Auto" />
-                                </Grid.ColumnDefinitions>
-                                <StackPanel VerticalAlignment="Center" Spacing="3">
-                                    <TextBlock FontWeight="SemiBold" Text="Processor" TextWrapping="Wrap" />
-                                    <TextBlock Style="{StaticResource SettingDetail}" Text="Auto selects an available processor." />
-                                </StackPanel>
-                                <Border Grid.Column="1" VerticalAlignment="Center" Background="{ThemeResource ShrutiSunkenBrush}" Padding="3" CornerRadius="9">
-                                    <StackPanel Orientation="Horizontal" Spacing="2">
-                                        <Button x:Name="SettingsBackendAutoButton" Style="{StaticResource ComputeButtonStyle}" Tag="Auto" Click="BackendButton_Click" Content="Auto" />
-                                        <Button x:Name="SettingsBackendNpuButton" Style="{StaticResource ComputeButtonStyle}" Tag="Npu" Click="BackendButton_Click" Content="NPU" />
-                                        <Button x:Name="SettingsBackendGpuButton" Style="{StaticResource ComputeButtonStyle}" Tag="Gpu" Click="BackendButton_Click" Content="GPU" />
-                                        <Button x:Name="SettingsBackendCpuButton" Style="{StaticResource ComputeButtonStyle}" Tag="Cpu" Click="BackendButton_Click" Content="CPU" />
-                                    </StackPanel>
-                                </Border>
-                            </Grid>
-                            <Border Height="1" Background="{ThemeResource ShrutiBorderSubtleBrush}" />
-                            <CheckBox x:Name="AllowSlowTranscriptionCheckBox" Margin="0,10" Content="Allow slower-than-real-time transcription" Click="AllowSlowTranscriptionCheckBox_Click" />
-                        </StackPanel>
-                    </Border>
-                    <Grid Visibility="Collapsed">
-                        <ComboBox x:Name="ModelSelectionComboBox" SelectionChanged="ModelSelectionComboBox_SelectionChanged" />
-                        <ComboBox x:Name="BackendPreferenceComboBox" SelectionChanged="BackendPreferenceComboBox_SelectionChanged">
-                            <ComboBoxItem Content="Auto" Tag="Auto" />
-                            <ComboBoxItem Content="NPU" Tag="Npu" />
-                            <ComboBoxItem Content="GPU" Tag="Gpu" />
-                            <ComboBoxItem Content="CPU" Tag="Cpu" />
-                        </ComboBox>
-                        <TextBlock x:Name="ActiveBackendText" Text="Checking readiness" />
-                        <TextBlock x:Name="BackendReadinessText" AutomationProperties.LiveSetting="Polite" Text="Backend readiness has not been checked yet." />
-                    </Grid>
                     <TextBlock Style="{StaticResource SettingSection}" Text="Support" />
                     <Expander Header="Diagnostics" HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch">
                         <StackPanel Spacing="8">

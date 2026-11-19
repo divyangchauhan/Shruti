@@ -33,6 +33,8 @@ public sealed record DictationRequest
     public TranscriptionSessionOptions TranscriptionOptions { get; }
     public TranscriptQualitySettings QualitySettings { get; }
 
+    public Action<ReadOnlyMemory<byte>, AudioFormat>? SaveRecording { get; init; }
+
     public DictationInsertionMode InsertionMode { get; }
 
     public AudioCaptureOptions AudioOptions { get; }

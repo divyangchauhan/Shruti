@@ -11,6 +11,60 @@ namespace Shruti.Tests;
 public sealed class DictationShellControllerTests
 {
     [Fact]
+    public async Task AudioRetention_WritesLocalWaveOnlyForOptedInCompletedRecordings()
+    {
+        var services = MockDictationAppServices.Create();
+        var folder = Directory.CreateTempSubdirectory("shruti-audio-");
+        var writer = new Shruti.Audio.Windows.DictationRecordingWriter(folder.FullName);
+        var controller = new DictationShellController(services.Coordinator, services.AudioCapture,
+            services.Clipboard, saveRecording: writer.Save);
+        try
+        {
+            await controller.StartAsync(DictationInsertionMode.CopyOnly);
+            await controller.StopAsync();
+            Assert.Empty(folder.GetFiles());
+
+            controller.KeepRecordings = true;
+            await controller.StartAsync(DictationInsertionMode.CopyOnly);
+            await controller.CancelAsync();
+            Assert.Empty(folder.GetFiles());
+
+            await controller.StartAsync(DictationInsertionMode.CopyOnly);
+            await controller.StopAsync();
+            string file = Assert.Single(folder.GetFiles("*.wav")).FullName;
+            using (var audio = new NAudio.Wave.WaveFileReader(file))
+            {
+                Assert.Equal(16000, audio.WaveFormat.SampleRate);
+                Assert.Equal(16, audio.WaveFormat.BitsPerSample);
+                Assert.Equal(1, audio.WaveFormat.Channels);
+                Assert.True(audio.Length > 0);
+            }
+
+            controller.KeepRecordings = false;
+            await controller.StartAsync(DictationInsertionMode.CopyOnly);
+            await controller.StopAsync();
+            Assert.Single(folder.GetFiles());
+        }
+        finally
+        {
+            folder.Delete(recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task AudioSaveFailure_PreservesTranscriptionOutcome()
+    {
+        var services = MockDictationAppServices.Create();
+        var controller = new DictationShellController(services.Coordinator, services.AudioCapture,
+            services.Clipboard, saveRecording: (_, _) => throw new IOException("Disk full"))
+        { KeepRecordings = true };
+        await controller.StartAsync(DictationInsertionMode.CopyOnly);
+        await controller.StopAsync();
+        Assert.Equal(DictationRunOutcome.CopyOnly, controller.LastResult?.Outcome);
+        Assert.True(controller.LastResult?.RecordingSaveFailed);
+    }
+
+    [Fact]
     public async Task UseOriginal_KeepsRawForPreviewInsertionAndClearsItOnNextRun()
     {
         var services = MockDictationAppServices.Create();
@@ -316,6 +370,25 @@ public sealed class DictationShellControllerTests
         Assert.Equal(0, services.TextInsertion.InsertCount);
         Assert.Equal(0, services.TargetFocus.RestoreCount);
         Assert.True(controller.State.CanCopy);
+    }
+
+    [Fact]
+    public async Task CopyOnly_WhenClipboardIsBusySavesHistoryAndAllowsRecovery()
+    {
+        var services = MockDictationAppServices.Create();
+        DictationRunResult? saved = null;
+        var controller = new DictationShellController(services.Coordinator, services.AudioCapture, services.Clipboard,
+            saveHistory: result => { saved = result; return Task.CompletedTask; });
+        services.Clipboard.CopyException = new InvalidOperationException("Clipboard is busy.");
+        await controller.StartAsync(DictationInsertionMode.CopyOnly);
+        await controller.StopAsync();
+        Assert.Equal(DictationRunOutcome.Failed, controller.State.LastOutcome);
+        Assert.True(controller.State.CanCopy);
+        Assert.Equal(saved!.Transcript!.Text, controller.State.TranscriptPreview);
+        services.Clipboard.CopyException = null;
+        Assert.True(await controller.CopyTranscriptAsync());
+        Assert.Equal(DictationRunOutcome.CopyOnly, controller.State.LastOutcome);
+        Assert.Null(controller.State.ErrorText);
     }
 
     [Fact]

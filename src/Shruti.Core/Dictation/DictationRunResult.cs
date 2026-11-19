@@ -17,6 +17,7 @@ public sealed record DictationRunResult(
 {
     public Guid Id { get; init; } = Guid.NewGuid();
     public DateTimeOffset CreatedAtUtc { get; init; } = DateTimeOffset.UtcNow;
+    public bool RecordingSaveFailed { get; init; }
     public TimeSpan? AudioDuration { get; init; }
     public RefinedTranscript? RefinedTranscript { get; init; }
     public bool Inserted => Outcome == DictationRunOutcome.Inserted && InsertionResult?.Succeeded == true;

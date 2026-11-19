@@ -1,6 +1,6 @@
 # Privacy policy
 
-Effective date: October 18, 2026
+Effective date: November 19, 2026
 
 This policy covers Shruti, the Windows dictation app developed by Divyang
 Chauhan.
@@ -11,8 +11,13 @@ Shruti processes microphone audio and converts it to text on your computer.
 It does not send your audio or transcripts to the developer or a cloud
 transcription service. You do not need an account to use dictation.
 
-Shruti processes audio in memory and does not automatically save microphone
-recordings. It saves non-empty dictations in a local transcript history,
+By default, Shruti keeps microphone audio in memory. If you turn on
+"Save dictation audio" in Settings, Shruti saves a local WAV file for each
+transcribed recording. Turning the switch off applies to future recordings.
+Use "Open recordings folder" in Settings to find or delete saved audio.
+Deleting a transcript leaves its audio file in that folder.
+
+Shruti saves non-empty dictations in a local transcript history,
 including the original and final text, time, recording duration, word and edit
 counts, and destination process name when available. The Transcriptions page
 lets you delete individual entries or clear the history. Insights summarizes
