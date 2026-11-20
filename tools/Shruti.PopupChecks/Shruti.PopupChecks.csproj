@@ -12,6 +12,7 @@
     <PackageReference Include="Microsoft.WindowsAppSDK" />
     <Compile Include="../../src/Shruti.App.WinUI/PopupAppearance.cs" Link="PopupAppearance.cs" />
     <Page Include="../../src/Shruti.App.WinUI/Styles/PopupResources.xaml" Link="Styles/PopupResources.xaml" />
+    <Page Include="../../src/Shruti.App.WinUI/Styles/LibraryResources.xaml" Link="Styles/LibraryResources.xaml" />
     <Content Include="../../src/Shruti.App.WinUI/MainWindow.xaml" Link="Input/MainWindow.xaml" CopyToOutputDirectory="Always" />
   </ItemGroup>
 </Project>

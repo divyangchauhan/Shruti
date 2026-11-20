@@ -15,7 +15,7 @@ namespace Shruti.App.WinUI;
 public sealed class FloatingMicWindow : Window
 {
     private readonly Border _root;
-    private readonly StackPanel _content = new() { Orientation = Orientation.Horizontal, Spacing = 4, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center };
+    private readonly StackPanel _content = new() { Orientation = Orientation.Horizontal, Spacing = 6, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center };
     private readonly List<Border> _bars = [];
     private readonly List<Border> _dots = [];
     private readonly IWindowsWindowVisibility _visibility;
@@ -29,6 +29,7 @@ public sealed class FloatingMicWindow : Window
     private bool _closing;
     private string _mode = "";
     private string _shortcut = "";
+    private string _renderedLabel = string.Empty;
     private double _width = 40;
     private double _height = 8;
     private int _tick;
@@ -44,16 +45,16 @@ public sealed class FloatingMicWindow : Window
         {
             // Paint the entire client area. The native window region supplies
             // the capsule shape without exposing the white window behind XAML corners.
-            Background = new SolidColorBrush(Microsoft.UI.Colors.Black),
+            Background = new SolidColorBrush(Windows.UI.Color.FromArgb(255, 34, 30, 27)),
             BorderThickness = new Thickness(0),
             Child = _content,
             RequestedTheme = ElementTheme.Dark
         };
         Content = _root;
         var menu = PopupAppearance.CreateMenuFlyout();
-        var settings = new MenuFlyoutItem { Text = "Settings" };
+        var settings = new MenuFlyoutItem { Text = "Settings", Icon = new SymbolIcon(Symbol.Setting) };
         settings.Click += (_, _) => SettingsRequested?.Invoke(this, EventArgs.Empty);
-        var hide = new MenuFlyoutItem { Text = "Hide floating bar" };
+        var hide = new MenuFlyoutItem { Text = "Hide floating bar", Icon = new FontIcon { Glyph = "\uED1A" } };
         hide.Click += (_, _) => DismissRequested?.Invoke(this, EventArgs.Empty);
         menu.Items.Add(settings);
         menu.Items.Add(hide);
@@ -111,6 +112,7 @@ public sealed class FloatingMicWindow : Window
     }
 
     public event EventHandler? TriggerRequested;
+    public event EventHandler? ResumeRequested;
     public event EventHandler? CancelRequested;
     public event EventHandler? DismissRequested;
     public event EventHandler? SettingsRequested;
@@ -133,8 +135,11 @@ public sealed class FloatingMicWindow : Window
         {
             _noticeUntil = default;
         }
-        if (!state.IsRunning && _state.IsRunning && state.LastOutcome == DictationRunOutcome.NoSpeech)
-            _noticeUntil = DateTimeOffset.UtcNow.AddSeconds(2);
+        if (!state.IsRunning && state.LastOutcome is not null &&
+            (_state.IsRunning || _state.LastOutcome != state.LastOutcome) && NoticeText(state.LastOutcome) is not null)
+        {
+            _noticeUntil = DateTimeOffset.UtcNow.AddSeconds(2.4);
+        }
         _state = state;
         Render();
     }
@@ -166,86 +171,142 @@ public sealed class FloatingMicWindow : Window
     private void Render()
     {
         string mode = _state.IsRunning
-            ? (_state.CanStop ? "recording" : "processing")
-            : DateTimeOffset.UtcNow < _noticeUntil ? "notice"
+            ? (_state.CanStop ? "capture" : "processing")
             : _state.LastOutcome == DictationRunOutcome.Failed ? "error"
+            : DateTimeOffset.UtcNow < _noticeUntil ? "notice"
             : _hovered ? "hover" : "idle";
-        ToolTipService.SetToolTip(_root, mode == "idle" || mode == "hover" ? $"Dictate � {_shortcut}" : _state.UserMessage);
-        if (_mode == mode) return;
+        string label = mode switch
+        {
+            "capture" or "processing" when _state.IsPaused => "Paused",
+            "capture" or "processing" when _state.SessionState is DictationSessionState.PreparingTarget or DictationSessionState.RequestingMicrophone => "Starting",
+            "capture" => "Recording",
+            "processing" => "Processing",
+            "notice" => NoticeText(_state.LastOutcome) ?? string.Empty,
+            "error" => "Dictation failed",
+            _ => "Dictate"
+        };
+        string hint = mode is "idle" or "hover"
+            ? string.IsNullOrWhiteSpace(_shortcut) ? "Start dictation" : $"Dictate with {_shortcut}"
+            : _state.UserMessage;
+        ToolTipService.SetToolTip(_root, hint);
+        AutomationProperties.SetName(_root, mode == "error" ? _state.UserMessage : mode is "idle" or "hover" ? hint : label);
+        if (_mode == mode && _renderedLabel == label) return;
         _mode = mode;
+        _renderedLabel = label;
         _content.Children.Clear();
         _bars.Clear();
         _dots.Clear();
-        (_width, _height) = mode switch
+        _height = mode == "idle" ? 8 : 36;
+
+        switch (mode)
         {
-            "idle" => (40, 8),
-            "hover" => (76, 28),
-            "recording" => (112, 28),
-            "processing" => (48, 24),
-            "notice" => (112, 24),
-            _ => (76, 28)
-        };
+            case "hover":
+                _content.Children.Add(ActionButton("\uE720", "Start dictation", () => TriggerRequested?.Invoke(this, EventArgs.Empty), "Dictate"));
+                _content.Children.Add(ActionButton("\uE713", "Open settings", () => SettingsRequested?.Invoke(this, EventArgs.Empty)));
+                break;
+            case "capture":
+                _content.Children.Add(ActionButton("\uE711", "Cancel dictation", () => CancelRequested?.Invoke(this, EventArgs.Empty)));
+                if (label == "Recording")
+                {
+                    var waveform = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 2, Height = 18, VerticalAlignment = VerticalAlignment.Center };
+                    var waveBrush = new SolidColorBrush(Windows.UI.Color.FromArgb(255, 250, 165, 97));
+                    for (int i = 0; i < 7; i++)
+                    {
+                        var bar = new Border { Width = 2, Height = 2, CornerRadius = new CornerRadius(1), VerticalAlignment = VerticalAlignment.Center, Background = waveBrush };
+                        _bars.Add(bar);
+                        waveform.Children.Add(bar);
+                    }
+                    _content.Children.Add(waveform);
+                }
+                else
+                {
+                    _content.Children.Add(StateIcon(label == "Paused" ? "\uE769" : "\uE720"));
+                }
+                _content.Children.Add(StateLabel(label));
+                if (_state.IsPaused)
+                    _content.Children.Add(ActionButton("\uE768", "Resume recording", () => ResumeRequested?.Invoke(this, EventArgs.Empty), "Resume"));
+                _content.Children.Add(ActionButton("\uE73E", "Finish dictation", () => TriggerRequested?.Invoke(this, EventArgs.Empty)));
+                break;
+            case "processing":
+                var activity = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 3, VerticalAlignment = VerticalAlignment.Center };
+                for (int i = 0; i < 3; i++)
+                {
+                    var dot = new Border { Width = 4, Height = 4, CornerRadius = new CornerRadius(2), Background = new SolidColorBrush(Microsoft.UI.Colors.White) };
+                    _dots.Add(dot);
+                    activity.Children.Add(dot);
+                }
+                _content.Children.Add(activity);
+                _content.Children.Add(StateLabel(label));
+                break;
+            case "notice":
+                string glyph = _state.LastOutcome switch
+                {
+                    DictationRunOutcome.CopyOnly => "\uE8C8",
+                    DictationRunOutcome.PreviewRequired => "\uE8A5",
+                    DictationRunOutcome.Inserted => "\uE73E",
+                    _ => "\uE720"
+                };
+                _content.Children.Add(StateIcon(glyph));
+                _content.Children.Add(StateLabel(label));
+                break;
+            case "error":
+                _content.Children.Add(StateLabel(label));
+                _content.Children.Add(ActionButton("\uE72C", "Try dictation again", () => TriggerRequested?.Invoke(this, EventArgs.Empty), "Retry"));
+                _content.Children.Add(ActionButton("\uE713", "Open settings", () => SettingsRequested?.Invoke(this, EventArgs.Empty)));
+                break;
+        }
+        _content.Measure(new Windows.Foundation.Size(double.PositiveInfinity, double.PositiveInfinity));
+        _width = mode == "idle" ? 40 : Math.Ceiling(_content.DesiredSize.Width) + 24;
         _root.Width = _width;
         _root.Height = _height;
-        if (mode == "hover")
-        {
-            _content.Children.Add(ActionButton("\uE720", "Start dictation", () => TriggerRequested?.Invoke(this, EventArgs.Empty)));
-            _content.Children.Add(ActionButton("\uE713", "Open settings", () => SettingsRequested?.Invoke(this, EventArgs.Empty)));
-        }
-        else if (mode == "recording")
-        {
-            _content.Children.Add(ActionButton("\uE711", "Cancel dictation", () => CancelRequested?.Invoke(this, EventArgs.Empty)));
-            var waveform = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 3, Height = 18, VerticalAlignment = VerticalAlignment.Center };
-            for (int i = 0; i < 7; i++)
-            {
-                var bar = new Border { Width = 2, Height = 2, CornerRadius = new CornerRadius(1), VerticalAlignment = VerticalAlignment.Center, Background = new SolidColorBrush(Microsoft.UI.Colors.White) };
-                _bars.Add(bar);
-                waveform.Children.Add(bar);
-            }
-            _content.Children.Add(waveform);
-            _content.Children.Add(ActionButton("\uE73E", "Finish dictation", () => TriggerRequested?.Invoke(this, EventArgs.Empty)));
-        }
-        else if (mode == "processing")
-        {
-            for (int i = 0; i < 3; i++)
-            {
-                var dot = new Border { Width = 4, Height = 4, CornerRadius = new CornerRadius(2), Background = new SolidColorBrush(Microsoft.UI.Colors.White) };
-                _dots.Add(dot);
-                _content.Children.Add(dot);
-            }
-        }
-        else if (mode == "notice")
-            _content.Children.Add(new TextBlock { Text = "No speech detected", FontSize = 10, Foreground = new SolidColorBrush(Microsoft.UI.Colors.White) });
-        else if (mode == "error")
-        {
-            _content.Children.Add(ActionButton("\uE72C", "Try dictation again", () => TriggerRequested?.Invoke(this, EventArgs.Empty)));
-            _content.Children.Add(ActionButton("\uE713", "Open settings", () => SettingsRequested?.Invoke(this, EventArgs.Empty)));
-        }
-        AutomationProperties.SetName(_root, mode switch
-        {
-            "recording" => "Recording",
-            "processing" => "Processing speech",
-            "notice" => "No speech detected",
-            "error" => _state.UserMessage,
-            _ => $"Dictate, {_shortcut}"
-        });
         Place();
     }
 
-    private static Button ActionButton(string glyph, string name, Action action)
+    private static string? NoticeText(DictationRunOutcome? outcome) => outcome switch
     {
+        DictationRunOutcome.Inserted => "Text inserted",
+        DictationRunOutcome.CopyOnly => "Copied",
+        DictationRunOutcome.PreviewRequired => "Review in Shruti",
+        DictationRunOutcome.NoSpeech => "No speech detected",
+        _ => null
+    };
+
+    private static FontIcon StateIcon(string glyph) => new()
+    {
+        FontFamily = new FontFamily("Segoe Fluent Icons"),
+        Glyph = glyph,
+        FontSize = 15,
+        VerticalAlignment = VerticalAlignment.Center,
+        Foreground = new SolidColorBrush(Windows.UI.Color.FromArgb(255, 250, 165, 97))
+    };
+
+    private static TextBlock StateLabel(string text) => new()
+    {
+        Text = text,
+        FontSize = 12,
+        FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
+        VerticalAlignment = VerticalAlignment.Center,
+        Foreground = new SolidColorBrush(Microsoft.UI.Colors.White)
+    };
+
+    private static Button ActionButton(string glyph, string name, Action action, string? label = null)
+    {
+        var icon = new FontIcon { Glyph = glyph, FontFamily = new FontFamily("Segoe Fluent Icons"), FontSize = 13 };
+        var content = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 6, VerticalAlignment = VerticalAlignment.Center };
+        content.Children.Add(icon);
+        if (label is not null) content.Children.Add(StateLabel(label));
         var button = new Button
         {
-            Width = 22,
-            Height = 22,
+            Width = label is null ? 28 : double.NaN,
+            Height = 28,
             MinWidth = 0,
             MinHeight = 0,
-            Padding = new Thickness(0),
+            Padding = new Thickness(label is null ? 0 : 7, 0, label is null ? 0 : 7, 0),
             CornerRadius = new CornerRadius(15),
-            Background = new SolidColorBrush(Microsoft.UI.Colors.Transparent),
+            Background = new SolidColorBrush(Windows.UI.Color.FromArgb(255, 58, 52, 47)),
             BorderThickness = new Thickness(0),
             Foreground = new SolidColorBrush(Microsoft.UI.Colors.White),
-            Content = new FontIcon { Glyph = glyph, FontFamily = new FontFamily("Segoe Fluent Icons"), FontSize = 11 }
+            Content = content
         };
         AutomationProperties.SetName(button, name);
         ToolTipService.SetToolTip(button, name);

@@ -13,9 +13,11 @@ public sealed class Win32TrayIconApi : IWindowsTrayIconApi, IDisposable
     private ToolStripMenuItem? _startMenuItem;
     private ToolStripMenuItem? _stopMenuItem;
     private ToolStripMenuItem? _cancelMenuItem;
+    private ToolStripSeparator? _commandSeparator;
     private Icon? _icon;
     private bool _isDictationRunning;
     private bool _areDictationCommandsEnabled = true;
+    private bool _darkTheme;
     private bool _isDisposed;
 
     public event Action<WindowsTrayCommand>? CommandInvoked;
@@ -81,6 +83,12 @@ public sealed class Win32TrayIconApi : IWindowsTrayIconApi, IDisposable
         UpdateMenuState();
     }
 
+    public void SetDarkTheme(bool darkTheme)
+    {
+        _darkTheme = darkTheme;
+        if (_menu is not null) ApplyMenuTheme(_menu);
+    }
+
     public WindowsTrayCommand? ShowMenu(
         IntPtr windowHandle,
         bool isDictationRunning,
@@ -109,6 +117,10 @@ public sealed class Win32TrayIconApi : IWindowsTrayIconApi, IDisposable
 
         _menu?.Dispose();
         _menu = null;
+        _startMenuItem = null;
+        _stopMenuItem = null;
+        _cancelMenuItem = null;
+        _commandSeparator = null;
         _icon?.Dispose();
         _icon = null;
         GC.SuppressFinalize(this);
@@ -137,30 +149,108 @@ public sealed class Win32TrayIconApi : IWindowsTrayIconApi, IDisposable
     {
         var menu = new ContextMenuStrip
         {
-            ShowImageMargin = false
+            ShowCheckMargin = false,
+            Font = SystemFonts.MenuFont
         };
-        menu.Opening += (_, _) => UpdateMenuState();
-        menu.Items.Add(CreateMenuItem("Show Shruti", WindowsTrayCommand.ShowWindow));
-        menu.Items.Add(new ToolStripSeparator());
+        menu.MinimumSize = new Size(menu.LogicalToDeviceUnits(190), 0);
+        menu.Padding = new Padding(menu.LogicalToDeviceUnits(3), menu.LogicalToDeviceUnits(5),
+            menu.LogicalToDeviceUnits(3), menu.LogicalToDeviceUnits(5));
+        ApplyMenuTheme(menu);
+        menu.Opening += (_, _) =>
+        {
+            ApplyMenuTheme(menu);
+            UpdateMenuState();
+        };
         _startMenuItem = CreateMenuItem("Start dictation", WindowsTrayCommand.Start);
         _stopMenuItem = CreateMenuItem("Stop dictation", WindowsTrayCommand.Stop);
         menu.Items.Add(_startMenuItem);
         menu.Items.Add(_stopMenuItem);
-        menu.Items.Add(new ToolStripSeparator());
         _cancelMenuItem = CreateMenuItem("Cancel dictation", WindowsTrayCommand.Cancel);
         menu.Items.Add(_cancelMenuItem);
-        menu.Items.Add(new ToolStripSeparator());
+        _commandSeparator = new ToolStripSeparator();
+        menu.Items.Add(_commandSeparator);
+        menu.Items.Add(CreateMenuItem("Show Shruti", WindowsTrayCommand.ShowWindow));
         menu.Items.Add(CreateMenuItem("Settings", WindowsTrayCommand.ShowSettings));
+        menu.Items.Add(new ToolStripSeparator());
         menu.Items.Add(CreateMenuItem("Exit Shruti", WindowsTrayCommand.Quit));
         UpdateMenuState();
         return menu;
+    }
+
+    private void ApplyMenuTheme(ContextMenuStrip menu)
+    {
+        if (SystemInformation.HighContrast)
+        {
+            menu.RenderMode = ToolStripRenderMode.System;
+            menu.ShowImageMargin = false;
+            menu.BackColor = SystemColors.Menu;
+            menu.ForeColor = SystemColors.MenuText;
+            return;
+        }
+
+        if (menu.Renderer is TrayMenuRenderer renderer && renderer.DarkTheme == _darkTheme) return;
+        var colors = new TrayMenuColors(_darkTheme);
+        menu.ShowImageMargin = true;
+        menu.BackColor = colors.ToolStripDropDownBackground;
+        menu.ForeColor = colors.Text;
+        menu.Renderer = new TrayMenuRenderer(colors, _darkTheme);
+    }
+
+    private sealed class TrayMenuColors(bool darkTheme) : ProfessionalColorTable
+    {
+        public Color Text { get; } = darkTheme ? Color.FromArgb(243, 241, 238) : Color.FromArgb(30, 28, 25);
+        public Color Accent { get; } = darkTheme ? Color.FromArgb(234, 141, 70) : Color.FromArgb(188, 86, 16);
+        public override Color ToolStripDropDownBackground => darkTheme ? Color.FromArgb(44, 41, 37) : Color.White;
+        public override Color MenuItemSelected => darkTheme ? Color.FromArgb(64, 47, 34) : Color.FromArgb(252, 233, 216);
+        public override Color MenuItemBorder => MenuItemSelected;
+        public override Color MenuBorder => darkTheme ? Color.FromArgb(94, 87, 79) : Color.FromArgb(212, 208, 201);
+        public override Color SeparatorDark => darkTheme ? Color.FromArgb(73, 67, 61) : Color.FromArgb(231, 228, 223);
+        public override Color SeparatorLight => ToolStripDropDownBackground;
+        public override Color ImageMarginGradientBegin => ToolStripDropDownBackground;
+        public override Color ImageMarginGradientMiddle => ToolStripDropDownBackground;
+        public override Color ImageMarginGradientEnd => ToolStripDropDownBackground;
+    }
+
+    private sealed class TrayMenuRenderer(TrayMenuColors colors, bool darkTheme) : ToolStripProfessionalRenderer(colors)
+    {
+        public bool DarkTheme { get; } = darkTheme;
+
+        protected override void OnRenderItemText(ToolStripItemTextRenderEventArgs e)
+        {
+            var palette = (TrayMenuColors)ColorTable;
+            e.TextColor = palette.Text;
+            base.OnRenderItemText(e);
+            if (e.Item.Tag is not WindowsTrayCommand command || e.ToolStrip is not ContextMenuStrip menu) return;
+            string glyph = command switch
+            {
+                WindowsTrayCommand.Start => "\uE720",
+                WindowsTrayCommand.Stop => "\uE71A",
+                WindowsTrayCommand.Cancel => "\uE711",
+                WindowsTrayCommand.ShowWindow => "\uE8A7",
+                WindowsTrayCommand.ShowSettings => "\uE713",
+                WindowsTrayCommand.Quit => "\uE8BB",
+                _ => ""
+            };
+            int inset = menu.LogicalToDeviceUnits(4);
+            bool rtl = menu.RightToLeft == RightToLeft.Yes;
+            int width = rtl ? e.Item.Width - e.TextRectangle.Right : e.TextRectangle.Left;
+            int size = Math.Min(menu.LogicalToDeviceUnits(16), width - 2 * inset);
+            if (size < 1) return;
+            int left = rtl ? e.Item.Width - inset - size : inset;
+            var bounds = new Rectangle(left, e.TextRectangle.Top, size, e.TextRectangle.Height);
+            using var font = new Font("Segoe MDL2 Assets", size * .85f, FontStyle.Regular, GraphicsUnit.Pixel);
+            Color ink = command is WindowsTrayCommand.Start or WindowsTrayCommand.Stop ? palette.Accent : palette.Text;
+            TextRenderer.DrawText(e.Graphics, glyph, font, bounds, ink,
+                TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPadding);
+        }
     }
 
     private ToolStripMenuItem CreateMenuItem(string text, WindowsTrayCommand command)
     {
         var item = new ToolStripMenuItem(text)
         {
-            Tag = command
+            Tag = command,
+            Padding = new Padding(8, 4, 14, 4)
         };
         item.Click += (_, _) => RaiseCommand(command);
         return item;
@@ -175,14 +265,15 @@ public sealed class Win32TrayIconApi : IWindowsTrayIconApi, IDisposable
 
     private void UpdateMenuState()
     {
-        if (_startMenuItem is null || _stopMenuItem is null || _cancelMenuItem is null)
+        if (_startMenuItem is null || _stopMenuItem is null || _cancelMenuItem is null || _commandSeparator is null)
         {
             return;
         }
 
-        _startMenuItem.Enabled = _areDictationCommandsEnabled && !_isDictationRunning;
-        _stopMenuItem.Enabled = _areDictationCommandsEnabled && _isDictationRunning;
-        _cancelMenuItem.Enabled = _areDictationCommandsEnabled && _isDictationRunning;
+        _startMenuItem.Available = _areDictationCommandsEnabled && !_isDictationRunning;
+        _stopMenuItem.Available = _areDictationCommandsEnabled && _isDictationRunning;
+        _cancelMenuItem.Available = _areDictationCommandsEnabled && _isDictationRunning;
+        _commandSeparator.Available = _areDictationCommandsEnabled;
     }
 
     private void NotifyIcon_MouseClick(object? sender, MouseEventArgs e)

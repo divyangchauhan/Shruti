@@ -25,8 +25,12 @@ public sealed partial class TranscriptQualityControl : UserControl
     {
         bool installed = File.Exists(Settings.LocalModelPath) && File.Exists(Settings.LocalRuntimePath);
         bool active = installed && Settings.EnableLocalModel && Settings.CleanupMode == TranscriptCleanupMode.Light;
-        ModelStatusText.Text = active ? "Active" : installed ? "Installed" : "Not installed";
+        ModelStatusText.Text = active ? "In use" : "Installed";
+        ModelStatusText.Visibility = installed ? Visibility.Visible : Visibility.Collapsed;
         ToggleModelButton.Content = active ? "Disable" : "Set active";
+        Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(ToggleModelButton,
+            active ? "Disable Qwen3.5-2B for dictation cleanup" : "Use Qwen3.5-2B for dictation cleanup");
+        ToggleModelButton.Visibility = installed ? Visibility.Visible : Visibility.Collapsed;
         ToggleModelButton.IsEnabled = installed && !_installing;
         InstallButton.Visibility = installed ? Visibility.Collapsed : Visibility.Visible;
         InstallButton.IsEnabled = !_installing;

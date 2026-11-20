@@ -145,6 +145,8 @@ public sealed class WindowsTrayIconServiceTests
 
     private sealed class FakeTrayIconApi : IWindowsTrayIconApi
     {
+        public void SetDarkTheme(bool darkTheme) { }
+
         public event Action<WindowsTrayCommand>? CommandInvoked;
 
         public int AddCount { get; private set; }

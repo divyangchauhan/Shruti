@@ -26,6 +26,7 @@ internal sealed class FloatingBarManager : IDisposable
     public IReadOnlyList<WindowsDisplayMonitor> Monitors { get; private set; } = [];
     public event EventHandler? DisplaysChanged;
     public event EventHandler? TriggerRequested;
+    public event EventHandler? ResumeRequested;
     public event EventHandler? CancelRequested;
     public event EventHandler? DismissRequested;
     public event EventHandler? SettingsRequested;
@@ -77,6 +78,7 @@ internal sealed class FloatingBarManager : IDisposable
             {
                 window = new FloatingMicWindow(_visibility, monitor.Handle);
                 window.TriggerRequested += (_, _) => TriggerRequested?.Invoke(this, EventArgs.Empty);
+                window.ResumeRequested += (_, _) => ResumeRequested?.Invoke(this, EventArgs.Empty);
                 window.CancelRequested += (_, _) => CancelRequested?.Invoke(this, EventArgs.Empty);
                 window.DismissRequested += (_, _) => DismissRequested?.Invoke(this, EventArgs.Empty);
                 window.SettingsRequested += (_, _) => SettingsRequested?.Invoke(this, EventArgs.Empty);

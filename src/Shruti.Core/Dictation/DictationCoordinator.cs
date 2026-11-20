@@ -165,6 +165,18 @@ public sealed class DictationCoordinator
                 Transition,
                 cancellationToken).ConfigureAwait(false);
 
+            if (request.SaveRecording is not null && !TranscriptText.IsEmptyOrNonSpeech(result.Transcript?.Text))
+            {
+                try
+                {
+                    request.SaveRecording(capturedAudio, transcriptionSession.RequiredInputFormat);
+                }
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+                {
+                    result = result with { RecordingSaveFailed = true };
+                }
+            }
+
             return result with
             {
                 RefinedTranscript = refined,

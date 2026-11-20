@@ -1,3 +1,4 @@
+using Shruti.Core.Dictation;
 using Shruti.Core.Triggers;
 
 namespace Shruti.Workflow.Dictation;
@@ -26,7 +27,7 @@ public sealed class DictationTriggerRouter
                 if (!_controller.State.IsRunning)
                 {
                     await _controller
-                        .StartAsync(_controller.State.InsertionMode)
+                        .StartAsync(_controller.PreferredInsertionMode)
                         .ConfigureAwait(false);
                 }
 
@@ -55,7 +56,9 @@ public sealed class DictationTriggerRouter
                 else
                 {
                     await _controller
-                        .StartAsync(_controller.State.InsertionMode)
+                        .StartAsync(trigger.Kind == DictationTriggerKind.AppButton
+                            ? DictationInsertionMode.CopyOnly
+                            : _controller.PreferredInsertionMode)
                         .ConfigureAwait(false);
                 }
 

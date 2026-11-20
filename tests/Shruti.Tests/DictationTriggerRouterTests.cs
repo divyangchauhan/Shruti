@@ -9,7 +9,6 @@ namespace Shruti.Tests;
 public sealed class DictationTriggerRouterTests
 {
     [Theory]
-    [InlineData(DictationTriggerKind.AppButton)]
     [InlineData(DictationTriggerKind.GlobalHotkey)]
     [InlineData(DictationTriggerKind.FloatingButton)]
     [InlineData(DictationTriggerKind.TrayMenu)]
@@ -25,6 +24,23 @@ public sealed class DictationTriggerRouterTests
         Assert.Equal(DictationRunOutcome.Inserted, controller.LastResult?.Outcome);
         Assert.Equal(1, services.AudioCapture.StartCount);
         Assert.Equal(1, services.TextInsertion.InsertCount);
+    }
+
+    [Fact]
+    public async Task HistoryButton_CopiesTranscriptAndNextShortcutUsesSavedPreference()
+    {
+        var services = MockDictationAppServices.Create();
+        var controller = services.CreateShellController();
+        var router = new DictationTriggerRouter(controller);
+        controller.SetInsertionMode(DictationInsertionMode.PreviewFirst);
+        await router.HandleAsync(CreateTrigger(DictationTriggerKind.AppButton));
+        await router.HandleAsync(CreateTrigger(DictationTriggerKind.AppButton));
+        Assert.Equal(DictationRunOutcome.CopyOnly, controller.LastResult?.Outcome);
+        Assert.Equal(0, services.TextInsertion.InsertCount);
+
+        await router.HandleAsync(CreateTrigger(DictationTriggerKind.PushToTalkPressed));
+        await router.HandleAsync(CreateTrigger(DictationTriggerKind.PushToTalkReleased));
+        Assert.Equal(DictationRunOutcome.PreviewRequired, controller.LastResult?.Outcome);
     }
 
     [Fact]

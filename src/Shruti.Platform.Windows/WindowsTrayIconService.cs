@@ -27,6 +27,8 @@ public sealed class WindowsTrayIconService : IDisposable
 
     public event Action<WindowsTrayCommand>? CommandInvoked;
 
+    public void SetDarkTheme(bool darkTheme) => _api.SetDarkTheme(darkTheme);
+
     public void AttachWindow(IntPtr windowHandle)
     {
         ObjectDisposedException.ThrowIf(_isDisposed, this);

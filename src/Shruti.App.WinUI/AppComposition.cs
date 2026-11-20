@@ -71,7 +71,8 @@ public sealed class AppComposition
             transcriptionOptionsProvider.CreateAsync,
             async cancellationToken => (await settingsRepository.LoadAsync(cancellationToken).ConfigureAwait(false)).TranscriptQuality with
             { LocalRuntimePath = Path.Combine(AppContext.BaseDirectory, "CleanupRuntime", "llama-server.exe") },
-            new TranscriptHistoryRepository(appDataPaths).SaveAsync);
+            new TranscriptHistoryRepository(appDataPaths).SaveAsync,
+            new DictationRecordingWriter(appDataPaths.RecordingsDirectory).Save);
         var triggerRouter = new DictationTriggerRouter(controller);
         var window = new MainWindow(
             controller,
