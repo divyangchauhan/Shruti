@@ -394,7 +394,7 @@ public sealed class DictationShellController
         try
         {
             var progress = new SynchronousProgress<DictationStatus>(ApplyProgress);
-            var transcriptProgress = new SynchronousProgress<TranscriptEvent>(ApplyTranscriptEvent);
+            var finalTranscriptProgress = new SynchronousProgress<string>(ApplyFinalTranscript);
             TranscriptionSessionOptions transcriptionOptions = await _transcriptionOptionsFactory(activeRun.Token)
                 .ConfigureAwait(false);
             var qualitySettings = await _qualitySettingsFactory(activeRun.Token).ConfigureAwait(false);
@@ -404,7 +404,7 @@ public sealed class DictationShellController
                 audioOptions: _audioOptions,
                 qualitySettings: qualitySettings with { Language = transcriptionOptions.Language },
                 statusProgress: progress,
-                transcriptProgress: transcriptProgress,
+                finalTranscriptProgress: finalTranscriptProgress,
                 captureSessionStarted: session =>
                 {
                     captureStarted.TrySetResult();
@@ -538,17 +538,11 @@ public sealed class DictationShellController
         });
     }
 
-    private void ApplyTranscriptEvent(TranscriptEvent transcriptEvent)
+    private void ApplyFinalTranscript(string text)
     {
-        if (transcriptEvent.Kind != TranscriptEventKind.Completed ||
-            TranscriptText.IsEmptyOrNonSpeech(transcriptEvent.Text))
-        {
-            return;
-        }
-
         UpdateState(state => state with
         {
-            TranscriptPreview = transcriptEvent.Text,
+            TranscriptPreview = text,
             ErrorText = null
         });
     }

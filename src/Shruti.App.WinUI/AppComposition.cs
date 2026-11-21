@@ -41,15 +41,12 @@ public sealed class AppComposition
         textInsertionService = platformModule.CreateTextInsertionService();
         ITranscriptionProviderRegistry transcriptionProviderRegistry = new TranscriptionProviderRegistry(
             [whisperCppProvider, openVinoProvider]);
-        var benchmarkCache = new JsonTranscriptionBenchmarkCache(appDataPaths);
         transcriptionOptionsProvider = new TranscriptionOptionsProvider(
             modelCatalog,
             defaultModel,
             appDataPaths,
-            new TranscriptionReadinessService(transcriptionProviderRegistry, benchmarkCache),
-            transcriptionProviderRegistry,
-            typeof(AppComposition).Assembly.GetName().Version?.ToString() ??
-                TranscriptionBenchmarkKey.UnknownProviderVersion);
+            new TranscriptionReadinessService(transcriptionProviderRegistry),
+            transcriptionProviderRegistry);
     }
 
     public MainWindow CreateMainWindow()

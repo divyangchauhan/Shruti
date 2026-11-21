@@ -25,8 +25,6 @@ public sealed record ShrutiSettings
 
     public ComputeBackend BackendPreference { get; init; } = ComputeBackend.Auto;
 
-    public bool AllowSlowTranscription { get; init; }
-
     public bool HasCompletedOnboarding { get; init; }
 
     public bool ShowFloatingBar { get; init; } = true;

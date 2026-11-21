@@ -1,6 +1,5 @@
 using Shruti.Core.TranscriptQuality;
 using System.Runtime.CompilerServices;
-using System.Threading.Channels;
 using Shruti.Core;
 using Shruti.Core.Audio;
 using Shruti.Core.Dictation;
@@ -27,7 +26,7 @@ public sealed class DictationCoordinatorTests
         Assert.Equal(DictationRunOutcome.NoSpeech, result.Outcome);
         Assert.Empty(result.Transcript!.Text);
         Assert.Equal(0, services.TextInsertion.InsertCount);
-        Assert.Equal(0, services.Transcription.LastSession!.CompleteCount);
+        Assert.Equal(0, services.Transcription.LastSession!.TranscriptionCount);
         Assert.Equal(0, pipeline.RefineCount);
         Assert.True(pipeline.Disposed);
     }
@@ -45,7 +44,7 @@ public sealed class DictationCoordinatorTests
 
         Assert.Equal(outcome, result.Outcome);
         Assert.Equal(1, detector.Calls);
-        Assert.Equal(hasSpeech ? 1 : 0, services.Transcription.LastSession!.CompleteCount);
+        Assert.Equal(hasSpeech ? 1 : 0, services.Transcription.LastSession!.TranscriptionCount);
         Assert.Equal(hasSpeech ? 1 : 0, pipeline.RefineCount);
         Assert.Equal(hasSpeech ? 1 : 0, services.TextInsertion.InsertCount);
     }
@@ -56,7 +55,7 @@ public sealed class DictationCoordinatorTests
         var services = TestServices.Create(speechDetector: new FakeSpeechDetector(false, fail: true));
         var result = await services.Coordinator.RunOnceAsync(DictationRequest.AutoInsert(CreateTranscriptionOptions()), default);
         Assert.Equal(DictationRunOutcome.Failed, result.Outcome);
-        Assert.Equal(0, services.Transcription.LastSession!.CompleteCount);
+        Assert.Equal(0, services.Transcription.LastSession!.TranscriptionCount);
         Assert.Equal(0, services.TextInsertion.InsertCount);
     }
 
@@ -89,20 +88,28 @@ public sealed class DictationCoordinatorTests
         Assert.Equal(1, services.AudioCapture.StartCount);
         Assert.Equal(1, services.TextInsertion.InspectCount);
         Assert.Equal(1, services.TextInsertion.InsertCount);
-        Assert.Equal(2, services.Transcription.LastSession?.PushedAudioChunkCount);
+        Assert.Equal(1, services.Transcription.LastSession?.TranscriptionCount);
+        Assert.Equal(new byte[] { 1, 2, 3, 4, 5, 6, 7, 8 }, services.Transcription.LastSession?.Audio);
     }
 
     [Fact]
     public async Task AudioLimit_FinalizesCapturedAudioInsteadOfFailingTheRun()
     {
-        var services = TestServices.Create(reachMaximumAudioDurationAfterFirstPush: true);
+        var services = TestServices.Create();
+        TimeSpan limit = TimeSpan.FromSeconds(3d / AudioFormat.Speech16KhzMono.SampleRateHz);
+        var options = CreateTranscriptionOptions() with { MaximumAudioDuration = limit };
+        byte[]? savedAudio = null;
+        var request = DictationRequest.AutoInsert(options) with
+        {
+            SaveRecording = (audio, _) => savedAudio = audio.ToArray()
+        };
 
-        DictationRunResult result = await services.Coordinator.RunOnceAsync(
-            DictationRequest.AutoInsert(CreateTranscriptionOptions()),
-            CancellationToken.None);
+        DictationRunResult result = await services.Coordinator.RunOnceAsync(request, CancellationToken.None);
 
         Assert.Equal(DictationRunOutcome.Inserted, result.Outcome);
-        Assert.Equal(1, services.Transcription.LastSession?.PushedAudioChunkCount);
+        Assert.Equal(new byte[] { 1, 2, 3, 4, 5, 6 }, services.Transcription.LastSession?.Audio);
+        Assert.Equal(services.Transcription.LastSession?.Audio, savedAudio);
+        Assert.Equal(limit, result.AudioDuration);
         Assert.Equal(1, services.AudioCapture.LastSession?.StopCount);
         Assert.DoesNotContain(result.StatusHistory, status => status.State == DictationSessionState.Failed);
         Assert.Contains(
@@ -111,23 +118,19 @@ public sealed class DictationCoordinatorTests
     }
 
     [Fact]
-    public async Task TranscriptProgress_ForwardsOnlyFinalText()
+    public async Task Transcription_StartsAfterCaptureStopsAndReportsFinalText()
     {
         var services = TestServices.Create();
-        var transcriptProgress = new RecordingProgress<TranscriptEvent>();
+        services.Transcription.OnTranscribe = () => Assert.Equal(1, services.AudioCapture.LastSession?.StopCount);
+        var finalTranscriptProgress = new RecordingProgress<string>();
         var request = new DictationRequest(
             CreateTranscriptionOptions(),
-            transcriptProgress: transcriptProgress);
+            finalTranscriptProgress: finalTranscriptProgress);
 
         var result = await services.Coordinator.RunOnceAsync(request, CancellationToken.None);
 
         Assert.Equal(DictationRunOutcome.Inserted, result.Outcome);
-        Assert.DoesNotContain(transcriptProgress.Values,
-            transcriptEvent => transcriptEvent.Kind == TranscriptEventKind.PartialText);
-        Assert.Contains(
-            transcriptProgress.Values,
-            transcriptEvent => transcriptEvent.Kind == TranscriptEventKind.Completed &&
-                transcriptEvent.Text == "hello from shruti");
+        Assert.Equal("hello from shruti", Assert.Single(finalTranscriptProgress.Values));
     }
 
     [Fact]
@@ -377,7 +380,6 @@ public sealed class DictationCoordinatorTests
             TextInsertionCapability? capability = null,
             TextInsertionResult? insertionResult = null,
             Action? onComplete = null,
-            bool reachMaximumAudioDurationAfterFirstPush = false,
             ITranscriptQualityPipeline? quality = null,
             IReadOnlyList<AudioFrame>? audioFrames = null,
             ISpeechActivityDetector? speechDetector = null)
@@ -395,7 +397,7 @@ public sealed class DictationCoordinatorTests
                 insertionResult ?? new TextInsertionResult(
                     Inserted: true,
                     TextInsertionMethod.DirectInput));
-            var transcription = new FakeTranscriptionProvider(onComplete, reachMaximumAudioDurationAfterFirstPush);
+            var transcription = new FakeTranscriptionProvider { OnTranscribe = onComplete };
 
             return new TestServices(
                 targetFocus,
@@ -578,14 +580,7 @@ public sealed class DictationCoordinatorTests
 
     private sealed class FakeTranscriptionProvider : ITranscriptionProvider
     {
-        private readonly Action? _onComplete;
-        private readonly bool _reachMaximumAudioDurationAfterFirstPush;
-
-        public FakeTranscriptionProvider(Action? onComplete, bool reachMaximumAudioDurationAfterFirstPush)
-        {
-            _onComplete = onComplete;
-            _reachMaximumAudioDurationAfterFirstPush = reachMaximumAudioDurationAfterFirstPush;
-        }
+        public Action? OnTranscribe { get; set; }
 
         public string Id => "mock-provider";
 
@@ -602,10 +597,8 @@ public sealed class DictationCoordinatorTests
                     DisplayName,
                     ComputeBackend.Cpu,
                     "Mock CPU",
-                    SupportsStreaming: false,
                     SupportsTimestamps: true,
                     SupportsLanguageDetection: false,
-                    MeasuredRealtimeFactor: 0.1,
                     Warnings: [])
             ];
 
@@ -625,76 +618,35 @@ public sealed class DictationCoordinatorTests
             CancellationToken cancellationToken)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            LastSession = new FakeTranscriptionSession(_onComplete, _reachMaximumAudioDurationAfterFirstPush);
+            LastSession = new FakeTranscriptionSession(OnTranscribe);
             return Task.FromResult<ITranscriptionSession>(LastSession);
         }
     }
 
-    private sealed class FakeTranscriptionSession : ITranscriptionSession
+    private sealed class FakeTranscriptionSession(Action? onTranscribe) : ITranscriptionSession
     {
-        private readonly Action? _onComplete;
-        private readonly bool _reachMaximumAudioDurationAfterFirstPush;
-        private readonly Channel<TranscriptEvent> _events = Channel.CreateUnbounded<TranscriptEvent>();
-        private bool _partialTranscriptSent;
-
-        public FakeTranscriptionSession(Action? onComplete, bool reachMaximumAudioDurationAfterFirstPush)
-        {
-            _onComplete = onComplete;
-            _reachMaximumAudioDurationAfterFirstPush = reachMaximumAudioDurationAfterFirstPush;
-        }
-
         public AudioFormat RequiredInputFormat => AudioFormat.Speech16KhzMono;
 
-        public IAsyncEnumerable<TranscriptEvent> Events => _events.Reader.ReadAllAsync();
-
-        public int PushedAudioChunkCount { get; private set; }
-
+        public byte[]? Audio { get; private set; }
         public int CancelCount { get; private set; }
-        public int CompleteCount { get; private set; }
+        public int TranscriptionCount { get; private set; }
 
-        public ValueTask<TranscriptionAudioPushResult> PushAudioAsync(
-            ReadOnlyMemory<byte> pcmAudio,
-            CancellationToken cancellationToken)
+        public Task<TranscriptResult> TranscribeAsync(ReadOnlyMemory<byte> pcmAudio, CancellationToken cancellationToken)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            PushedAudioChunkCount++;
-            if (!_partialTranscriptSent)
-            {
-                _partialTranscriptSent = true;
-                _events.Writer.TryWrite(new TranscriptEvent(
-                    TranscriptEventKind.PartialText,
-                    Text: "hello from shruti partial"));
-            }
-
-            return ValueTask.FromResult(
-                _reachMaximumAudioDurationAfterFirstPush && PushedAudioChunkCount == 1
-                    ? TranscriptionAudioPushResult.FinalizeAtMaximumDuration
-                    : TranscriptionAudioPushResult.Continue);
-        }
-
-        public Task<TranscriptResult> CompleteAsync(CancellationToken cancellationToken)
-        {
-            CompleteCount++;
-            cancellationToken.ThrowIfCancellationRequested();
-            _onComplete?.Invoke();
-            TranscriptResult result = TranscriptResult.FromText("hello from shruti");
-            _events.Writer.TryWrite(new TranscriptEvent(TranscriptEventKind.Completed, Text: result.Text));
-            _events.Writer.TryComplete();
-            return Task.FromResult(result);
+            TranscriptionCount++;
+            Audio = pcmAudio.ToArray();
+            onTranscribe?.Invoke();
+            return Task.FromResult(TranscriptResult.FromText("hello from shruti"));
         }
 
         public Task CancelAsync()
         {
             CancelCount++;
-            _events.Writer.TryComplete();
             return Task.CompletedTask;
         }
 
-        public ValueTask DisposeAsync()
-        {
-            _events.Writer.TryComplete();
-            return ValueTask.CompletedTask;
-        }
+        public ValueTask DisposeAsync() => ValueTask.CompletedTask;
     }
 
     private sealed class RecordingProgress<T> : IProgress<T>

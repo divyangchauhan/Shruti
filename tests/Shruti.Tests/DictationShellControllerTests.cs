@@ -156,7 +156,7 @@ public sealed class DictationShellControllerTests
     }
 
     [Fact]
-    public async Task Recording_DoesNotShowPartialTranscript()
+    public async Task Recording_DoesNotShowTranscript()
     {
         var services = MockDictationAppServices.Create();
         var controller = services.CreateShellController();
@@ -174,7 +174,7 @@ public sealed class DictationShellControllerTests
     }
 
     [Fact]
-    public async Task LatePartialTranscript_DuringFinalizationPreservesTheFinalizationState()
+    public async Task Finalization_ShowsProcessingUntilTranscriptionFinishes()
     {
         var services = MockDictationAppServices.Create();
         var controller = services.CreateShellController();
@@ -187,7 +187,6 @@ public sealed class DictationShellControllerTests
             controller,
             state => state.SessionState == DictationSessionState.TranscribingFinalAudio);
 
-        services.Transcription.LastSession?.EmitPartialTranscript("late partial transcript");
         Assert.Empty(controller.State.TranscriptPreview);
 
         Assert.Equal(DictationSessionState.TranscribingFinalAudio, controller.State.SessionState);

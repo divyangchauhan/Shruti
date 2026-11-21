@@ -31,8 +31,7 @@ Reference signals:
 ### Recording and Transcription
 
 - One primary dictation button to start and stop microphone capture.
-- Live transcription display while the user speaks.
-- Finalized transcript after recording stops.
+- Transcription starts after recording stops.
 - Clear recording states: idle, requesting microphone permission, recording, transcribing, paused, failed, complete.
 - Basic audio level meter or waveform so the user knows the microphone is active.
 - Microphone device picker.
@@ -60,16 +59,13 @@ Reference signals:
 
 - Local open-source speech recognition model.
 - Hardware capability detection at startup and in settings.
-- Backend preference order: NPU if available and supported, GPU if available and supported, otherwise CPU.
+- Auto prefers a compatible GPU, then NPU, then CPU.
 - User-visible status showing which backend is active.
-- Real-time readiness check for the selected model/backend.
-- Clear unsupported-state messaging when a model is too slow for real-time use on the current machine.
+- Check whether the selected model can run on the selected backend.
 - Model selection with sensible defaults.
 - Automatically download 2-3 recommended models during setup or first run.
 - Option to browse/download additional supported models.
 - Model import/remove flow for advanced users.
-- Slower-than-real-time transcription is allowed only when the user enables it in settings.
-- Warn clearly before using slow non-real-time transcription.
 - Offline operation once the model is installed.
 
 ### Immediate Transcript Output
@@ -93,7 +89,6 @@ Reference signals:
 - Global hotkey configuration.
 - Floating button / tray behavior.
 - Audio retention setting: keep recordings, delete recordings after transcription, or ask each time.
-- Slower non-real-time transcription toggle, disabled by default.
 - Storage location for transcripts/models.
 - Privacy controls explaining what stays local.
 
@@ -127,7 +122,7 @@ Reference signals:
 - Speaker labels for multi-speaker recordings are not required for MVP.
 - Architecture should leave room for later diarization without a major rewrite.
 - Manual speaker rename.
-- Optional diarization as a post-processing step if real-time diarization is not fast enough.
+- Optional diarization after transcription.
 - Export with or without speaker labels.
 
 ### Transcription Guidance
@@ -198,7 +193,6 @@ Reference signals:
 - Speaker labels as a user-facing MVP feature.
 - Non-English language support as a required MVP feature.
 - Supporting every NPU/GPU/CPU combination.
-- Guaranteeing real-time transcription for every model size.
 - Using transcription output as certified medical, legal, or safety-critical record without human review.
 
 ## Settled Decisions
@@ -215,7 +209,7 @@ Reference signals:
 - Initial exports: TXT, Markdown, JSON, SRT, and VTT.
 - MVP should focus on transcription only, without summaries/action items.
 - The app should automatically download 2-3 recommended models and let users download more.
-- Slow non-real-time transcription is allowed only behind a user-enabled setting and should show a warning.
+- Any compatible model and backend can transcribe a finished recording.
 - Transcript history/library comes after the core dictation workflow is solid.
 - Insertion should happen immediately by default.
 - Both push-to-talk and press-once-start/press-again-stop should be supported.

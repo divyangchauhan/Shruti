@@ -15,7 +15,7 @@ public sealed record DictationRequest
         TextInsertionOptions? insertionOptions = null,
         DictationTriggerEvent? trigger = null,
         IProgress<DictationStatus>? statusProgress = null,
-        IProgress<TranscriptEvent>? transcriptProgress = null,
+        IProgress<string>? finalTranscriptProgress = null,
         Action<IAudioCaptureSession>? captureSessionStarted = null,
         TranscriptQualitySettings? qualitySettings = null)
     {
@@ -25,7 +25,7 @@ public sealed record DictationRequest
         InsertionOptions = insertionOptions ?? new TextInsertionOptions();
         Trigger = trigger;
         StatusProgress = statusProgress;
-        TranscriptProgress = transcriptProgress;
+        FinalTranscriptProgress = finalTranscriptProgress;
         CaptureSessionStarted = captureSessionStarted;
         QualitySettings = qualitySettings ?? new TranscriptQualitySettings { Language = transcriptionOptions.Language };
     }
@@ -45,7 +45,7 @@ public sealed record DictationRequest
 
     public IProgress<DictationStatus>? StatusProgress { get; }
 
-    public IProgress<TranscriptEvent>? TranscriptProgress { get; }
+    public IProgress<string>? FinalTranscriptProgress { get; }
 
     public Action<IAudioCaptureSession>? CaptureSessionStarted { get; }
 

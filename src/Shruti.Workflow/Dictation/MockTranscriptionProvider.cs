@@ -1,4 +1,3 @@
-using System.Threading.Channels;
 using Shruti.Transcription.Abstractions;
 
 namespace Shruti.Workflow.Dictation;
@@ -26,10 +25,8 @@ public sealed class MockTranscriptionProvider : ITranscriptionProvider
                 DisplayName,
                 ComputeBackend.Cpu,
                 "Mock CPU",
-                SupportsStreaming: false,
                 SupportsTimestamps: true,
                 SupportsLanguageDetection: false,
-                MeasuredRealtimeFactor: 0.05,
                 Warnings: [])
         ];
 
@@ -56,7 +53,6 @@ public sealed class MockTranscriptionProvider : ITranscriptionProvider
 
     public sealed class MockTranscriptionSession : ITranscriptionSession
     {
-        private readonly Channel<TranscriptEvent> _events = Channel.CreateUnbounded<TranscriptEvent>();
         private readonly TaskCompletionSource? _completeGate;
         private readonly string _resultText;
 
@@ -68,22 +64,10 @@ public sealed class MockTranscriptionProvider : ITranscriptionProvider
 
         public AudioFormat RequiredInputFormat => AudioFormat.Speech16KhzMono;
 
-        public IAsyncEnumerable<TranscriptEvent> Events => _events.Reader.ReadAllAsync();
-
-        public int PushedAudioChunkCount { get; private set; }
-
         public int CancelCount { get; private set; }
 
-        public ValueTask<TranscriptionAudioPushResult> PushAudioAsync(
-            ReadOnlyMemory<byte> pcmAudio,
-            CancellationToken cancellationToken)
-        {
-            cancellationToken.ThrowIfCancellationRequested();
-            PushedAudioChunkCount++;
-            return ValueTask.FromResult(TranscriptionAudioPushResult.Continue);
-        }
-
-        public async Task<TranscriptResult> CompleteAsync(CancellationToken cancellationToken)
+        public async Task<TranscriptResult> TranscribeAsync(
+            ReadOnlyMemory<byte> pcmAudio, CancellationToken cancellationToken)
         {
             cancellationToken.ThrowIfCancellationRequested();
             if (_completeGate is not null)
@@ -91,29 +75,15 @@ public sealed class MockTranscriptionProvider : ITranscriptionProvider
                 await _completeGate.Task.WaitAsync(cancellationToken).ConfigureAwait(false);
             }
 
-            TranscriptResult result = TranscriptResult.FromText(_resultText);
-            _events.Writer.TryWrite(new TranscriptEvent(TranscriptEventKind.Completed, Text: result.Text));
-            _events.Writer.TryComplete();
-            return result;
-        }
-
-        public void EmitPartialTranscript(string text)
-        {
-            ArgumentException.ThrowIfNullOrWhiteSpace(text);
-            _events.Writer.TryWrite(new TranscriptEvent(TranscriptEventKind.PartialText, Text: text));
+            return TranscriptResult.FromText(_resultText);
         }
 
         public Task CancelAsync()
         {
             CancelCount++;
-            _events.Writer.TryComplete();
             return Task.CompletedTask;
         }
 
-        public ValueTask DisposeAsync()
-        {
-            _events.Writer.TryComplete();
-            return ValueTask.CompletedTask;
-        }
+        public ValueTask DisposeAsync() => ValueTask.CompletedTask;
     }
 }

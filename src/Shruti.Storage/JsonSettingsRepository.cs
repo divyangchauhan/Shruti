@@ -123,7 +123,6 @@ public sealed class JsonSettingsRepository : ISettingsRepository
             BackendPreference = Enum.IsDefined(settings.BackendPreference)
                 ? settings.BackendPreference
                 : ShrutiSettings.Default.BackendPreference,
-            AllowSlowTranscription = settings.AllowSlowTranscription,
             HasCompletedOnboarding = settings.HasCompletedOnboarding,
             ShowFloatingBar = settings.ShowFloatingBar,
             ShowFloatingBarOnAllMonitors = settings.ShowFloatingBarOnAllMonitors,
