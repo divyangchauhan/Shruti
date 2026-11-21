@@ -1,0 +1,22 @@
+[
+  {
+    "id": "reported-title-case",
+    "expectedRaw": "Do Your Recommendation Make Sense? I Agree With Move Forward Implementing It",
+    "expectedFinal": "Does your recommendation make sense? I agree with moving forward and implementing it.",
+    "tags": ["sentence-case", "grammar"]
+  },
+  {
+    "id": "reported-normal-case",
+    "expectedRaw": "You can move forward without resolving the file, the unresolved records. Consider it unblocking.",
+    "expectedFinal": "You can move forward without resolving the file, the unresolved records. Consider it unblocking.",
+    "tags": ["sentence-case"]
+  },
+  {
+    "id": "title-case-with-technical-terms",
+    "expectedRaw": "Please Send The OpenAI API Report To Divyang On Monday.",
+    "expectedFinal": "Please send the OpenAI API report to Divyang on Monday.",
+    "vocabulary": ["Divyang", "OpenAI", "API"],
+    "protectedTokens": ["Divyang", "OpenAI", "API", "Monday"],
+    "tags": ["sentence-case", "protected-tokens"]
+  }
+]

@@ -19,7 +19,7 @@ Shruti is available on the Microsoft Store and remains under active development.
 - A default `Ctrl+Win+Space` hold-to-dictate shortcut, tray control, and a floating dictation bar. Settings can show the bar on one selected monitor or all monitors. Closing the main window keeps Shruti running in the Windows notification area; launching Shruti again restores the running instance. Right-click the tray icon and choose **Exit Shruti** to stop it.
 - Local transcription history with search, original/final text, and deletion controls. Pending previews appear on Transcriptions.
 - Insights based on your saved history, a personal Dictionary, and spoken Snippets that expand to saved text.
-- Local transcript formatting and optional AI cleanup. The AI model requires a separate download; transcription and cleanup run on your computer.
+- Local transcript formatting and optional AI cleanup. On the Models page under Dictation cleanup, choose Qwen3.5-2B or Utter Mini 1B, download it, then choose Set active. You can keep both installed and switch between them. Transcription and cleanup run on your computer.
 - Local model download, verification, import, and removal primitives.
 - System, light, and dark theme preferences.
 

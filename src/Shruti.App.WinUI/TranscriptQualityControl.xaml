@@ -12,7 +12,7 @@
             </StackPanel>
         </Border>
         <TextBlock Margin="0,12,0,0" Text="Optional cleanup model" FontSize="16" FontWeight="SemiBold" />
-        <TextBlock Text="Use Qwen to revise dictated sentences on this PC." Foreground="{ThemeResource ShrutiTextSecondaryBrush}" TextWrapping="Wrap" />
+        <TextBlock Text="Choose a model to revise dictated sentences on this PC." Foreground="{ThemeResource ShrutiTextSecondaryBrush}" TextWrapping="Wrap" />
         <Border x:Name="ModelCard" Background="{ThemeResource ShrutiCardBrush}" BorderBrush="{ThemeResource ShrutiBorderSubtleBrush}" BorderThickness="1" CornerRadius="12">
             <StackPanel>
                 <Grid Padding="18,14" ColumnSpacing="16">
@@ -21,13 +21,14 @@
                         <ColumnDefinition Width="Auto" />
                     </Grid.ColumnDefinitions>
                     <StackPanel VerticalAlignment="Center" Spacing="4">
-                        <TextBlock Text="Qwen3.5-2B" FontSize="16" FontWeight="SemiBold" />
-                        <TextBlock Text="1.3 GB · English · CPU · Q4_K_M" FontSize="13" Foreground="{ThemeResource ShrutiTextSecondaryBrush}" TextWrapping="Wrap" />
+                        <ComboBox x:Name="ModelPicker" Header="Cleanup model" MinWidth="175" SelectionChanged="ModelPicker_SelectionChanged" />
+                        <TextBlock x:Name="ModelDetailsText" FontSize="13" Foreground="{ThemeResource ShrutiTextSecondaryBrush}" TextWrapping="Wrap" />
+                        <TextBlock x:Name="ModelStatusText" TextWrapping="Wrap" FontSize="13" FontWeight="SemiBold" Foreground="{ThemeResource ShrutiAccentBrush}" />
+                        <HyperlinkButton x:Name="LicenseLink" Content="Model license" Padding="0" />
                     </StackPanel>
                     <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
-                        <TextBlock x:Name="ModelStatusText" VerticalAlignment="Center" FontSize="13" FontWeight="SemiBold" Foreground="{ThemeResource ShrutiAccentBrush}" />
-                        <Button x:Name="InstallButton" Content="Download" Click="Install_Click" AutomationProperties.Name="Download Qwen3.5-2B" />
-                        <Button x:Name="ToggleModelButton" Content="Set active" Click="ToggleModel_Click" AutomationProperties.Name="Use Qwen3.5-2B for dictation cleanup" />
+                        <Button x:Name="InstallButton" Content="Download" Click="Install_Click" />
+                        <Button x:Name="ToggleModelButton" Content="Set active" Click="ToggleModel_Click" />
                     </StackPanel>
                 </Grid>
                 <ProgressBar x:Name="DownloadProgress" Height="4" IsIndeterminate="True" Visibility="Collapsed" />

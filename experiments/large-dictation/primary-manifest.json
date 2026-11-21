@@ -1,0 +1,13 @@
+{
+  "files": {
+    "primary.json": "fdd3d3bdff82a660008be44d16828b684e11deab071c68159ea096c0ae2f9695",
+    "primary-dev.json": "9cfb5304764f4c4ea46b53c49884ac63f35607f32adc19c1802530650890c5b7",
+    "primary-eval.json": "d73ec9a58556492d3ff96dae1b5d02fdeb64efae22d513af49650eea6b060fc7",
+    "primary-sources.json": "fe7b8d230a82c0e7f0cf403de249d3612cefebb065aed011318d9d27e7073ec1"
+  },
+  "passages": 3500,
+  "development": 500,
+  "evaluation": 3000,
+  "upstream": "ductai199x/dictation-to-text",
+  "revision": "f21f954c0092ad88b1195ce557f3ae3f69717fae"
+}
