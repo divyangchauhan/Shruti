@@ -130,6 +130,8 @@ change; broader corrections can be entered manually.
 
 ## Run the benchmark
 
+The [dictation evaluation set](../experiments/large-dictation/README.md) has 500 tuning cases and 3,000 held-out cases. Use it to compare local models and prompts without opening Shruti. The [Voice Arena experiment](../experiments/voice-arena/README.md) uses dictation from human speakers.
+
 ```powershell
 dotnet run --project tools/Shruti.QualityBench -- tests/quality/manifest.json --stage refinement --name deterministic
 ./scripts/prepare-local-cleanup.ps1

@@ -114,6 +114,17 @@ public sealed class TranscriptEditValidatorTests
             [new("I wanted to I need the report.", "I need the report.", "restart"), new("not ", "", "grammar")], [], out _, out _));
     }
 
+    [Theory]
+    [InlineData("I like this. I want another.", "I want another.", false)]
+    [InlineData("Do not send 42 files. I need the report.", "I need the report.", false)]
+    [InlineData("Keep the notes. Call on Tuesday. Scratch that. Call on Friday.", "Call on Friday.", false)]
+    [InlineData("Call on Tuesday. Scratch that. Call on Friday.", "Call on Friday.", true)]
+    [InlineData("Call on Tuesday. Meet on Thursday. Let's start over. Call on Friday.", "Call on Friday.", true)]
+    [InlineData("Do not start over. Send the report.", "Send the report.", false)]
+    [InlineData("Um. I need the report.", "I need the report.", true)]
+    public void ASeparateSentenceRequiresAnExplicitCancellation(string raw, string proposal, bool accepted)
+        => Assert.Equal(accepted, TranscriptEditValidator.TryApply(raw, [new(raw, proposal, "rewrite")], [], out _, out _));
+
     [Fact]
     public void Validation_AllowsMeaningPreservingRewriteBeyondSmallEditBudget()
     {

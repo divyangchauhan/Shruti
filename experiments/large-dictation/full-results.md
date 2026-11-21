@@ -51,6 +51,8 @@ The scorer used each saved proposal as the draft and replayed it through Shruti'
 
 ## Per-case files
 
+Before opening the PR, we replayed both sets of 3,000 saved drafts after adding a guard against treating a complete preceding sentence as a false start. Three Utter outputs and one Qwen output changed. The delivered exact counts stayed at 241 and 76. The tables above describe the original frozen run.
+
 - Utter. [Generation checkpoint](../../artifacts/large-dictation/eval-inputs-utter-gpu-64.jsonl) · [Replay inputs](../../artifacts/large-dictation/eval-inputs-utter-gpu-64-proposals.json) · [Validator outputs](../../artifacts/large-dictation/eval-inputs-utter-gpu-64-finals.json) · [Run settings and hashes](../../artifacts/large-dictation/eval-inputs-utter-gpu-64.meta.json)
 - Qwen. [Generation checkpoint](../../artifacts/large-dictation/eval-inputs-qwen-gpu-16.jsonl) · [Replay inputs](../../artifacts/large-dictation/eval-inputs-qwen-gpu-16-proposals.json) · [Validator outputs](../../artifacts/large-dictation/eval-inputs-qwen-gpu-16-finals.json) · [Run settings and hashes](../../artifacts/large-dictation/eval-inputs-qwen-gpu-16.meta.json)
 - [Evaluation references](../../artifacts/large-dictation/primary-eval.json) · [Exported formatter requests](../../artifacts/large-dictation/eval-inputs.json) · [Full-precision scores](../../artifacts/large-dictation/primary-scores.json)
