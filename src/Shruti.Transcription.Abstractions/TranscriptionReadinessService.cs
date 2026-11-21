@@ -3,14 +3,10 @@ namespace Shruti.Transcription.Abstractions;
 public sealed class TranscriptionReadinessService
 {
     private readonly ITranscriptionProviderRegistry _providerRegistry;
-    private readonly ITranscriptionBenchmarkCache _benchmarkCache;
 
-    public TranscriptionReadinessService(
-        ITranscriptionProviderRegistry providerRegistry,
-        ITranscriptionBenchmarkCache? benchmarkCache = null)
+    public TranscriptionReadinessService(ITranscriptionProviderRegistry providerRegistry)
     {
         _providerRegistry = providerRegistry ?? throw new ArgumentNullException(nameof(providerRegistry));
-        _benchmarkCache = benchmarkCache ?? new InMemoryTranscriptionBenchmarkCache();
     }
 
     public async Task<TranscriptionReadinessResult> EvaluateAsync(
@@ -22,11 +18,6 @@ public sealed class TranscriptionReadinessService
         if (!Enum.IsDefined(request.BackendPreference))
         {
             throw new ArgumentOutOfRangeException(nameof(request), "Backend preference is not recognized.");
-        }
-
-        if (request.MaximumRealtimeFactor <= 0)
-        {
-            throw new ArgumentOutOfRangeException(nameof(request), "Maximum realtime factor must be positive.");
         }
 
         ITranscriptionProvider? provider = _providerRegistry.FindById(request.Model.ProviderId);
@@ -52,7 +43,7 @@ public sealed class TranscriptionReadinessService
                     : $"Provider '{provider.DisplayName}' does not expose {request.BackendPreference}.");
         }
 
-        var candidates = new List<ReadinessCandidate>();
+        var candidates = new List<EngineCapability>();
         var incompatibilities = new List<string>();
         foreach (EngineCapability capability in preferredCapabilities)
         {
@@ -71,16 +62,7 @@ public sealed class TranscriptionReadinessService
                 continue;
             }
 
-            TranscriptionBenchmarkKey key = TranscriptionBenchmarkKey.Create(
-                provider,
-                request.EffectiveProviderVersion,
-                request.Model,
-                request.EffectiveModelHash,
-                capability);
-            TranscriptionBenchmarkResult? benchmark = await _benchmarkCache
-                .GetAsync(key, cancellationToken)
-                .ConfigureAwait(false);
-            candidates.Add(new ReadinessCandidate(capability, benchmark));
+            candidates.Add(capability);
         }
 
         if (candidates.Count == 0)
@@ -91,29 +73,12 @@ public sealed class TranscriptionReadinessService
                     : string.Join(" ", incompatibilities));
         }
 
-        ReadinessCandidate selected = SelectCandidate(candidates, request.BackendPreference);
-        double? realtimeFactor = selected.Benchmark?.RealtimeFactor ?? selected.Capability.MeasuredRealtimeFactor;
-        IReadOnlyList<string> warnings = CreateWarnings(selected, realtimeFactor);
-        if (realtimeFactor.HasValue &&
-            realtimeFactor.Value > request.MaximumRealtimeFactor &&
-            !request.AllowSlowTranscription)
-        {
-            return new TranscriptionReadinessResult(
-                TranscriptionReadinessStatus.SlowModeRequired,
-                $"{selected.Capability.Backend} measured {realtimeFactor.Value:0.##}x realtime; enable slow mode to use it.",
-                provider,
-                selected.Capability,
-                selected.Benchmark,
-                warnings);
-        }
-
+        EngineCapability selected = candidates.OrderBy(candidate => BackendRank(candidate.Backend)).First();
         return new TranscriptionReadinessResult(
             TranscriptionReadinessStatus.Ready,
-            $"{provider.DisplayName} is ready on {selected.Capability.Backend}.",
+            $"{provider.DisplayName} is ready on {selected.Backend}.",
             provider,
-            selected.Capability,
-            selected.Benchmark,
-            warnings);
+            selected);
     }
 
     private static IEnumerable<EngineCapability> FilterByPreference(
@@ -130,23 +95,6 @@ public sealed class TranscriptionReadinessService
         return model.SupportedBackends.Contains(backend);
     }
 
-    private static ReadinessCandidate SelectCandidate(
-        IEnumerable<ReadinessCandidate> candidates,
-        ComputeBackend backendPreference)
-    {
-        if (backendPreference != ComputeBackend.Auto)
-        {
-            return candidates.First();
-        }
-
-        return candidates
-            .OrderBy(candidate => BackendRank(candidate.Capability.Backend))
-            .ThenBy(candidate => candidate.Benchmark?.RealtimeFactor ??
-                candidate.Capability.MeasuredRealtimeFactor ??
-                double.MaxValue)
-            .First();
-    }
-
     private static int BackendRank(ComputeBackend backend)
     {
         return backend switch
@@ -158,36 +106,10 @@ public sealed class TranscriptionReadinessService
         };
     }
 
-    private static IReadOnlyList<string> CreateWarnings(
-        ReadinessCandidate selected,
-        double? realtimeFactor)
-    {
-        List<string> warnings = [.. selected.Capability.Warnings];
-        if (selected.Benchmark is null && selected.Capability.MeasuredRealtimeFactor is null)
-        {
-            warnings.Add("No benchmark result is cached for this model/backend/device.");
-        }
-        else if (realtimeFactor is > 1.0)
-        {
-            warnings.Add("This model/backend is slower than real time on this device.");
-        }
-
-        if (selected.Benchmark is not null)
-        {
-            warnings.Add($"Benchmark measured {selected.Benchmark.RealtimeFactor:0.##}x realtime.");
-        }
-
-        return warnings;
-    }
-
     private static TranscriptionReadinessResult Unsupported(string message)
     {
         return new TranscriptionReadinessResult(
             TranscriptionReadinessStatus.Unsupported,
             message);
     }
-
-    private sealed record ReadinessCandidate(
-        EngineCapability Capability,
-        TranscriptionBenchmarkResult? Benchmark);
 }

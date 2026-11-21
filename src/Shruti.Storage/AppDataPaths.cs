@@ -31,8 +31,6 @@ public sealed class AppDataPaths
 
     public string SettingsFilePath => Path.Combine(SettingsDirectory, "settings.json");
 
-    public string BenchmarkCacheFilePath => Path.Combine(SettingsDirectory, "transcription-benchmarks.json");
-
     public string DiagnosticLogFilePath => Path.Combine(LogsDirectory, "diagnostics.jsonl");
 
     public string DatabaseFilePath => Path.Combine(RootPath, "shruti.db");

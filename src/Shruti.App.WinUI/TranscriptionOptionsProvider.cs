@@ -12,7 +12,6 @@ public sealed class TranscriptionOptionsProvider
     private readonly AppDataPaths _appDataPaths;
     private readonly TranscriptionReadinessService _readinessService;
     private readonly ITranscriptionProviderRegistry _providerRegistry;
-    private readonly string _providerVersion;
     private ShrutiSettings _settings = ShrutiSettings.Default;
 
     public TranscriptionOptionsProvider(
@@ -20,17 +19,13 @@ public sealed class TranscriptionOptionsProvider
         ModelCatalogEntry defaultModel,
         AppDataPaths appDataPaths,
         TranscriptionReadinessService readinessService,
-        ITranscriptionProviderRegistry providerRegistry,
-        string providerVersion)
+        ITranscriptionProviderRegistry providerRegistry)
     {
         _modelCatalog = modelCatalog ?? throw new ArgumentNullException(nameof(modelCatalog));
         _defaultModel = defaultModel ?? throw new ArgumentNullException(nameof(defaultModel));
         _appDataPaths = appDataPaths ?? throw new ArgumentNullException(nameof(appDataPaths));
         _readinessService = readinessService ?? throw new ArgumentNullException(nameof(readinessService));
         _providerRegistry = providerRegistry ?? throw new ArgumentNullException(nameof(providerRegistry));
-        _providerVersion = string.IsNullOrWhiteSpace(providerVersion)
-            ? TranscriptionBenchmarkKey.UnknownProviderVersion
-            : providerVersion;
     }
 
     public ModelCatalogEntry DefaultModel => _defaultModel;
@@ -82,10 +77,7 @@ public sealed class TranscriptionOptionsProvider
         return _readinessService.EvaluateAsync(
             new TranscriptionReadinessRequest(
                 CreateModelDescriptor(selectedModel),
-                settings.BackendPreference,
-                settings.AllowSlowTranscription,
-                _providerVersion,
-                selectedModel.Integrity?.ExpectedHash),
+                settings.BackendPreference),
             cancellationToken);
     }
 

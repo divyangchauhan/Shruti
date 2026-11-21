@@ -116,7 +116,6 @@ public sealed class JsonSettingsRepositoryTests : IDisposable
             ThemePreference = AppThemePreference.Dark,
             AudioRetentionPolicy = AudioRetentionPolicy.Keep,
             BackendPreference = ComputeBackend.Cpu,
-            AllowSlowTranscription = true,
             HasCompletedOnboarding = true,
             TriggerConfiguration = new TriggerConfiguration(
                 EnableGlobalHotkey: true,
@@ -133,6 +132,27 @@ public sealed class JsonSettingsRepositoryTests : IDisposable
         Assert.Equal(settings, loaded);
         Assert.Contains("usb-microphone", await File.ReadAllTextAsync(paths.SettingsFilePath), StringComparison.Ordinal);
         Assert.Contains("whisper-base-en", await File.ReadAllTextAsync(paths.SettingsFilePath), StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task LegacySlowTranscriptionPreference_IsDiscardedWhenSettingsAreSaved(bool allowSlowTranscription)
+    {
+        var paths = new AppDataPaths(_rootPath);
+        paths.EnsureCreated();
+        await File.WriteAllTextAsync(paths.SettingsFilePath, JsonSerializer.Serialize(new
+        {
+            audioInputDeviceId = "usb-microphone",
+            allowSlowTranscription
+        }));
+        var repository = new JsonSettingsRepository(paths);
+
+        ShrutiSettings settings = await repository.LoadAsync(CancellationToken.None);
+        await repository.SaveAsync(settings, CancellationToken.None);
+
+        Assert.Equal("usb-microphone", settings.AudioInputDeviceId);
+        Assert.DoesNotContain("allowSlowTranscription", await File.ReadAllTextAsync(paths.SettingsFilePath), StringComparison.Ordinal);
     }
 
     [Fact]

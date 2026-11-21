@@ -1,4 +1,3 @@
-using System.Threading.Channels;
 using Shruti.Transcription.Abstractions;
 using Xunit;
 
@@ -20,36 +19,6 @@ public sealed class TranscriptionReadinessServiceTests
         ]));
     }
 
-    [Fact]
-    public async Task EvaluateAsync_AutoPrefersGpuEvenWhenCpuBenchmarkIsFaster()
-    {
-        var provider = new FakeProvider(
-            "provider-a",
-            [
-                Capability("provider-a", ComputeBackend.Cpu, "CPU"),
-                Capability("provider-a", ComputeBackend.Gpu, "GPU")
-            ]);
-        var cache = new InMemoryTranscriptionBenchmarkCache();
-        await cache.SaveAsync(Benchmark(provider, ComputeBackend.Cpu, "CPU", 0.2), CancellationToken.None);
-        await cache.SaveAsync(Benchmark(provider, ComputeBackend.Gpu, "GPU", 0.4), CancellationToken.None);
-        var service = new TranscriptionReadinessService(
-            new TranscriptionProviderRegistry([provider]),
-            cache);
-
-        TranscriptionReadinessResult readiness = await service.EvaluateAsync(
-            new TranscriptionReadinessRequest(
-                Model("provider-a", new HashSet<ComputeBackend> { ComputeBackend.Cpu, ComputeBackend.Gpu }),
-                ComputeBackend.Auto,
-                AllowSlowTranscription: false,
-                ProviderVersion: "1",
-                ModelHash: "hash"),
-            CancellationToken.None);
-
-        Assert.True(readiness.CanProceed);
-        Assert.Equal(ComputeBackend.Gpu, readiness.SelectedBackend);
-        Assert.Equal(0.4, readiness.RealtimeFactor);
-    }
-
     [Theory]
     [InlineData(true, ComputeBackend.Auto, ComputeBackend.Gpu)]
     [InlineData(false, ComputeBackend.Auto, ComputeBackend.Cpu)]
@@ -69,39 +38,11 @@ public sealed class TranscriptionReadinessServiceTests
         TranscriptionReadinessResult readiness = await service.EvaluateAsync(
             new TranscriptionReadinessRequest(
                 Model("provider-a", new HashSet<ComputeBackend> { ComputeBackend.Cpu, ComputeBackend.Gpu, ComputeBackend.Npu }),
-                preference,
-                AllowSlowTranscription: false),
+                preference),
             CancellationToken.None);
 
         Assert.True(readiness.CanProceed);
         Assert.Equal(expected, readiness.SelectedBackend);
-    }
-
-    [Fact]
-    public async Task EvaluateAsync_RequiresSlowModeForSlowCachedBackend()
-    {
-        var provider = new FakeProvider("provider-a", [Capability("provider-a", ComputeBackend.Cpu, "CPU")]);
-        var cache = new InMemoryTranscriptionBenchmarkCache();
-        await cache.SaveAsync(Benchmark(provider, ComputeBackend.Cpu, "CPU", 1.4), CancellationToken.None);
-        var service = new TranscriptionReadinessService(
-            new TranscriptionProviderRegistry([provider]),
-            cache);
-        TranscriptionReadinessRequest request = new(
-            Model("provider-a", new HashSet<ComputeBackend> { ComputeBackend.Cpu }),
-            ComputeBackend.Cpu,
-            AllowSlowTranscription: false,
-            ProviderVersion: "1",
-            ModelHash: "hash");
-
-        TranscriptionReadinessResult blocked = await service.EvaluateAsync(request, CancellationToken.None);
-        TranscriptionReadinessResult allowed = await service.EvaluateAsync(
-            request with { AllowSlowTranscription = true },
-            CancellationToken.None);
-
-        Assert.Equal(TranscriptionReadinessStatus.SlowModeRequired, blocked.Status);
-        Assert.True(blocked.RequiresSlowModeOptIn);
-        Assert.True(allowed.CanProceed);
-        Assert.Contains(allowed.EffectiveWarnings, warning => warning.Contains("slower than real time", StringComparison.Ordinal));
     }
 
     [Fact]
@@ -113,8 +54,7 @@ public sealed class TranscriptionReadinessServiceTests
         TranscriptionReadinessResult readiness = await service.EvaluateAsync(
             new TranscriptionReadinessRequest(
                 Model("provider-a", new HashSet<ComputeBackend> { ComputeBackend.Cpu }),
-                ComputeBackend.Gpu,
-                AllowSlowTranscription: false),
+                ComputeBackend.Gpu),
             CancellationToken.None);
 
         Assert.Equal(TranscriptionReadinessStatus.Unsupported, readiness.Status);
@@ -130,36 +70,11 @@ public sealed class TranscriptionReadinessServiceTests
         TranscriptionReadinessResult readiness = await service.EvaluateAsync(
             new TranscriptionReadinessRequest(
                 Model("provider-a", new HashSet<ComputeBackend> { ComputeBackend.Auto }),
-                ComputeBackend.Cpu,
-                AllowSlowTranscription: false),
+                ComputeBackend.Cpu),
             CancellationToken.None);
 
         Assert.Equal(TranscriptionReadinessStatus.Unsupported, readiness.Status);
         Assert.Contains("not listed", readiness.Message, StringComparison.Ordinal);
-    }
-
-    [Fact]
-    public async Task BenchmarkRunner_MeasuresRealtimeFactorAndCachesTheResult()
-    {
-        var provider = new FakeProvider("provider-a", [Capability("provider-a", ComputeBackend.Cpu, "CPU")]);
-        var cache = new InMemoryTranscriptionBenchmarkCache();
-        var runner = new TranscriptionBenchmarkRunner(cache);
-        TranscriptionModelDescriptor model = Model("provider-a", new HashSet<ComputeBackend> { ComputeBackend.Cpu });
-
-        TranscriptionBenchmarkResult result = await runner.RunAsync(
-            provider,
-            model,
-            ComputeBackend.Cpu,
-            providerVersion: "1",
-            modelHash: "hash",
-            deviceName: "CPU",
-            audioDuration: TimeSpan.FromMilliseconds(20),
-            CancellationToken.None);
-
-        TranscriptionBenchmarkResult? cached = await cache.GetAsync(result.Key, CancellationToken.None);
-        Assert.NotNull(cached);
-        Assert.True(result.RealtimeFactor >= 0);
-        Assert.Equal(640, provider.LastSession?.PushedByteCount);
     }
 
     private static EngineCapability Capability(
@@ -172,29 +87,8 @@ public sealed class TranscriptionReadinessServiceTests
             "Fake provider",
             backend,
             deviceName,
-            SupportsStreaming: true,
             SupportsTimestamps: true,
             SupportsLanguageDetection: false,
-            MeasuredRealtimeFactor: null,
-            Warnings: []);
-    }
-
-    private static TranscriptionBenchmarkResult Benchmark(
-        FakeProvider provider,
-        ComputeBackend backend,
-        string deviceName,
-        double realtimeFactor)
-    {
-        TranscriptionModelDescriptor model = Model(
-            provider.Id,
-            new HashSet<ComputeBackend> { ComputeBackend.Cpu, ComputeBackend.Gpu });
-        var capability = Capability(provider.Id, backend, deviceName);
-        return new TranscriptionBenchmarkResult(
-            TranscriptionBenchmarkKey.Create(provider, "1", model, "hash", capability),
-            realtimeFactor,
-            TimeSpan.FromSeconds(1),
-            TimeSpan.FromSeconds(realtimeFactor),
-            DateTimeOffset.UtcNow,
             Warnings: []);
     }
 
@@ -228,7 +122,6 @@ public sealed class TranscriptionReadinessServiceTests
 
         public string DisplayName => "Fake provider";
 
-        public FakeSession? LastSession { get; private set; }
 
         public Task<IReadOnlyList<EngineCapability>> ProbeAsync(CancellationToken cancellationToken)
         {
@@ -249,50 +142,6 @@ public sealed class TranscriptionReadinessServiceTests
 
         public Task<ITranscriptionSession> CreateSessionAsync(
             TranscriptionSessionOptions options,
-            CancellationToken cancellationToken)
-        {
-            cancellationToken.ThrowIfCancellationRequested();
-            LastSession = new FakeSession();
-            return Task.FromResult<ITranscriptionSession>(LastSession);
-        }
-    }
-
-    private sealed class FakeSession : ITranscriptionSession
-    {
-        private readonly Channel<TranscriptEvent> _events = Channel.CreateUnbounded<TranscriptEvent>();
-
-        public AudioFormat RequiredInputFormat => AudioFormat.Speech16KhzMono;
-
-        public IAsyncEnumerable<TranscriptEvent> Events => _events.Reader.ReadAllAsync();
-
-        public int PushedByteCount { get; private set; }
-
-        public ValueTask<TranscriptionAudioPushResult> PushAudioAsync(
-            ReadOnlyMemory<byte> pcmAudio,
-            CancellationToken cancellationToken)
-        {
-            cancellationToken.ThrowIfCancellationRequested();
-            PushedByteCount += pcmAudio.Length;
-            return ValueTask.FromResult(TranscriptionAudioPushResult.Continue);
-        }
-
-        public Task<TranscriptResult> CompleteAsync(CancellationToken cancellationToken)
-        {
-            cancellationToken.ThrowIfCancellationRequested();
-            _events.Writer.TryComplete();
-            return Task.FromResult(TranscriptResult.FromText("benchmark"));
-        }
-
-        public Task CancelAsync()
-        {
-            _events.Writer.TryComplete();
-            return Task.CompletedTask;
-        }
-
-        public ValueTask DisposeAsync()
-        {
-            _events.Writer.TryComplete();
-            return ValueTask.CompletedTask;
-        }
+            CancellationToken cancellationToken) => throw new NotSupportedException();
     }
 }

@@ -91,9 +91,9 @@ try
                 RecognitionHints: disableRecognitionHints ? null : quality.RecognitionHints);
             await using var recognition = await provider.CreateSessionAsync(options, default);
             string audio = Path.GetFullPath(Path.Combine(Path.GetDirectoryName(Path.GetFullPath(manifest))!, fixture.Audio!));
-            await recognition.PushAudioAsync(PcmWaveReader.Read(audio), default);
+            byte[] pcmAudio = PcmWaveReader.Read(audio);
             latency.Start();
-            raw = (await recognition.CompleteAsync(default)).Text;
+            raw = (await recognition.TranscribeAsync(pcmAudio, default)).Text;
             recognitionMs = latency.Elapsed.TotalMilliseconds;
         }
         else latency.Start();

@@ -188,7 +188,6 @@ Acceptance criteria:
 - [x] Load a verified GGML model from the local model catalog path.
 - [x] Transcribe buffered audio to final text.
 - [x] Emit timestamped segments when available.
-- [x] Emit partial transcript events if supported by chosen integration strategy.
 - [x] Map native errors into engine-neutral errors.
 - [x] Add cancellation.
 - [ ] Add provider-level metrics: load time, transcription time, real-time factor.
@@ -205,16 +204,12 @@ Acceptance criteria:
 - [x] Implement backend preference setting: Auto, NPU, GPU, CPU.
 - [x] Implement capability probing.
 - [x] Implement model/provider/backend compatibility checks.
-- [x] Implement short benchmark flow.
-- [x] Cache benchmark results by provider version, model hash, backend, and device.
-- [x] Gate slow non-real-time transcription behind explicit setting.
 - [x] Show active provider/backend/device in settings.
 - [x] Show unsupported hardware/model/backend messaging.
 
 Acceptance criteria:
 
-- Auto mode chooses the best eligible backend.
-- Slow mode requires explicit opt-in before transcription proceeds.
+- Auto mode prefers GPU, then NPU, then CPU when compatible.
 
 ### 11. End-to-End Dictation MVP
 
@@ -387,7 +382,7 @@ Acceptance criteria:
 - [ ] User can immediately insert text into a browser text field.
 - [ ] User can cancel without insertion.
 - [ ] User can use clipboard fallback.
-- [ ] App clearly reports unsupported hardware or slow model/backend.
+- [ ] App explains when the selected processor cannot run a model.
 
 ### MVP Beta Gate
 
@@ -397,7 +392,7 @@ Acceptance criteria:
 - [ ] Logs are redacted by default.
 - [ ] Accessibility pass completed for primary workflow.
 - [ ] Installer preserves local app data across updates.
-- [ ] At least one recommended model has acceptable real-time factor on the chosen minimum hardware profile.
+- [ ] Measure the time from recording stop to text insertion on the minimum hardware profile.
 
 ## Open Decisions
 

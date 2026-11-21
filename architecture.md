@@ -45,7 +45,7 @@ The Windows MVP uses WinUI 3 with Windows App SDK for the native UI, `whisper.cp
 - Model format: provider-specific. The `whisper.cpp` catalog uses verified GGML `.bin` models; OpenVINO uses a verified multi-file INT8 IR model bundle.
 - Execution backends: Vulkan-enabled `whisper.cpp` provides CPU/GPU execution, while OpenVINO GenAI probes CPU, GPU, and Intel NPU devices at runtime.
 - Compute controls are gated by both the selected model and devices reported by its provider.
-- Provider contract must expose capabilities and measured real-time factor instead of assuming a model/backend is fast enough.
+- Providers report available backends and check whether a model can run on each one.
 
 ### Additional Transcription Providers
 
@@ -70,7 +70,7 @@ src/
   Shruti.Platform.Windows/
     Hotkeys, focus capture, text insertion, tray, notifications, startup registration
   Shruti.Transcription.Abstractions/
-    Provider interfaces, model descriptors, transcript events
+    Provider interfaces, model descriptors, transcript results
   Shruti.Transcription.WhisperCpp/
     C# adapter around native whisper.cpp bindings
   Shruti.Transcription.WhisperCpp.Native/
@@ -161,8 +161,7 @@ Owns engine-neutral contracts:
 - Provider discovery.
 - Capability probing.
 - Model compatibility.
-- Streaming and final transcription events.
-- Segment timestamps.
+- Transcript results and timestamped segments.
 - Backend selection.
 - Performance metrics.
 - Cancellation.
@@ -176,8 +175,8 @@ Owns the MVP engine adapter:
 - Loads the native `whisper.cpp` DLL.
 - Validates model files.
 - Creates transcription sessions.
-- Converts audio frames into provider input.
-- Emits periodic partial text from bounded incremental audio chunks with a small overlap while audio is captured, then finalized segments, timestamps, and metrics after stop. Partial text is never inserted until finalization.
+- Converts PCM16 recordings into native samples.
+- Transcribes buffered audio after capture stops and returns text with timestamped segments.
 - Maps `whisper.cpp` errors into engine-neutral errors.
 
 The native binding should be intentionally small. Prefer a C ABI shim over binding the app directly to broad C++ internals.
@@ -306,7 +305,6 @@ Any active state
 Important state notes:
 
 - `PreparingTarget` captures the foreground window and focused element before Shruti activates any UI.
-- `Recording` can emit partial transcript updates if the provider supports streaming.
 - `TranscribingFinalAudio` handles the final buffered audio after stop.
 - `InsertingText` is skipped in preview-first and copy-only modes.
 - `Cancelled` never inserts text.
@@ -314,7 +312,7 @@ Important state notes:
 
 ## Transcription Provider Interfaces
 
-The provider interface should model capabilities, model compatibility, and streaming sessions separately.
+Providers probe device capabilities, check model compatibility, and create sessions that transcribe a completed recording.
 
 ```csharp
 public enum ComputeBackend
@@ -323,15 +321,6 @@ public enum ComputeBackend
     Npu,
     Gpu,
     Cpu
-}
-
-public enum TranscriptEventKind
-{
-    PartialText,
-    SegmentFinalized,
-    Completed,
-    Warning,
-    Failed
 }
 
 public sealed record AudioFormat(
@@ -353,10 +342,8 @@ public sealed record EngineCapability(
     string ProviderDisplayName,
     ComputeBackend Backend,
     string DeviceName,
-    bool SupportsStreaming,
     bool SupportsTimestamps,
     bool SupportsLanguageDetection,
-    double? MeasuredRealtimeFactor,
     IReadOnlyList<string> Warnings);
 
 public interface ITranscriptionProvider
@@ -377,33 +364,27 @@ public interface ITranscriptionProvider
         CancellationToken cancellationToken);
 }
 
-public readonly record struct TranscriptionAudioPushResult(bool ReachedMaximumDuration);
-
 public interface ITranscriptionSession : IAsyncDisposable
 {
     AudioFormat RequiredInputFormat { get; }
-    IAsyncEnumerable<TranscriptEvent> Events { get; }
 
-    ValueTask<TranscriptionAudioPushResult> PushAudioAsync(
+    Task<TranscriptResult> TranscribeAsync(
         ReadOnlyMemory<byte> pcmAudio,
-        CancellationToken cancellationToken);
-
-    Task<TranscriptResult> CompleteAsync(
         CancellationToken cancellationToken);
 
     Task CancelAsync();
 }
 ```
 
-Provider implementations are responsible for internal buffering and native runtime details. Core workflow only sees audio frames in the requested format and transcript events.
+The dictation workflow buffers audio in the provider's requested format. After capture stops, the session passes the recording to the native runtime and returns one result.
 
 ## Provider Selection Strategy
 
 Selection order follows the product direction:
 
 1. User-selected backend, if explicitly set and supported.
-2. Auto mode prefers supported NPU.
-3. Then supported GPU.
+2. Auto mode prefers a supported GPU.
+3. Then a supported NPU.
 4. Then supported CPU.
 
 However, "supported" must mean more than "API exists." A model/backend pair is eligible only if:
@@ -411,9 +392,8 @@ However, "supported" must mean more than "API exists." A model/backend pair is e
 - The provider can load the model.
 - Required runtime files are present.
 - Hardware probing succeeds.
-- A benchmark or cached benchmark indicates acceptable real-time factor for the selected mode.
 
-If no eligible backend is fast enough, Shruti should show an unsupported/slow warning and require the user to explicitly enable slower-than-real-time transcription.
+If no backend supports the selected model, Shruti explains why the model is unavailable.
 
 ## Windows Integration Strategy
 
@@ -503,18 +483,17 @@ Known hard boundary:
 WASAPI microphone
   -> capture buffer
   -> resampler/channel converter
-  -> level meter
-  -> rolling session buffer
+  -> recording buffer with a duration limit
+  -> speech detection after recording stops
   -> transcription session
-  -> partial/final transcript events
+  -> final transcript
 ```
 
 Implementation notes:
 
 - Normalize internal capture to the transcription session's required format.
-- Keep a rolling buffer for retrying final transcription after streaming errors.
+- Show microphone levels during capture.
 - Do not persist audio unless retention settings require it.
-- Add VAD and silence trimming behind the audio abstraction later.
 - Treat microphone permission, missing device, exclusive-mode conflicts, and device disconnects as first-class errors.
 
 ## Model and Backend Readiness
@@ -524,7 +503,6 @@ Startup should perform lightweight checks:
 - Installed models exist and match expected hashes.
 - Configured provider can load.
 - Configured backend is available.
-- Last benchmark result is still valid for the model/provider/backend/runtime version.
 
 Settings should show:
 
@@ -532,16 +510,7 @@ Settings should show:
 - Active backend.
 - Device name.
 - Selected model.
-- Whether real-time dictation is expected.
-- Any warnings about slow mode, unsupported hardware, or missing runtime files.
-
-Benchmarking should be short and user-visible. Cache results by:
-
-- Provider version.
-- Model hash.
-- Backend.
-- Device identifier.
-- Relevant runtime version.
+- Warnings about unsupported hardware or missing runtime files.
 
 ## Data Model
 
@@ -580,7 +549,6 @@ Installer responsibilities:
 Update responsibilities:
 
 - App updates must not delete models, settings, transcripts, or retained recordings.
-- Provider/native runtime updates should invalidate stale benchmark cache.
 - Model catalog updates should be signed or hash-verified.
 
 ## Privacy and Security
@@ -600,14 +568,14 @@ Unit tests:
 
 - Dictation state transitions.
 - Provider selection.
-- Slow/unsupported backend gating.
+- Unsupported model and backend combinations.
 - Retention policy.
 - Export formatting.
 - Insertion policy decisions.
 
 Integration tests:
 
-- Mock transcription provider with deterministic partial/final events.
+- Mock transcription provider that returns a fixed transcript from captured audio.
 - Mock audio source.
 - Windows text insertion tests against controlled WinUI, Win32, browser, terminal, and elevated-app scenarios where feasible.
 - Model catalog download/verification against local test server or fixture.
@@ -659,16 +627,9 @@ Mitigation:
 - Maintain a manual app compatibility matrix.
 - Do not promise elevated-app insertion from a normal process.
 
-### Real-time performance
+### Post-recording latency
 
-`whisper.cpp` on CPU may be too slow for some machines or model sizes.
-
-Mitigation:
-
-- Benchmark before enabling real-time dictation.
-- Recommend small/fast models for MVP.
-- Make slow mode explicit and opt-in.
-- Keep provider interface ready for ONNX Runtime and Windows ML acceleration.
+Larger models can take longer to return a transcript. Measure the time from recording stop to text insertion when evaluating which models to recommend.
 
 ### NPU fragmentation
 

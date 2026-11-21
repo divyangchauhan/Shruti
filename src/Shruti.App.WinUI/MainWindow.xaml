@@ -313,7 +313,6 @@
                                 </Border>
                             </Grid>
                             <Border Height="1" Background="{ThemeResource ShrutiBorderSubtleBrush}" />
-                            <CheckBox x:Name="AllowSlowTranscriptionCheckBox" Margin="0,10" Content="Allow slower-than-real-time transcription" Click="AllowSlowTranscriptionCheckBox_Click" />
                         </StackPanel>
                     </Border>
                     <Grid Visibility="Collapsed">
