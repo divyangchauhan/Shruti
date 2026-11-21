@@ -22,7 +22,7 @@ public sealed partial class TranscriptQualityControl : UserControl
         InitializeComponent();
         foreach (var model in new[] { LocalCleanupModel.Qwen, LocalCleanupModel.Utter })
         {
-            var row = new ModelCatalogRow(model.Name, $"{model.Details} Â· CPU", _rows.Count > 0, model.LicenseUri);
+            var row = new ModelCatalogRow(model.Name, model.Details, _rows.Count > 0, model.LicenseUri);
             var action = new Button { IsEnabled = false };
             action.Click += async (_, _) => await ChooseModelAsync(model);
             row.AddAction(action);

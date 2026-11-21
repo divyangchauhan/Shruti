@@ -12,7 +12,7 @@
             </StackPanel>
         </Border>
         <TextBlock Margin="0,12,0,0" Text="Cleanup models" FontSize="16" FontWeight="SemiBold" />
-        <TextBlock Text="Choose a model to revise dictated sentences on this PC." Foreground="{ThemeResource ShrutiTextSecondaryBrush}" TextWrapping="Wrap" />
+        <TextBlock Text="Cleanup uses your GPU when available and falls back to the CPU." Foreground="{ThemeResource ShrutiTextSecondaryBrush}" TextWrapping="Wrap" />
         <Border Background="{ThemeResource ShrutiCardBrush}" BorderBrush="{ThemeResource ShrutiBorderSubtleBrush}" BorderThickness="1" CornerRadius="12">
             <StackPanel x:Name="Models" />
         </Border>
