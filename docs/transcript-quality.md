@@ -102,8 +102,9 @@ website classification and exhaustive banking detection are not implemented.
 On the Models page under Dictation cleanup, choose Qwen3.5-2B Q4_K_M or Utter
 Mini 1B Q4_0. Download verifies the selected GGUF against its pinned SHA256.
 Set active enables that model for dictation. Both models can stay installed.
-The app package includes the llama.cpp b11574 CPU runtime. Each model download
-includes the upstream license notice.
+The app uses the Vulkan build of llama.cpp b11574. It offloads layers to a compatible
+GPU when one is available and can run the model on CPU. This selection is independent
+of the speech recognition processor. Each model download includes its license.
 
 The editor runs a hidden subprocess on authenticated loopback, with four CPU
 threads and reasoning disabled. It reuses the loaded model until the selection

@@ -51,6 +51,20 @@ internal sealed class LocalTranscriptEditor(string? benchmarkPrompt = null, Acti
         if (!File.Exists(settings.LocalRuntimePath) || !File.Exists(settings.LocalModelPath))
             throw new InvalidOperationException("Local cleanup is not installed.");
         StopProcess();
+        try
+        {
+            await StartServerAsync(settings, useCpu: false, cancellationToken).ConfigureAwait(false);
+        }
+        catch (Exception ex) when ((ex is InvalidOperationException or OperationCanceledException) && !cancellationToken.IsCancellationRequested)
+        {
+            // A driver can enumerate successfully but fail to load the model into GPU memory.
+            await StartServerAsync(settings, useCpu: true, cancellationToken).ConfigureAwait(false);
+        }
+    }
+
+    private async Task StartServerAsync(TranscriptQualitySettings settings, bool useCpu, CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
         var listener = new TcpListener(IPAddress.Loopback, 0);
         listener.Start();
         int port = ((IPEndPoint)listener.LocalEndpoint).Port;
@@ -68,8 +82,16 @@ internal sealed class LocalTranscriptEditor(string? benchmarkPrompt = null, Acti
         };
         foreach (string argument in new[] { "--model", Path.GetFullPath(settings.LocalModelPath!), "--host", "127.0.0.1", "--port", port.ToString(System.Globalization.CultureInfo.InvariantCulture),
             "--api-key", _key, "--ctx-size", "2048", "--parallel", "1", "--threads", "4", "--threads-batch", "4",
-            "--gpu-layers", "0", "--no-webui", "--no-slots", "--cache-ram", "0", "--log-disable", "--reasoning-budget", reasoningBudget.ToString(System.Globalization.CultureInfo.InvariantCulture), "--jinja" })
+            "--gpu-layers", useCpu ? "0" : "auto", "--no-webui", "--no-slots", "--cache-ram", "0", "--log-disable", "--reasoning-budget", reasoningBudget.ToString(System.Globalization.CultureInfo.InvariantCulture), "--jinja" })
             start.ArgumentList.Add(argument);
+        if (useCpu)
+        {
+            // Keep a broken Vulkan driver or an inherited device override out of the CPU retry.
+            start.Environment["VK_LOADER_DRIVERS_DISABLE"] = "*";
+            start.Environment.Remove("LLAMA_ARG_DEVICE");
+            start.ArgumentList.Add("--device");
+            start.ArgumentList.Add("none");
+        }
         _process = Process.Start(start) ?? throw new InvalidOperationException("Local cleanup could not start.");
         // Drain without storing text. Native runtime logs must never enter application diagnostics.
         _process.OutputDataReceived += (_, _) => { };

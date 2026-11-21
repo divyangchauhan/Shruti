@@ -28,8 +28,8 @@ Invoke-Checked 'dotnet' @('publish', (Join-Path $root 'src\Shruti.App.WinUI\Shru
     '-p:WindowsPackageType=None', '-p:WindowsAppSDKSelfContained=true', "-p:Version=$Version",
     "-p:AssemblyVersion=$Version", "-p:FileVersion=$Version", "-p:InformationalVersion=$Version+$sourceCommit", '-o', $output)
 & (Join-Path $PSScriptRoot 'stage-native-dependencies.ps1') -Destination $output
-Copy-Item -LiteralPath (Join-Path $root 'artifacts\local-cleanup\Cpu') -Destination (Join-Path $output 'CleanupRuntime') -Recurse -Force
-foreach ($dependency in @('msvcp140.dll', 'vcruntime140.dll', 'vcruntime140_1.dll', 'vcomp140.dll')) {
+Copy-Item -LiteralPath (Join-Path $root 'artifacts\local-cleanup\Vulkan') -Destination (Join-Path $output 'CleanupRuntime') -Recurse -Force
+foreach ($dependency in @('msvcp140.dll', 'vcruntime140.dll', 'vcruntime140_1.dll', 'vcomp140.dll', 'vulkan-1.dll')) {
     Copy-Item -LiteralPath (Join-Path $output $dependency) -Destination (Join-Path $output 'CleanupRuntime') -Force
 }
 Invoke-Checked 'powershell.exe' @('-NoProfile', '-File', (Join-Path $PSScriptRoot 'test-native-package-runtime.ps1'), '-NativeDirectory', $output)
@@ -46,7 +46,8 @@ Copy-Item -LiteralPath (Join-Path $openVinoRoot 'runtime\3rdparty\tbb\TBB-LICENS
 $requiredFiles = @('Shruti.App.WinUI.exe', 'Shruti.App.WinUI.pri', 'Shruti.App.WinUI.dll', 'shruti_whisper.dll',
     'openvino_genai_c.dll', 'vulkan-1.dll', 'vcruntime140.dll', 'msvcp140.dll', 'coreclr.dll', 'Microsoft.UI.Xaml.dll',
     'SpeechDetection\ggml-silero-v6.2.0.bin', 'SpeechDetection\silero-vad-LICENSE.txt',
-    'CleanupRuntime\llama-server.exe', 'CleanupRuntime\llama-LICENSE.txt')
+    'CleanupRuntime\llama-server.exe', 'CleanupRuntime\ggml-vulkan.dll', 'CleanupRuntime\vulkan-1.dll',
+    'CleanupRuntime\ggml-cpu-x64.dll', 'CleanupRuntime\llama-LICENSE.txt')
 foreach ($file in $requiredFiles) {
     if (!(Test-Path -LiteralPath (Join-Path $output $file))) { throw "Portable package is missing $file." }
 }

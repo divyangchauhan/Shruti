@@ -96,6 +96,8 @@ try {
         "VFS/ProgramFilesX64/Shruti/CleanupRuntime/llama-server-impl.dll",
         "VFS/ProgramFilesX64/Shruti/CleanupRuntime/llama.dll",
         "VFS/ProgramFilesX64/Shruti/CleanupRuntime/ggml-cpu-x64.dll",
+        "VFS/ProgramFilesX64/Shruti/CleanupRuntime/ggml-vulkan.dll",
+        "VFS/ProgramFilesX64/Shruti/CleanupRuntime/vulkan-1.dll",
         "VFS/ProgramFilesX64/Shruti/CleanupRuntime/vcruntime140.dll",
         "VFS/ProgramFilesX64/Shruti/CleanupRuntime/msvcp140.dll",
         "VFS/ProgramFilesX64/Shruti/CleanupRuntime/llama-LICENSE.txt"

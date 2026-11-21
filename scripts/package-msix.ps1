@@ -25,7 +25,7 @@ $nativeBuildDirectory = Join-Path $root "artifacts\whispercpp-native"
 $nativeLibraryPath = Join-Path $nativeBuildDirectory "$Configuration\shruti_whisper.dll"
 $openVinoNativeDirectory = Join-Path $root "artifacts\openvino-genai\$Configuration"
 $openVinoGenAiLibraryPath = Join-Path $openVinoNativeDirectory "openvino_genai_c.dll"
-$cleanupRuntimeDirectory = Join-Path $root 'artifacts\local-cleanup\Cpu'
+$cleanupRuntimeDirectory = Join-Path $root 'artifacts\local-cleanup\Vulkan'
 $packagePath = Join-Path $outputDirectory "Shruti-$Version-$Platform.msix"
 
 function Invoke-CheckedCommand {
@@ -326,7 +326,7 @@ New-Item -ItemType Directory -Force -Path $appDirectory, $assetDirectory | Out-N
 Copy-Item -Path (Join-Path $publishDirectory "*") -Destination $appDirectory -Recurse -Force
 Copy-Item -LiteralPath $appResourceIndex.FullName -Destination $appDirectory -Force
 Copy-Item -LiteralPath $cleanupRuntimeDirectory -Destination (Join-Path $appDirectory 'CleanupRuntime') -Recurse -Force
-foreach ($runtimeDependency in @('msvcp140.dll', 'vcruntime140.dll', 'vcruntime140_1.dll', 'vcomp140.dll')) {
+foreach ($runtimeDependency in @('msvcp140.dll', 'vcruntime140.dll', 'vcruntime140_1.dll', 'vcomp140.dll', 'vulkan-1.dll')) {
     Copy-Item -LiteralPath (Join-Path $appDirectory $runtimeDependency) -Destination (Join-Path $appDirectory 'CleanupRuntime') -Force
 }
 Get-ChildItem $appDirectory -Recurse -Filter "*.pdb" | Remove-Item -Force
