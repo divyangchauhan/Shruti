@@ -18,10 +18,19 @@ internal static class TranscriptEditValidator
             int start = original.IndexOf(edit.Original, StringComparison.Ordinal);
             if (start < 0 || original.IndexOf(edit.Original, start + 1, StringComparison.Ordinal) >= 0) return false;
             if (edit.Replacement.Any(character => char.IsControl(character) && character is not ('\n' or '\r' or '\t'))) return false;
-            if (edit.Reason == "restart" && !IsCompletedRestart(edit.Original, edit.Replacement)) return false;
+            bool restart = false;
+            if (RemovesLeadingWords(edit.Original, edit.Replacement))
+            {
+                string removed = edit.Original[..(edit.Original.Length - edit.Replacement.Length)];
+                if (DropsCompletedThought(removed)) return false;
+                restart = !ExplicitNumericCorrection.DiscardsCorrection(edit.Original, removed.Length) &&
+                    Regex.Matches(removed, @"\b[\p{L}\p{N}]+\b").Count >= 2 &&
+                    Regex.Matches(edit.Replacement, @"\b[\p{L}\p{N}]+\b").Count >= 3;
+            }
+            if (edit.Reason == "restart" && !restart) return false;
             // Models sometimes call a restart filler removal or self-correction. The
             // actual edit must retain an exact completed suffix regardless of its label.
-            string reason = IsCompletedRestart(edit.Original, edit.Replacement) ? "restart" : edit.Reason;
+            string reason = restart ? "restart" : edit.Reason;
             edits.Add(new("local-" + reason, start, edit.Original.Length, edit.Replacement));
         }
         var ordered = edits.OrderBy(edit => edit.Start).ToArray();
@@ -60,7 +69,7 @@ internal static class TranscriptEditValidator
         return true;
     }
 
-    private static bool IsCompletedRestart(string original, string replacement)
+    private static bool RemovesLeadingWords(string original, string replacement)
     {
         // The model decides whether speech is a restart; it cannot use this edit type
         // to invent a replacement, remove the finished clause, or delete all text.
@@ -70,9 +79,30 @@ internal static class TranscriptEditValidator
         // spelling and casing inside it must still match the speaker's words.
         if (char.ToUpperInvariant(original[removedLength]) != char.ToUpperInvariant(replacement[0]) ||
             !original.AsSpan(removedLength + 1).SequenceEqual(replacement.AsSpan(1))) return false;
-        return removedLength > 0 && !ExplicitNumericCorrection.DiscardsCorrection(original, removedLength) && !char.IsLetterOrDigit(original[removedLength - 1]) &&
-            Regex.Matches(original[..removedLength], @"\b[\p{L}\p{N}]+\b").Count >= 2 &&
-            Regex.Matches(replacement, @"\b[\p{L}\p{N}]+\b").Count >= 3;
+        return !char.IsLetterOrDigit(original[removedLength - 1]);
+    }
+
+    private static bool DropsCompletedThought(string removed)
+    {
+        // A suffix can be the next independent sentence. Only a spoken cancellation
+        // can supersede the preceding finished sentence.
+        string[] parts = Regex.Split(removed.Trim(), @"(?<!\bDr)(?<!\bMr)(?<!\bMrs)(?<!\bMs)[.!?]+[""”’']?(?=\s|$)", RegexOptions.IgnoreCase);
+        if (parts.Length == 1) return false;
+        // "Start over" can replace several sentences. "Scratch that" refers to
+        // the most recent one. Require the reset to be a separate spoken command.
+        const string reset = @"(?:^|[.!?,:]\s*)(?:(?:actually|sorry|never mind)[,\s]+)?(?:(?:(?:let me|let['’]s) )?start (?:over|from the beginning)|let['’]s try that from the beginning|let me say that again)[\s.,:!?]*$";
+        if (Regex.IsMatch(removed, reset, RegexOptions.IgnoreCase)) return false;
+        bool hasFinishedThought = false;
+        for (int i = 0; i < parts.Length; i++)
+        {
+            string part = parts[i].Trim();
+            if (part.Length == 0 || Regex.IsMatch(part, @"^(?:uh|um|er|erm)$", RegexOptions.IgnoreCase)) continue;
+            if (Regex.IsMatch(part, @"^(?:(?:scratch|strike|delete) that|(?:let me )?start over|let me rephrase|actually,? no)[,:\s]*$", RegexOptions.IgnoreCase))
+                hasFinishedThought = false;
+            else if (hasFinishedThought) return true;
+            else if (i < parts.Length - 1) hasFinishedThought = true;
+        }
+        return hasFinishedThought;
     }
 
     internal static IEnumerable<string> InferProtectedTerms(string text)

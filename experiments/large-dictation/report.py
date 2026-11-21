@@ -55,9 +55,9 @@ def main():
         "\n".join(coverage),
         "Draft scores use the raw transcript as fallback when generation fails. Delivered scores replay Shruti's validator and finishing steps. This offline GPU run measures text quality. It does not measure the app's CPU response time.",
         "The source used synthesized speech. Utter Mini trained on the source project's training split. See the blind review for a separate judgment of meaning and readiness to send on 256 of these cases.",
-        "[Dataset and settings](README.md) · [Blind review](blind-results.md) · [Scores by dictation category](../../artifacts/large-dictation/primary-scores.json)",
+        "[Dataset and settings](../../experiments/large-dictation/README.md) · [Blind review](../../experiments/large-dictation/blind-results.md) · [Scores by dictation category](primary-scores.json)",
     ]
-    dest = Path(__file__).with_name("full-results.md")
+    dest = OUT / "full-results.md"
     tmp = dest.with_suffix(".md.tmp")
     tmp.write_text("\n\n".join(report) + "\n", encoding="utf-8")
     tmp.replace(dest)
