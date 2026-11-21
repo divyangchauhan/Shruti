@@ -10,6 +10,18 @@ using Shruti.Transcription.Abstractions;
 using Shruti.Transcription.WhisperCpp;
 using Shruti.TranscriptQuality;
 
+if (args is ["--export-formatter-inputs", var inputManifest, var destination])
+{
+    await CaptureFormatterInputs.ExportAsync(inputManifest, destination);
+    return;
+}
+if (args.FirstOrDefault() == "--replay-proposals")
+{
+    if (args.Length != 4) throw new ArgumentException("Usage: --replay-proposals MANIFEST REPORT OUTPUT");
+    await ProposalReplay.RunAsync(args[1], args[2], args[3]);
+    return;
+}
+
 var jsonOptions = new JsonSerializerOptions { PropertyNameCaseInsensitive = true, WriteIndented = true };
 string manifest = args.FirstOrDefault() ?? "tests/quality/manifest.json";
 string Option(string name, string fallback = "")
@@ -34,13 +46,27 @@ QualityCase[] cases = JsonSerializer.Deserialize<QualityCase[]>(await File.ReadA
 if (cases.Select(test => test.Id).Distinct().Count() != cases.Length) throw new InvalidDataException("Fixture IDs must be unique.");
 WhisperCppTranscriptionProvider? provider = stage == "refinement" ? null : new(new WhisperCppTranscriptionEngine(new WhisperCppNativeApi()));
 var rows = new List<QualityMeasurement>();
-using var editor = new LocalTranscriptEditor();
+string promptFile = Option("--cleanup-prompt");
+string? prompt = promptFile.Length > 0 ? await File.ReadAllTextAsync(promptFile) : null;
+string? modelInput = null, proposal = null;
+if (!int.TryParse(Option("--reasoning-budget", "0"), out int reasoningBudget) || reasoningBudget < 0)
+    throw new ArgumentException("--reasoning-budget must be a nonnegative token count.");
+bool? reasoningReturned = null;
+using var editor = new LocalTranscriptEditor(prompt, (input, output, reasoned) =>
+{
+    modelInput = input;
+    proposal = output;
+    reasoningReturned = reasoned;
+}, reasoningBudget);
 try
 {
     foreach (QualityCase fixture in cases)
     {
         if (stage != "refinement" && fixture.Audio is null)
         { rows.Add(new(fixture.Id, stage, fixture.Tags, fixture.AudioSource, SkippedReason: "No audio fixture")); continue; }
+        modelInput = proposal = null;
+        reasoningReturned = null;
+        string? failure = null;
         var pipeline = new TranscriptQualityPipeline(new FixtureVocabularyRepository(fixture), new FixtureContextReader(fixture), editor);
         var settings = new TranscriptQualitySettings
         {
@@ -76,7 +102,7 @@ try
         {
             using var deadline = new CancellationTokenSource(settings.RefinementTimeout);
             try { refined = await quality.RefineAsync(refined.Raw, deadline.Token); }
-            catch (Exception) { refined = RefinedTranscript.Unchanged(refined.Raw, true); }
+            catch (Exception ex) { failure = ex.GetType().Name; refined = RefinedTranscript.Unchanged(refined.Raw, true); }
         }
         latency.Stop();
         var wer = QualityScorer.WordError(fixture.ExpectedRaw, raw);
@@ -90,7 +116,7 @@ try
             ProtectedTokenChanges: fixture.ProtectedTokens.Count(term => QualityScorer.CountTerm(raw, term) != QualityScorer.CountTerm(refined.Text, term)),
             FalseDeletion: fixture.Tags.Contains("false-deletion") ? fixture.ProtectedTokens.Any(term => !QualityScorer.ContainsTerm(refined.Text, term)) : null,
             StopToResultMs: latency.Elapsed.TotalMilliseconds, RecognitionMs: recognitionMs, PreparationMs: cold.Elapsed.TotalMilliseconds,
-            UsedRawFallback: refined.UsedRawFallback, EditRules: refined.Edits.Select(edit => edit.Rule).ToArray()));
+            ModelInput: modelInput, Proposal: proposal, ReasoningReturned: reasoningReturned, Failure: failure, UsedRawFallback: refined.UsedRawFallback, EditRules: refined.Edits.Select(edit => edit.Rule).ToArray()));
         Console.WriteLine($"{fixture.Id}: {latency.Elapsed.TotalMilliseconds:F0} ms; raw fallback {refined.UsedRawFallback}.");
     }
 }
@@ -107,6 +133,9 @@ var report = new
     RecognitionHintsEnabled = !disableRecognitionHints,
     AsrModel = modelPath.Length == 0 ? null : Path.GetFileName(modelPath),
     AsrModelSha256 = modelPath.Length == 0 ? null : Hash(modelPath),
+    ManifestSha256 = Hash(manifest),
+    ReasoningBudget = reasoningBudget,
+    PromptFileSha256 = prompt is null ? null : Hash(promptFile),
     CleanupModel = cleanupModel.Length == 0 ? null : Path.GetFileName(cleanupModel),
     CleanupModelSha256 = cleanupModel.Length == 0 ? null : Hash(cleanupModel),
     CleanupProcessPeakWorkingSetBytes = editor.PeakWorkingSetBytes,
@@ -132,4 +161,4 @@ internal sealed record QualityMeasurement(string Id, string Stage, string[] Tags
     int TechnicalTermsCorrect = 0, int TechnicalTermCount = 0, bool? DictionarySuccess = null,
     bool VocabularyFalsePositive = false, bool? SelfCorrectionSuccess = null, int ProtectedTokenChanges = 0,
     bool? FalseDeletion = null, double StopToResultMs = 0, double RecognitionMs = 0, double PreparationMs = 0,
-    bool UsedRawFallback = false, string[]? EditRules = null);
+    bool UsedRawFallback = false, string[]? EditRules = null, string? ModelInput = null, string? Proposal = null, string? Failure = null, bool? ReasoningReturned = null);

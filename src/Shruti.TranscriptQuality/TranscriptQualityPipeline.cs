@@ -1,6 +1,7 @@
 using Shruti.Core.Platform;
 using Shruti.Core.TranscriptQuality;
 using Shruti.Transcription.Abstractions;
+using Shruti.Models;
 
 namespace Shruti.TranscriptQuality;
 
@@ -39,6 +40,7 @@ public sealed class TranscriptQualityPipeline : ITranscriptQualityPipeline, IDis
         private readonly IReadOnlyList<TranscriptSnippet> _snippets;
         private readonly ILocalTranscriptEditor _editor;
         private IReadOnlyList<string> _protectedTerms;
+        private readonly string[] _dictionary;
         public RecognitionHints RecognitionHints { get; private set; }
 
         public Session(IReadOnlyList<VocabularyEntry> vocabulary, IReadOnlyList<CorrectionRule> corrections,
@@ -48,7 +50,8 @@ public sealed class TranscriptQualityPipeline : ITranscriptQualityPipeline, IDis
             _corrections = corrections; _context = context; _settings = settings; _editor = editor;
             RecognitionHints = RecognitionHintBuilder.Build(vocabulary.Concat(snippets.Select(s => new VocabularyEntry(s.Id, s.Language, s.Phrase, DateTimeOffset.UnixEpoch))).ToArray(), context, corrections, settings.MaximumPromptTokens,
                 RecognitionHintBuilder.ApplicationTerms(processName));
-            _protectedTerms = vocabulary.Select(entry => entry.Term).Concat(corrections.Select(rule => rule.ReplacementText))
+            _dictionary = vocabulary.Select(entry => entry.Term).ToArray();
+            _protectedTerms = _dictionary.Concat(corrections.Select(rule => rule.ReplacementText))
                 .Concat(RecognitionHintBuilder.ContextTerms(context)).Concat(RecognitionHints.Terms).Distinct(StringComparer.Ordinal).ToArray();
         }
 
@@ -74,7 +77,8 @@ public sealed class TranscriptQualityPipeline : ITranscriptQualityPipeline, IDis
             if (!expansion.Tokens.Contains(formatted) && !TranscriptText.IsEmptyOrNonSpeech(formatted) && _settings.EnableLocalModel && _settings.CleanupMode == TranscriptCleanupMode.Light)
             {
                 string[] protectedTerms = _protectedTerms.Concat(TranscriptEditValidator.InferProtectedTerms(formatted)).Distinct(StringComparer.Ordinal).ToArray();
-                var proposed = await _editor.ProposeAsync(formatted, protectedTerms,
+                var spellingHints = LocalCleanupModel.FromPath(_settings.LocalModelPath) == LocalCleanupModel.Utter ? _dictionary : protectedTerms;
+                var proposed = await _editor.ProposeAsync(formatted, spellingHints,
                     _context?.AppCategory ?? TranscriptAppCategory.Other, _settings, cancellationToken).ConfigureAwait(false);
                 if (TranscriptEditValidator.TryApply(formatted, proposed, protectedTerms, out string cleaned, out var applied))
                 {

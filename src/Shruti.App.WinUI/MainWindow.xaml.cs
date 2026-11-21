@@ -1570,7 +1570,7 @@ public sealed partial class MainWindow : Window
 
                 _isApplyingSettings = true;
                 _transcriptionOptionsProvider.ApplySettings(_settings);
-                QualityControl.Configure(_settingsRepository, _settings.TranscriptQuality);
+                QualityControl.Configure(_settingsRepository, _settings.TranscriptQuality, _modelManager.ModelsDirectory);
                 QualityControl.SettingsChanged += (_, _) => _settings = _settings with { TranscriptQuality = QualityControl.Settings };
                 ApplySettingsToControls(_settings);
                 _controller.SetInsertionMode(_settings.InsertionMode);

@@ -1,0 +1,67 @@
+[
+  {
+    "id": "restart-without-trigger",
+    "expectedRaw": "I wanted to ask if we could I need the report tomorrow.",
+    "expectedFinal": "I need the report tomorrow.",
+    "tags": ["self-correction", "restart"]
+  },
+  {
+    "id": "restart-same-subject",
+    "expectedRaw": "I was thinking we should send the we should send the report tomorrow.",
+    "expectedFinal": "We should send the report tomorrow.",
+    "tags": ["self-correction", "restart"]
+  },
+  {
+    "id": "restart-date",
+    "expectedRaw": "Send it Friday, no, send it Monday.",
+    "expectedFinal": "Send it Monday.",
+    "tags": ["self-correction", "restart"]
+  },
+  {
+    "id": "restart-name",
+    "expectedRaw": "Ask Divyang about the Ask Divyang about the report.",
+    "expectedFinal": "Ask Divyang about the report.",
+    "vocabulary": ["Divyang"],
+    "tags": ["self-correction", "restart"]
+  },
+  {
+    "id": "unseen-restart-request",
+    "expectedRaw": "Can you check whether the Please check the build logs before lunch.",
+    "expectedFinal": "Please check the build logs before lunch.",
+    "tags": ["self-correction", "restart"]
+  },
+  {
+    "id": "unseen-restart-delivery",
+    "expectedRaw": "We need to arrange a delivery to we need the package delivered tomorrow.",
+    "expectedFinal": "We need the package delivered tomorrow.",
+    "tags": ["self-correction", "restart"]
+  },
+  {
+    "id": "separate-finished-thoughts",
+    "expectedRaw": "I like this. I want another.",
+    "expectedFinal": "I like this. I want another.",
+    "protectedTokens": ["like", "want"],
+    "tags": ["false-deletion"]
+  },
+  {
+    "id": "meaningful-actually",
+    "expectedRaw": "I actually enjoyed the movie.",
+    "expectedFinal": "I actually enjoyed the movie.",
+    "protectedTokens": ["actually"],
+    "tags": ["false-deletion"]
+  },
+  {
+    "id": "keep-emphasis",
+    "expectedRaw": "This is very, very important.",
+    "expectedFinal": "This is very, very important.",
+    "protectedTokens": ["very"],
+    "tags": ["false-deletion"]
+  },
+  {
+    "id": "keep-negation",
+    "expectedRaw": "Do not send the report on Friday. Send the invoice on Monday.",
+    "expectedFinal": "Do not send the report on Friday. Send the invoice on Monday.",
+    "protectedTokens": ["not", "Friday", "Monday", "report", "invoice"],
+    "tags": ["false-deletion"]
+  }
+]

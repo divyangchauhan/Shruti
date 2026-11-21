@@ -1,0 +1,14 @@
+[
+  {
+    "Hash": "3FD03E1E046E43B86DBDF46F6FBD357C338A932838074FECEE716BDC055012F9",
+    "Path": "src/Shruti.TranscriptQuality/LocalTranscriptEditor.cs"
+  },
+  {
+    "Hash": "FD2C43F59447AF203BE3A7F9F2F926E51552B685AEDF0F1A074B664370E3752F",
+    "Path": "tools/Shruti.QualityBench/Program.cs"
+  },
+  {
+    "Hash": "8C485D1D0D962F19D1924940980982D0A6E22018E937F604009261F95DD74D3E",
+    "Path": "experiments/voice-arena/run.ps1"
+  }
+]

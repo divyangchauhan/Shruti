@@ -62,6 +62,8 @@ jobs:
           - TranscriptQualityTests
           - VocabularyTests
           - TranscriptEditValidatorTests
+          - NumericCorrectionTests
+          - LocalCleanupModelTests
           - EmptyTranscriptQualityTests
           - TranscriptLibraryTests
           - FloatingBarMonitorTests

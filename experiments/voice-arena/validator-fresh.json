@@ -1,0 +1,92 @@
+[
+  {
+    "Id": "numeric-fresh-01",
+    "ExpectedRaw": "Please book room twenty, no, twenty three for the afternoon review with Mina.",
+    "ExpectedFinal": "Please book room 23 for the afternoon review with Mina.",
+    "Tags": [
+      "synthetic",
+      "correction"
+    ]
+  },
+  {
+    "Id": "numeric-fresh-02",
+    "ExpectedRaw": "Set the alert threshold to fourteen, sorry, forty percent. Keep the grace period at five minutes.",
+    "ExpectedFinal": "Set the alert threshold to 40 percent. Keep the grace period at five minutes.",
+    "Tags": [
+      "synthetic",
+      "correction"
+    ]
+  },
+  {
+    "Id": "numeric-fresh-03",
+    "ExpectedRaw": "Move our call to four, no, five on Wednesday. I think Raj can still join.",
+    "ExpectedFinal": "Move our call to five on Wednesday. I think Raj can still join.",
+    "Tags": [
+      "synthetic",
+      "correction"
+    ]
+  },
+  {
+    "Id": "numeric-fresh-04",
+    "ExpectedRaw": "The issue first appeared in build seven point one, wait, no, seven point zero one on the tablet.",
+    "ExpectedFinal": "The issue first appeared in build 7.01 on the tablet.",
+    "Tags": [
+      "synthetic",
+      "correction"
+    ]
+  },
+  {
+    "Id": "numeric-fresh-05",
+    "ExpectedRaw": "Can you set the retry limit from four to eight, no, eighteen, and email me the log?",
+    "ExpectedFinal": "Can you set the retry limit from 4 to 18 and email me the log?",
+    "Tags": [
+      "synthetic",
+      "correction"
+    ]
+  },
+  {
+    "Id": "numeric-fresh-06",
+    "ExpectedRaw": "Order three, I mean, thirteen adapters for the studio. Don't order any cables yet.",
+    "ExpectedFinal": "Order 13 adapters for the studio. Don't order any cables yet.",
+    "Tags": [
+      "synthetic",
+      "correction"
+    ]
+  },
+  {
+    "Id": "numeric-fresh-07",
+    "ExpectedRaw": "Can you reserve room twelve for Thursday and room twenty one for Friday?",
+    "ExpectedFinal": "Can you reserve room 12 for Thursday and room 21 for Friday?",
+    "Tags": [
+      "synthetic",
+      "preservation"
+    ]
+  },
+  {
+    "Id": "numeric-fresh-08",
+    "ExpectedRaw": "The firmware is on version three point zero two. The older version was three point two.",
+    "ExpectedFinal": "The firmware is on version 3.02. The older version was 3.2.",
+    "Tags": [
+      "synthetic",
+      "preservation"
+    ]
+  },
+  {
+    "Id": "numeric-fresh-09",
+    "ExpectedRaw": "Keep the guest count at ten, no more than twelve. Leave two chairs by the door.",
+    "ExpectedFinal": "Keep the guest count at ten, no more than twelve. Leave two chairs by the door.",
+    "Tags": [
+      "synthetic",
+      "preservation"
+    ]
+  },
+  {
+    "Id": "numeric-fresh-10",
+    "ExpectedRaw": "I think we need fourteen boxes at the warehouse, but send only four to the store.",
+    "ExpectedFinal": "I think we need 14 boxes at the warehouse, but send only four to the store.",
+    "Tags": [
+      "synthetic",
+      "preservation"
+    ]
+  }
+]

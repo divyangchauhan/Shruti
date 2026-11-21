@@ -1,0 +1,37 @@
+{
+  "base": "fa53d26ddffd89ea7fe55f4c207677bbdff64898",
+  "sourceWorktree": "Shruti-cleanup-restarts",
+  "sourceSnapshot": {
+    "tests/quality/restarts.json": "F30CB0E3DF90C9D85D047A243B6CADBB939428F2C3607EFBC1ED8E00A6FA613C",
+    "tests/quality/sentence-case.json": "7E966590C390C27216ED60ED65D5D5BCBC05FE1360A5947AFD42216AE5273761",
+    "src/Shruti.TranscriptQuality/LocalTranscriptEditor.cs": "40FB13F637E9565F963BE8631ECF60DF002975A0DD05EF5B0F4230B62C6B4945",
+    "src/Shruti.TranscriptQuality/TranscriptEditValidator.cs": "01094F7B4AB6F91B771B199EDA51049370B72E53377ECC582560242E89215EBA",
+    "tests/Shruti.Tests/TranscriptEditValidatorTests.cs": "CE87C9538B22422A3F62AD46E2B17BA87822DC929EC3BD7699D697623F78FBCA"
+  },
+  "files": {
+    "artifacts/quality/all.json": "DE1BB58438C2E942D6CBF096D6F861411500C2843E54330EBA06AD590F8B431F",
+    "src/Shruti.TranscriptQuality/TranscriptEditValidator.cs": "01094F7B4AB6F91B771B199EDA51049370B72E53377ECC582560242E89215EBA",
+    "src/Shruti.TranscriptQuality/LocalTranscriptEditor.cs": "DB803F772A1CD77EE78E77952C59F85B98BB5B88C8A657082FF1C6BC55EB0761",
+    "tools/Shruti.QualityBench/Program.cs": "34ED48D601F2469E54B7FCCBD2CBD2B41923279EAE8AC1830A5EBCD1E435299C",
+    "experiments/voice-arena/incumbent.txt": "D6CE308328A84EBFA54B44A0573431378FE5D3FC897EFEBDAE8FD0C86FF67049",
+    "experiments/voice-arena/sendable.txt": "2FEEA4C4368254704A03FF9D2C96B88C7F0A4C33F3A82C74939D27E71C6AB968",
+    "artifacts/local-cleanup/qwen3.5-2b-q4_k_m.gguf": "92B61F139FBAE199718C0C283DF25CB619B1CC57E71FAAAE5A9A6B06A1842DDA",
+    "artifacts/local-cleanup/Cpu/llama-server.exe": "D616663FF9A96B4415AA50BE94F02DC9DF92281EB24DB06F5A0F76E9F1402BB1",
+    "artifacts/quality/dev.json": "32315D80C97F87E85A0C7151A0F75823940026ECCB9F54DF4CF906E4EEE943E4",
+    "artifacts/quality/heldout.json": "1C2A52DF39150D9EA493C6F6689928173F638826FAA30866E5C2BDBC77BF2BF0",
+    "experiments/voice-arena/copy-editor.txt": "084C3E6027138EFA75B3DB7B4FC458B7EB38F0EEDDB4AAF671C10FCE916A87DE"
+  },
+  "dataset": "VoiceArena/Dictation_Dataset",
+  "input": "verbatim spoken_text",
+  "speakergroups": "first six pilot speakers and 12 further speakers ranked by SHA256 of shruti-eval-v1/ + speaker id for development",
+  "runtime": "llama.cpp build 11574 8bb3cf0d2",
+  "temperature": 0,
+  "threads": 4,
+  "context": 2048,
+  "gpuLayers": 0,
+  "timeoutSeconds": 10,
+  "reasoningBudget": 0,
+  "maxTokens": "clamp(input char count + 64,256,1024)",
+  "selection": "Select on development ready-to-send gains, disqualify a new confirmed meaning error; tie break by fewer regressions, then incumbent. Test strongest challenger on holdout even if development is inconclusive. Do not adopt a challenger without a clear held-out gain or with any new confirmed meaning error.",
+  "datasetRevision": "ab671bb28d33defac2955fda2a588e75599a368b"
+}

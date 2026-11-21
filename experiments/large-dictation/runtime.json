@@ -1,0 +1,18 @@
+{
+  "commit": "fa53d26ddffd89ea7fe55f4c207677bbdff64898",
+  "branch": "experiment/voice-arena-formatter",
+  "files": {
+    "src/Shruti.TranscriptQuality/LocalTranscriptEditor.cs": "3FD03E1E046E43B86DBDF46F6FBD357C338A932838074FECEE716BDC055012F9",
+    "src/Shruti.TranscriptQuality/TranscriptEditValidator.cs": "892097D7BFB8EEC30A95CD68D77F1253B3F23E958DE41884A2304538A934CED7",
+    "src/Shruti.TranscriptQuality/ExplicitNumericCorrection.cs": "C8344A99623CDA494B261FD6242A1719A7BBFA02E3A14EB27689167FD64D717D",
+    "tools/Shruti.QualityBench/CaptureFormatterInputs.cs": "BD3766D656996D6F088C4ECDC4D5852C62CB2B85376F080B19413BF88D5E305F",
+    "tools/Shruti.QualityBench/ProposalReplay.cs": "27E1820CEF89A9F9126336A8FFA30ECEA8A499064ECD9D39C7381C7BB98D5EC1",
+    "experiments/voice-arena/copy-editor.txt": "084C3E6027138EFA75B3DB7B4FC458B7EB38F0EEDDB4AAF671C10FCE916A87DE"
+  },
+  "driver": {
+    "Name": "Intel(R) Arc(TM) 140T GPU (16GB)",
+    "DriverVersion": "32.0.101.8801"
+  },
+  "sdk": "9.0.315",
+  "python": "Python 3.14.5"
+}

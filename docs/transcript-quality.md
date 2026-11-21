@@ -99,16 +99,17 @@ website classification and exhaustive banking detection are not implemented.
 
 ## Local AI
 
-The initial optional model is Qwen3.5-2B Q4_K_M. The 1.31 GB GGUF is pinned to
-revision `56c1090cf58b925e3bf23eb8731781e4d9c9029c` and SHA256
-`92b61f139fbae199718c0c283df25cb619b1cc57e71faaae5a9a6b06a1842dda`.
-The CPU runtime is llama.cpp build b11574 with a pinned archive checksum.
-The app package includes the runtime and its license. The app downloads model
-weights and their license, rather than downloading executable updates.
+On the Models page under Dictation cleanup, choose Qwen3.5-2B Q4_K_M or Utter
+Mini 1B Q4_0. Download verifies the selected GGUF against its pinned SHA256.
+Set active enables that model for dictation. Both models can stay installed.
+The app package includes the llama.cpp b11574 CPU runtime. Each model download
+includes the upstream license notice.
 
 The editor runs a hidden subprocess on authenticated loopback, with four CPU
-threads and reasoning disabled. It reuses the loaded model. It asks for exact,
-unique substring edits under a JSON schema. It never sends data to a cloud
+threads and reasoning disabled. It reuses the loaded model until the selection
+changes. Qwen returns the transcript in a JSON text field. Utter receives the
+dictation and any dictionary entries and returns plain text. Both proposals go
+through Shruti's edit validator. The editor never sends data to a cloud
 editor. Native logs are drained without storing them. Requests disable prompt
 caching. No transcript or cursor text enters application diagnostics.
 
@@ -128,6 +129,8 @@ requires confirmation before saving. Suggestions only cover one word spelling
 change; broader corrections can be entered manually.
 
 ## Run the benchmark
+
+The [dictation evaluation set](../experiments/large-dictation/README.md) has 500 tuning cases and 3,000 held-out cases. Use it to compare local models and prompts without opening Shruti. The [Voice Arena experiment](../experiments/voice-arena/README.md) uses dictation from human speakers.
 
 ```powershell
 dotnet run --project tools/Shruti.QualityBench -- tests/quality/manifest.json --stage refinement --name deterministic
@@ -196,7 +199,7 @@ is not a public installer. The unpacked app used to build it is
 For a local UI check, exit another running Shruti instance and start that app.
 Its unpackaged data can share `%LOCALAPPDATA%\Shruti`, so preserve existing
 preferences and dictionary entries. On Models, under Dictation cleanup, use Light
-cleanup first, then download Qwen3.5-2B and choose Set active. The CLI benchmark weights
+cleanup first, then download a cleanup model and choose Set active. The CLI benchmark weights
 are under `artifacts/local-cleanup`; they are separate from app-managed downloads.
 
 Local checks completed with 288 passing tests, formatting verification, a full
