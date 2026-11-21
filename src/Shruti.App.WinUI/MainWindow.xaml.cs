@@ -1045,40 +1045,14 @@ public sealed partial class MainWindow : Window
         }
     }
 
-    private Border CreateModelCard(ModelCatalogEntry model)
+    private ModelCatalogRow CreateModelCard(ModelCatalogEntry model)
     {
         bool isInstalled = FindInstalledModel(model.Id) is not null;
         bool isSelected = string.Equals(_settings.SelectedModelId, model.Id, StringComparison.Ordinal);
-        var row = new Grid { ColumnSpacing = 16 };
-        row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-        row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-
-        var details = new StackPanel { Spacing = 4, VerticalAlignment = VerticalAlignment.Center };
-        var title = new TextBlock
-        {
-            Text = model.DisplayName,
-            FontSize = 16,
-            FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
-            TextWrapping = TextWrapping.Wrap
-        };
-        details.Children.Add(title);
-        var metadata = new TextBlock
-        {
-            Text = isSelected && !isInstalled ? $"Selected  ·  {FormatModelDetails(model)}" : FormatModelDetails(model),
-            FontSize = 13,
-            Style = (Style)Root.Resources["MutedTextStyle"]
-        };
-        details.Children.Add(metadata);
-        row.Children.Add(details);
-
-        var actions = new StackPanel
-        {
-            Orientation = Orientation.Horizontal,
-            VerticalAlignment = VerticalAlignment.Center,
-            Spacing = 8
-        };
-        Grid.SetColumn(actions, 1);
-        row.Children.Add(actions);
+        string metadata = FormatModelDetails(model);
+        if (isSelected && !isInstalled) metadata = $"Selected  ·  {metadata}";
+        var row = new ModelCatalogRow(model.DisplayName, metadata, ModelListPanel.Children.Count > 0);
+        row.SetState(isInstalled, isInstalled && isSelected);
         if (!isInstalled)
         {
             if (!model.IsBundle)
@@ -1093,7 +1067,7 @@ public sealed partial class MainWindow : Window
                 AutomationProperties.SetName(import, $"Import {model.DisplayName}");
                 ToolTipService.SetToolTip(import, "Import a local model file");
                 import.Click += ImportModelButton_Click;
-                actions.Children.Add(import);
+                row.AddAction(import);
             }
             var download = new Button
             {
@@ -1109,13 +1083,9 @@ public sealed partial class MainWindow : Window
             AutomationProperties.SetName(download, $"Download {model.DisplayName}");
             ToolTipService.SetToolTip(download, $"Download and verify {model.DisplayName}.");
             download.Click += DownloadModelButton_Click;
-            actions.Children.Add(download);
+            row.AddAction(download);
         }
-        else if (isSelected)
-        {
-            actions.Children.Add(CreateBadge("In use", "ShrutiAccentBrush", "ShrutiAccentSoftBrush"));
-        }
-        else
+        else if (!isSelected)
         {
             var remove = new Button
             {
@@ -1127,7 +1097,7 @@ public sealed partial class MainWindow : Window
             AutomationProperties.SetName(remove, $"Remove {model.DisplayName}");
             ToolTipService.SetToolTip(remove, "Remove local model");
             remove.Click += RemoveModelButton_Click;
-            actions.Children.Add(remove);
+            row.AddAction(remove);
             var select = new Button
             {
                 Tag = model.Id,
@@ -1137,34 +1107,9 @@ public sealed partial class MainWindow : Window
             AutomationProperties.SetName(select, $"Use {model.DisplayName}");
             ToolTipService.SetToolTip(select, $"Use {model.DisplayName} for dictation.");
             select.Click += SelectModelButton_Click;
-            actions.Children.Add(select);
+            row.AddAction(select);
         }
-        return new Border
-        {
-            Child = row,
-            Padding = new Thickness(18, 13, 18, 13),
-            BorderBrush = GetBrush("ShrutiBorderSubtleBrush"),
-            BorderThickness = new Thickness(0, ModelListPanel.Children.Count > 0 ? 1 : 0, 0, 0)
-        };
-    }
-
-    private Border CreateBadge(string text, string foregroundKey, string backgroundKey)
-    {
-        return new Border
-        {
-            Height = 22,
-            Padding = new Thickness(9, 0, 9, 0),
-            Background = GetBrush(backgroundKey),
-            CornerRadius = new CornerRadius(11),
-            Child = new TextBlock
-            {
-                Text = text,
-                FontSize = 12,
-                FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
-                Foreground = GetBrush(foregroundKey),
-                VerticalAlignment = VerticalAlignment.Center
-            }
-        };
+        return row;
     }
 
     private static (string Foreground, string Background) GetComputeBrushKeys(ComputeBackend backend)

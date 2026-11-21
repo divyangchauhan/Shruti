@@ -11,29 +11,12 @@
                 <TextBlock Margin="0,4,0,0" Text="You can restore the original text of your latest dictation." FontSize="13" Foreground="{ThemeResource ShrutiTextSecondaryBrush}" TextWrapping="Wrap" />
             </StackPanel>
         </Border>
-        <TextBlock Margin="0,12,0,0" Text="Optional cleanup model" FontSize="16" FontWeight="SemiBold" />
+        <TextBlock Margin="0,12,0,0" Text="Cleanup models" FontSize="16" FontWeight="SemiBold" />
         <TextBlock Text="Choose a model to revise dictated sentences on this PC." Foreground="{ThemeResource ShrutiTextSecondaryBrush}" TextWrapping="Wrap" />
-        <Border x:Name="ModelCard" Background="{ThemeResource ShrutiCardBrush}" BorderBrush="{ThemeResource ShrutiBorderSubtleBrush}" BorderThickness="1" CornerRadius="12">
-            <StackPanel>
-                <Grid Padding="18,14" ColumnSpacing="16">
-                    <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="*" />
-                        <ColumnDefinition Width="Auto" />
-                    </Grid.ColumnDefinitions>
-                    <StackPanel VerticalAlignment="Center" Spacing="4">
-                        <ComboBox x:Name="ModelPicker" Header="Cleanup model" MinWidth="175" SelectionChanged="ModelPicker_SelectionChanged" />
-                        <TextBlock x:Name="ModelDetailsText" FontSize="13" Foreground="{ThemeResource ShrutiTextSecondaryBrush}" TextWrapping="Wrap" />
-                        <TextBlock x:Name="ModelStatusText" TextWrapping="Wrap" FontSize="13" FontWeight="SemiBold" Foreground="{ThemeResource ShrutiAccentBrush}" />
-                        <HyperlinkButton x:Name="LicenseLink" Content="Model license" Padding="0" />
-                    </StackPanel>
-                    <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
-                        <Button x:Name="InstallButton" Content="Download" Click="Install_Click" />
-                        <Button x:Name="ToggleModelButton" Content="Set active" Click="ToggleModel_Click" />
-                    </StackPanel>
-                </Grid>
-                <ProgressBar x:Name="DownloadProgress" Height="4" IsIndeterminate="True" Visibility="Collapsed" />
-            </StackPanel>
+        <Border Background="{ThemeResource ShrutiCardBrush}" BorderBrush="{ThemeResource ShrutiBorderSubtleBrush}" BorderThickness="1" CornerRadius="12">
+            <StackPanel x:Name="Models" />
         </Border>
+        <ProgressBar x:Name="DownloadProgress" Height="4" IsIndeterminate="True" Visibility="Collapsed" />
         <TextBlock x:Name="MessageText" AutomationProperties.LiveSetting="Polite" TextWrapping="Wrap" />
     </StackPanel>
 </UserControl>

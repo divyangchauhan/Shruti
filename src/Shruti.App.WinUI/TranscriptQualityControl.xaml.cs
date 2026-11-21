@@ -1,6 +1,6 @@
 using Microsoft.UI.Xaml;
-using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Automation;
+using Microsoft.UI.Xaml.Controls;
 using Shruti.Core.TranscriptQuality;
 using Shruti.Models;
 using Shruti.Storage;
@@ -15,14 +15,20 @@ public sealed partial class TranscriptQualityControl : UserControl
     public event EventHandler? SettingsChanged;
     private bool _saving;
     private string? _directory;
-    private LocalCleanupModel SelectedModel => (LocalCleanupModel)((ComboBoxItem)ModelPicker.SelectedItem).Tag;
+    private readonly List<(LocalCleanupModel Model, ModelCatalogRow Row, Button Action)> _rows = [];
 
     public TranscriptQualityControl()
     {
         InitializeComponent();
         foreach (var model in new[] { LocalCleanupModel.Qwen, LocalCleanupModel.Utter })
-            ModelPicker.Items.Add(new ComboBoxItem { Content = model.Name, Tag = model });
-        ModelPicker.SelectedIndex = 0;
+        {
+            var row = new ModelCatalogRow(model.Name, $"{model.Details} Â· CPU", _rows.Count > 0, model.LicenseUri);
+            var action = new Button { IsEnabled = false };
+            action.Click += async (_, _) => await ChooseModelAsync(model);
+            row.AddAction(action);
+            Models.Children.Add(row);
+            _rows.Add((model, row, action));
+        }
     }
 
     public void Configure(ISettingsRepository repository, TranscriptQualitySettings settings, string modelsDirectory)
@@ -30,7 +36,6 @@ public sealed partial class TranscriptQualityControl : UserControl
         _directory = Path.Combine(modelsDirectory, "Cleanup");
         _repository = repository;
         Settings = settings with { LocalRuntimePath = Path.Combine(AppContext.BaseDirectory, "CleanupRuntime", "llama-server.exe") };
-        ModelPicker.SelectedItem = ModelPicker.Items.Cast<ComboBoxItem>().First(item => item.Tag == LocalCleanupModel.FromPath(settings.LocalModelPath));
         UpdateModelCard();
     }
 
@@ -41,48 +46,46 @@ public sealed partial class TranscriptQualityControl : UserControl
         return Path.Combine(_directory!, model.FileName);
     }
 
-    private void ModelPicker_SelectionChanged(object sender, SelectionChangedEventArgs e)
-    {
-        MessageText.Text = "";
-        UpdateModelCard();
-    }
+    private bool IsInstalled(LocalCleanupModel model) =>
+        File.Exists(ModelPath(model)) && File.Exists(Settings.LocalRuntimePath);
+
+    private bool IsActive(LocalCleanupModel model) =>
+        Settings.EnableLocalModel && Settings.CleanupMode == TranscriptCleanupMode.Light &&
+        model == LocalCleanupModel.FromPath(Settings.LocalModelPath) && File.Exists(Settings.LocalModelPath);
 
     private void UpdateModelCard()
     {
-        if (ModelPicker.SelectedItem is null || _directory is null) return;
-        var model = SelectedModel;
-        bool installed = File.Exists(ModelPath(model)) && File.Exists(Settings.LocalRuntimePath);
-        bool enabled = Settings.EnableLocalModel && Settings.CleanupMode == TranscriptCleanupMode.Light
-            && File.Exists(Settings.LocalModelPath) && File.Exists(Settings.LocalRuntimePath);
-        var current = LocalCleanupModel.FromPath(Settings.LocalModelPath);
-        bool active = enabled && current == model;
-        bool available = _repository is not null && !_saving;
-        ModelDetailsText.Text = $"{model.Details} · CPU";
-        ModelStatusText.Text = active ? "In use" : installed ? "Installed" : "Not installed";
-        if (enabled && !active) ModelStatusText.Text += $" · {current.Name} is active";
-        LicenseLink.NavigateUri = model.LicenseUri;
-        ToggleModelButton.Content = active ? "Disable" : "Set active";
-        ToggleModelButton.Visibility = installed ? Visibility.Visible : Visibility.Collapsed;
-        ToggleModelButton.IsEnabled = available && !_installing;
-        AutomationProperties.SetName(ToggleModelButton, $"{ToggleModelButton.Content} {model.Name}");
-        InstallButton.Visibility = installed ? Visibility.Collapsed : Visibility.Visible;
-        InstallButton.IsEnabled = available && !_installing;
-        AutomationProperties.SetName(InstallButton, $"Download {model.Name}");
-        ModelPicker.IsEnabled = available && !_installing;
+        if (_directory is null) return;
+        foreach (var (model, row, action) in _rows)
+        {
+            bool installed = IsInstalled(model);
+            bool active = installed && IsActive(model);
+            row.SetState(installed, active);
+            string label = active ? "Disable" : installed ? "Set active" : "Download";
+            action.Content = label;
+            action.IsEnabled = !_saving && !_installing;
+            AutomationProperties.SetName(action, $"{label} {model.Name} for cleanup");
+        }
         DownloadProgress.Visibility = _installing ? Visibility.Visible : Visibility.Collapsed;
         CleanupBox.IsChecked = Settings.CleanupMode == TranscriptCleanupMode.Light;
         ContextBox.IsChecked = Settings.EnableCursorContext;
-        CleanupBox.IsEnabled = ContextBox.IsEnabled = available;
+        CleanupBox.IsEnabled = ContextBox.IsEnabled = !_saving;
     }
 
-    private async void ToggleModel_Click(object sender, RoutedEventArgs e)
+    private async Task ChooseModelAsync(LocalCleanupModel model)
     {
-        var model = SelectedModel;
-        string path = ModelPath(model);
-        if (!File.Exists(path) || !File.Exists(Settings.LocalRuntimePath)) { UpdateModelCard(); return; }
-        bool active = Settings.EnableLocalModel && Settings.CleanupMode == TranscriptCleanupMode.Light
-            && string.Equals(Settings.LocalModelPath, path, StringComparison.OrdinalIgnoreCase);
-        await SaveAsync(Settings with { LocalModelPath = path, EnableLocalModel = !active, CleanupMode = TranscriptCleanupMode.Light });
+        if (_directory is null || _installing || _saving) return;
+        if (!IsInstalled(model))
+        {
+            await InstallAsync(model);
+            return;
+        }
+        await SaveAsync(Settings with
+        {
+            LocalModelPath = ModelPath(model),
+            EnableLocalModel = !IsActive(model),
+            CleanupMode = TranscriptCleanupMode.Light
+        });
     }
 
     private async void Preferences_Click(object sender, RoutedEventArgs e)
@@ -95,10 +98,9 @@ public sealed partial class TranscriptQualityControl : UserControl
         });
     }
 
-    private async void Install_Click(object sender, RoutedEventArgs e)
+    private async Task InstallAsync(LocalCleanupModel model)
     {
         if (_directory is null) return;
-        var model = SelectedModel;
         _installing = true;
         UpdateModelCard();
         MessageText.Text = $"Downloading and verifying {model.Name}. You can keep using dictation.";
