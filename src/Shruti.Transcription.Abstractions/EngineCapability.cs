@@ -5,8 +5,6 @@ public sealed record EngineCapability(
     string ProviderDisplayName,
     ComputeBackend Backend,
     string DeviceName,
-    bool SupportsStreaming,
     bool SupportsTimestamps,
     bool SupportsLanguageDetection,
-    double? MeasuredRealtimeFactor,
     IReadOnlyList<string> Warnings);

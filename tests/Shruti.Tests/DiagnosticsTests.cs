@@ -176,14 +176,17 @@ public sealed class DiagnosticsTests
         var unsupportedHardware = new TranscriptionReadinessResult(
             TranscriptionReadinessStatus.Unsupported,
             "Provider C:\\Users\\divya\\providers\\gpu.dll does not expose Gpu.",
-            Warnings: ["See https://shruti.local/help for divya@example.com"]);
+            Capability: new EngineCapability(
+                "fake-provider", "Fake provider", ComputeBackend.Gpu, "GPU",
+                SupportsTimestamps: true, SupportsLanguageDetection: false,
+                Warnings: ["See https://shruti.local/help for divya@example.com"]));
 
         string missingModelGuidance = DiagnosticFailureText.ForReadiness(missingModel);
         string unsupportedHardwareGuidance = DiagnosticFailureText.ForReadiness(unsupportedHardware);
 
         Assert.Contains("Model unavailable", missingModelGuidance, StringComparison.Ordinal);
         Assert.Contains("Choose Auto or CPU", unsupportedHardwareGuidance, StringComparison.Ordinal);
-        Assert.Contains("smaller supported model", unsupportedHardwareGuidance, StringComparison.Ordinal);
+        Assert.Contains("supported speech model", unsupportedHardwareGuidance, StringComparison.Ordinal);
         Assert.Contains("[user path]", unsupportedHardwareGuidance, StringComparison.Ordinal);
         Assert.Contains("[url]", unsupportedHardwareGuidance, StringComparison.Ordinal);
         Assert.Contains("[email]", unsupportedHardwareGuidance, StringComparison.Ordinal);

@@ -1,5 +1,3 @@
-using System.Buffers.Binary;
-using System.Threading.Channels;
 using Shruti.Transcription.Abstractions;
 
 namespace Shruti.Transcription.WhisperCpp;
@@ -239,10 +237,8 @@ public sealed class WhisperCppTranscriptionProvider : ITranscriptionProvider, IA
             ProviderDisplayName: "whisper.cpp",
             Backend: backend,
             DeviceName: deviceName,
-            SupportsStreaming: false,
             SupportsTimestamps: true,
             SupportsLanguageDetection: false,
-            MeasuredRealtimeFactor: null,
             Warnings: warnings);
     }
 
@@ -322,15 +318,13 @@ public sealed class WhisperCppTranscriptionProvider : ITranscriptionProvider, IA
         private readonly IWhisperCppInferenceSession _inferenceSession;
         private readonly TranscriptionSessionOptions _options;
         private readonly Func<Task> _releaseInferenceSessionAsync;
-        private readonly MemoryStream _pcmAudio = new();
-        private readonly Channel<TranscriptEvent> _events = Channel.CreateUnbounded<TranscriptEvent>();
         private readonly CancellationTokenSource _cancellation = new();
         private readonly object _sync = new();
+        private readonly int _maximumAudioBytes;
         private Task<TranscriptResult>? _completionTask;
         private Task? _disposalTask;
         private bool _completed;
         private bool _cancelled;
-        private bool _maximumAudioDurationReached;
 
         public WhisperCppTranscriptionSession(IWhisperCppInferenceSession inferenceSession,
             TranscriptionSessionOptions options, Func<Task> releaseInferenceSessionAsync)
@@ -338,84 +332,36 @@ public sealed class WhisperCppTranscriptionProvider : ITranscriptionProvider, IA
             _inferenceSession = inferenceSession;
             _options = options;
             _releaseInferenceSessionAsync = releaseInferenceSessionAsync;
-            if (options.EffectiveMaximumAudioDuration <= TimeSpan.Zero)
-                throw new ArgumentOutOfRangeException(nameof(options), "Maximum audio duration must be positive.");
+            _maximumAudioBytes = options.GetMaximumPcm16Bytes(RequiredInputFormat);
         }
 
         public AudioFormat RequiredInputFormat => AudioFormat.Speech16KhzMono;
-        public IAsyncEnumerable<TranscriptEvent> Events => _events.Reader.ReadAllAsync();
 
-        public ValueTask<TranscriptionAudioPushResult> PushAudioAsync(ReadOnlyMemory<byte> pcmAudio,
-            CancellationToken cancellationToken)
-        {
-            cancellationToken.ThrowIfCancellationRequested();
-            if (pcmAudio.Length % sizeof(short) != 0)
-                throw new ArgumentException("PCM16 audio must contain complete samples.", nameof(pcmAudio));
-            lock (_sync)
-            {
-                ThrowIfUnavailable();
-                long maximumBytes = checked((long)Math.Ceiling(_options.EffectiveMaximumAudioDuration.TotalSeconds *
-                    RequiredInputFormat.SampleRateHz) * sizeof(short));
-                int accepted = checked((int)Math.Min(pcmAudio.Length, Math.Max(0, maximumBytes - _pcmAudio.Length)));
-                _pcmAudio.Write(pcmAudio.Span[..accepted]);
-                if (_pcmAudio.Length >= maximumBytes && !_maximumAudioDurationReached)
-                {
-                    _maximumAudioDurationReached = true;
-                    _events.Writer.TryWrite(new TranscriptEvent(TranscriptEventKind.Warning,
-                        Message: $"Recording limit of {_options.EffectiveMaximumAudioDuration.TotalMinutes:0.#} minutes reached; finalizing captured audio."));
-                }
-                return ValueTask.FromResult(_maximumAudioDurationReached
-                    ? TranscriptionAudioPushResult.FinalizeAtMaximumDuration : TranscriptionAudioPushResult.Continue);
-            }
-        }
-
-        public Task<TranscriptResult> CompleteAsync(CancellationToken cancellationToken)
+        public Task<TranscriptResult> TranscribeAsync(ReadOnlyMemory<byte> pcmAudio, CancellationToken cancellationToken)
         {
             cancellationToken.ThrowIfCancellationRequested();
             lock (_sync)
             {
                 ThrowIfUnavailable();
+                float[] audio = Pcm16Signal.DecodeSamples(pcmAudio.Span, _maximumAudioBytes);
                 _completed = true;
-                var audio = new float[_pcmAudio.Length / sizeof(short)];
-                ReadOnlySpan<byte> bytes = _pcmAudio.GetBuffer().AsSpan(0, checked((int)_pcmAudio.Length));
-                for (int i = 0; i < audio.Length; i++)
-                    audio[i] = BinaryPrimitives.ReadInt16LittleEndian(bytes.Slice(i * sizeof(short), sizeof(short))) / AudioFormat.Pcm16SampleScale;
-                _completionTask = CompleteCoreAsync(audio, cancellationToken);
+                _completionTask = TranscribeCoreAsync(audio, cancellationToken);
                 return _completionTask;
             }
         }
 
-        private async Task<TranscriptResult> CompleteCoreAsync(float[] audio, CancellationToken cancellationToken)
+        private async Task<TranscriptResult> TranscribeCoreAsync(float[] audio, CancellationToken cancellationToken)
         {
             using var linked = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, _cancellation.Token);
-            try
-            {
-                WhisperCppTranscriptionResult native = audio.Length == 0
-                    ? new WhisperCppTranscriptionResult([])
-                    : await _inferenceSession.TranscribeAsync(audio, linked.Token, _options.RecognitionHints?.InitialPrompt).ConfigureAwait(false);
-                linked.Token.ThrowIfCancellationRequested();
-                TranscriptSegment[] segments = native.Segments
-                    .Where(segment => !TranscriptText.IsEmptyOrNonSpeech(segment.Text))
-                    .Select((segment, index) => new TranscriptSegment(index, segment.Start, segment.End, segment.Text.Trim()))
-                    .ToArray();
-                var result = new TranscriptResult(string.Join(" ", segments.Select(segment => segment.Text)), segments);
-                foreach (TranscriptSegment segment in segments)
-                    _events.Writer.TryWrite(new TranscriptEvent(TranscriptEventKind.SegmentFinalized, Segment: segment));
-                _events.Writer.TryWrite(new TranscriptEvent(TranscriptEventKind.Completed, Text: result.Text));
-                _events.Writer.TryComplete();
-                return result;
-            }
-            catch (OperationCanceledException)
-            {
-                _events.Writer.TryComplete();
-                throw;
-            }
-            catch (Exception exception)
-            {
-                _events.Writer.TryWrite(new TranscriptEvent(TranscriptEventKind.Failed, Error: exception));
-                _events.Writer.TryComplete(exception);
-                throw;
-            }
+            WhisperCppTranscriptionResult native = audio.Length == 0
+                ? new WhisperCppTranscriptionResult([])
+                : await _inferenceSession.TranscribeAsync(audio, linked.Token, _options.RecognitionHints?.InitialPrompt).ConfigureAwait(false);
+            linked.Token.ThrowIfCancellationRequested();
+            TranscriptSegment[] segments = native.Segments
+                .Where(segment => !TranscriptText.IsEmptyOrNonSpeech(segment.Text))
+                .Select((segment, index) => new TranscriptSegment(index, segment.Start, segment.End, segment.Text.Trim()))
+                .ToArray();
+            return new TranscriptResult(string.Join(" ", segments.Select(segment => segment.Text)), segments);
         }
 
         public Task CancelAsync()
@@ -424,7 +370,6 @@ public sealed class WhisperCppTranscriptionProvider : ITranscriptionProvider, IA
             {
                 _cancelled = true;
                 _cancellation.Cancel();
-                _events.Writer.TryComplete();
             }
             return Task.CompletedTask;
         }
@@ -436,8 +381,6 @@ public sealed class WhisperCppTranscriptionProvider : ITranscriptionProvider, IA
                 if (_disposalTask is not null) return new ValueTask(_disposalTask);
                 _cancelled = true;
                 _cancellation.Cancel();
-                _events.Writer.TryComplete();
-                _pcmAudio.Dispose();
                 _disposalTask = DisposeResourcesAsync();
                 return new ValueTask(_disposalTask);
             }

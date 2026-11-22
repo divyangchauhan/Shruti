@@ -1,6 +1,6 @@
 # Privacy and Diagnostics
 
-Shruti is local-first. Microphone audio, transcripts, settings, model files, benchmark data, and diagnostics are expected to stay on the device unless the user explicitly exports or shares them.
+Shruti is local-first. Microphone audio, transcripts, settings, model files, and diagnostics are expected to stay on the device unless the user explicitly exports or shares them.
 
 ## Default Diagnostics Policy
 
@@ -17,6 +17,6 @@ Microphone failures should point users to Windows Settings > Privacy & security 
 
 Missing model failures should tell users to install or select a local speech model in Models.
 
-Unsupported hardware/backend failures should suggest Auto or CPU, a smaller supported model, or slow mode only when slower-than-real-time transcription is acceptable.
+For unsupported hardware, suggest Auto or CPU, or a speech model that supports the selected processor.
 
 Target insertion failures should tell users to return to the target field, confirm it accepts typing, and retry with Preview first or Copy when the target app blocks insertion.

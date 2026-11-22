@@ -65,23 +65,12 @@ if (!capabilities.Any(capability => capability.Backend == options.Backend))
 }
 
 await using ITranscriptionSession session = await provider.CreateSessionAsync(options, CancellationToken.None);
-var events = new List<TranscriptEvent>();
-Task eventReader = ReadEventsAsync(session.Events, events);
 bool silence = args.Contains("--silence", StringComparer.OrdinalIgnoreCase);
 if (silence) pcmAudio = new byte[16_000 * sizeof(short) * 3];
-await session.PushAudioAsync(pcmAudio, CancellationToken.None);
-TranscriptResult result = await session.CompleteAsync(CancellationToken.None);
-await eventReader;
-if (events.Any(item => item.Kind == TranscriptEventKind.PartialText))
-    throw new InvalidOperationException("Unexpected live transcript event.");
+TranscriptResult result = await session.TranscribeAsync(pcmAudio, CancellationToken.None);
 Console.WriteLine(silence ? $"Silence result: '{result.Text}'" : result.Text);
 if (silence ? !string.IsNullOrWhiteSpace(result.Text) : !result.Text.Contains("ask not", StringComparison.OrdinalIgnoreCase))
     throw new InvalidOperationException("Unexpected final transcript.");
-
-static async Task ReadEventsAsync(IAsyncEnumerable<TranscriptEvent> source, List<TranscriptEvent> events)
-{
-    await foreach (TranscriptEvent item in source) events.Add(item);
-}
 
 static byte[] ReadPcm16Mono16KhzWave(string path)
 {

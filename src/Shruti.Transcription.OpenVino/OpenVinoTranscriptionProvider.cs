@@ -1,5 +1,3 @@
-using System.Buffers.Binary;
-using System.Threading.Channels;
 using Shruti.Transcription.Abstractions;
 
 namespace Shruti.Transcription.OpenVino;
@@ -181,10 +179,8 @@ public sealed class OpenVinoTranscriptionProvider : ITranscriptionProvider, IAsy
                 "OpenVINO GenAI",
                 backend.Value,
                 $"OpenVINO {device}",
-                SupportsStreaming: false,
                 SupportsTimestamps: false,
                 SupportsLanguageDetection: true,
-                MeasuredRealtimeFactor: null,
                 Warnings: []);
     }
 
@@ -246,95 +242,39 @@ public sealed class OpenVinoTranscriptionProvider : ITranscriptionProvider, IAsy
     private sealed class OpenVinoTranscriptionSession : ITranscriptionSession
     {
         private readonly OpenVinoPipeline _pipeline;
-        private readonly TranscriptionSessionOptions _options;
-        private readonly MemoryStream _pcmAudio = new();
-        private readonly Channel<TranscriptEvent> _events = Channel.CreateUnbounded<TranscriptEvent>();
         private readonly object _sync = new();
+        private readonly int _maximumAudioBytes;
         private bool _completed;
         private bool _cancelled;
-        private bool _maximumAudioDurationReached;
 
         public OpenVinoTranscriptionSession(OpenVinoPipeline pipeline, TranscriptionSessionOptions options)
         {
             _pipeline = pipeline;
-            _options = options;
-            if (_options.EffectiveMaximumAudioDuration <= TimeSpan.Zero)
-            {
-                throw new ArgumentOutOfRangeException(nameof(options), "Maximum audio duration must be positive.");
-            }
+            _maximumAudioBytes = options.GetMaximumPcm16Bytes(RequiredInputFormat);
         }
 
         public AudioFormat RequiredInputFormat => AudioFormat.Speech16KhzMono;
 
-        public IAsyncEnumerable<TranscriptEvent> Events => _events.Reader.ReadAllAsync();
-
-        public ValueTask<TranscriptionAudioPushResult> PushAudioAsync(
-            ReadOnlyMemory<byte> pcmAudio,
-            CancellationToken cancellationToken)
+        public async Task<TranscriptResult> TranscribeAsync(ReadOnlyMemory<byte> pcmAudio, CancellationToken cancellationToken)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            if (pcmAudio.Length % sizeof(short) != 0)
-            {
-                throw new ArgumentException("PCM16 audio must contain complete samples.", nameof(pcmAudio));
-            }
-
-            lock (_sync)
-            {
-                ThrowIfUnavailable();
-                long maximumBytes = checked((long)Math.Ceiling(
-                    _options.EffectiveMaximumAudioDuration.TotalSeconds *
-                    RequiredInputFormat.SampleRateHz * sizeof(short)));
-                int acceptedBytes = checked((int)Math.Min(
-                    pcmAudio.Length,
-                    Math.Max(0, maximumBytes - _pcmAudio.Length)));
-                if (acceptedBytes > 0)
-                {
-                    _pcmAudio.Write(pcmAudio.Span[..acceptedBytes]);
-                }
-
-                if (_pcmAudio.Length >= maximumBytes)
-                {
-                    _maximumAudioDurationReached = true;
-                }
-
-                return ValueTask.FromResult(_maximumAudioDurationReached
-                    ? TranscriptionAudioPushResult.FinalizeAtMaximumDuration
-                    : TranscriptionAudioPushResult.Continue);
-            }
-        }
-
-        public async Task<TranscriptResult> CompleteAsync(CancellationToken cancellationToken)
-        {
             float[] audio;
             lock (_sync)
             {
                 ThrowIfUnavailable();
-                if (_pcmAudio.Length == 0)
+                if (pcmAudio.IsEmpty)
                 {
                     throw new InvalidOperationException("OpenVINO cannot transcribe an empty audio buffer.");
                 }
 
+                audio = Pcm16Signal.DecodeSamples(pcmAudio.Span, _maximumAudioBytes);
                 _completed = true;
-                audio = ConvertPcm16ToFloat(_pcmAudio.GetBuffer().AsSpan(0, checked((int)_pcmAudio.Length)));
             }
 
-            try
-            {
-                string text = await _pipeline.TranscribeAsync(audio, cancellationToken).ConfigureAwait(false);
-                TimeSpan duration = TimeSpan.FromSeconds((double)audio.Length / RequiredInputFormat.SampleRateHz);
-                var segment = new TranscriptSegment(0, TimeSpan.Zero, duration, text);
-                var result = new TranscriptResult(text, [segment]);
-                _events.Writer.TryWrite(new TranscriptEvent(TranscriptEventKind.SegmentFinalized, Segment: segment));
-                _events.Writer.TryWrite(new TranscriptEvent(TranscriptEventKind.Completed, Text: text));
-                _events.Writer.TryComplete();
-                return result;
-            }
-            catch (Exception exception)
-            {
-                _events.Writer.TryWrite(new TranscriptEvent(TranscriptEventKind.Failed, Error: exception));
-                _events.Writer.TryComplete(exception);
-                throw;
-            }
+            string text = await _pipeline.TranscribeAsync(audio, cancellationToken).ConfigureAwait(false);
+            TimeSpan duration = TimeSpan.FromSeconds((double)audio.Length / RequiredInputFormat.SampleRateHz);
+            var segment = new TranscriptSegment(0, TimeSpan.Zero, duration, text);
+            return new TranscriptResult(text, [segment]);
         }
 
         public Task CancelAsync()
@@ -342,23 +282,12 @@ public sealed class OpenVinoTranscriptionProvider : ITranscriptionProvider, IAsy
             lock (_sync)
             {
                 _cancelled = true;
-                _events.Writer.TryComplete();
             }
 
             return Task.CompletedTask;
         }
 
-        public ValueTask DisposeAsync()
-        {
-            lock (_sync)
-            {
-                _cancelled = true;
-                _events.Writer.TryComplete();
-                _pcmAudio.Dispose();
-            }
-
-            return ValueTask.CompletedTask;
-        }
+        public ValueTask DisposeAsync() => new(CancelAsync());
 
         private void ThrowIfUnavailable()
         {
@@ -371,18 +300,6 @@ public sealed class OpenVinoTranscriptionProvider : ITranscriptionProvider, IAsy
             {
                 throw new InvalidOperationException("The OpenVINO transcription session is already complete.");
             }
-        }
-
-        private static float[] ConvertPcm16ToFloat(ReadOnlySpan<byte> pcmAudio)
-        {
-            var samples = new float[pcmAudio.Length / sizeof(short)];
-            for (int index = 0; index < samples.Length; index++)
-            {
-                short sample = BinaryPrimitives.ReadInt16LittleEndian(pcmAudio.Slice(index * sizeof(short), sizeof(short)));
-                samples[index] = sample / AudioFormat.Pcm16SampleScale;
-            }
-
-            return samples;
         }
     }
 }

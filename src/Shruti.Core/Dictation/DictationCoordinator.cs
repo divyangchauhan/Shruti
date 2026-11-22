@@ -40,7 +40,6 @@ public sealed class DictationCoordinator
         FocusTarget? target = null;
         ITranscriptionSession? transcriptionSession = null;
         IAudioCaptureSession? audioCaptureSession = null;
-        Task? transcriptEventTask = null;
         ITranscriptQualitySession? qualitySession = null;
         bool qualityStartFailed = false;
         var maximumAudioDurationReached = false;
@@ -80,16 +79,12 @@ public sealed class DictationCoordinator
                 { RecognitionHints = qualitySession?.RecognitionHints ?? request.TranscriptionOptions.RecognitionHints }, cancellationToken)
                 .ConfigureAwait(false);
 
-            if (request.TranscriptProgress is not null)
-            {
-                transcriptEventTask = ForwardTranscriptEventsAsync(
-                    transcriptionSession.Events,
-                    request.TranscriptProgress);
-            }
+            AudioFormat inputFormat = transcriptionSession.RequiredInputFormat;
+            int maximumAudioBytes = request.TranscriptionOptions.GetMaximumPcm16Bytes(inputFormat);
 
             Transition(DictationSessionState.RequestingMicrophone, "Starting microphone capture");
             audioCaptureSession = await _audioCaptureService
-                .StartAsync(request.AudioOptions, transcriptionSession.RequiredInputFormat, cancellationToken)
+                .StartAsync(request.AudioOptions, inputFormat, cancellationToken)
                 .ConfigureAwait(false);
 
             request.CaptureSessionStarted?.Invoke(audioCaptureSession);
@@ -97,16 +92,10 @@ public sealed class DictationCoordinator
             Transition(DictationSessionState.Recording, "Recording");
             await foreach (var frame in audioCaptureSession.Frames.WithCancellation(cancellationToken).ConfigureAwait(false))
             {
-                TranscriptionAudioPushResult pushResult = await transcriptionSession
-                    .PushAudioAsync(frame.PcmAudio, cancellationToken)
-                    .ConfigureAwait(false);
-
-                long maximumBytes = checked((long)Math.Ceiling(request.TranscriptionOptions.EffectiveMaximumAudioDuration.TotalSeconds *
-                    transcriptionSession.RequiredInputFormat.SampleRateHz * sizeof(short)));
-                int accepted = checked((int)Math.Min(frame.PcmAudio.Length, Math.Max(0, maximumBytes - speechAudio.Length)));
+                int accepted = Math.Min(frame.PcmAudio.Length, maximumAudioBytes - (int)speechAudio.Length);
                 speechAudio.Write(frame.PcmAudio.Span[..accepted]);
 
-                if (pushResult.ReachedMaximumDuration)
+                if (speechAudio.Length == maximumAudioBytes)
                 {
                     maximumAudioDurationReached = true;
                     break;
@@ -130,16 +119,18 @@ public sealed class DictationCoordinator
                 maximumAudioDurationReached
                     ? "Recording limit reached; finalizing captured audio"
                     : "Transcribing final audio");
-            var transcript = await transcriptionSession.CompleteAsync(cancellationToken).ConfigureAwait(false);
-            if (transcriptEventTask is not null)
-            {
-                await transcriptEventTask.ConfigureAwait(false);
-            }
-
+            TranscriptResult transcript = await transcriptionSession.TranscribeAsync(capturedAudio, cancellationToken)
+                .ConfigureAwait(false);
             cancellationToken.ThrowIfCancellationRequested();
 
+            bool hasTranscript = !TranscriptText.IsEmptyOrNonSpeech(transcript.Text);
+            if (hasTranscript)
+            {
+                request.FinalTranscriptProgress?.Report(transcript.Text);
+            }
+
             RefinedTranscript refined = RefinedTranscript.Unchanged(transcript, qualityStartFailed);
-            if (qualitySession is not null && !TranscriptText.IsEmptyOrNonSpeech(transcript.Text))
+            if (qualitySession is not null && hasTranscript)
             {
                 Transition(DictationSessionState.RefiningTranscript, "Refining transcript");
                 using var refinementCancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
@@ -169,7 +160,7 @@ public sealed class DictationCoordinator
             {
                 try
                 {
-                    request.SaveRecording(capturedAudio, transcriptionSession.RequiredInputFormat);
+                    request.SaveRecording(capturedAudio, inputFormat);
                 }
                 catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
                 {
@@ -180,7 +171,7 @@ public sealed class DictationCoordinator
             return result with
             {
                 RefinedTranscript = refined,
-                AudioDuration = TimeSpan.FromSeconds((double)speechAudio.Length / (transcriptionSession.RequiredInputFormat.SampleRateHz * sizeof(short)))
+                AudioDuration = TimeSpan.FromSeconds((double)speechAudio.Length / (inputFormat.SampleRateHz * inputFormat.ChannelCount * sizeof(short)))
             };
         }
         catch (OperationCanceledException)
@@ -221,18 +212,6 @@ public sealed class DictationCoordinator
             if (transcriptionSession is not null)
             {
                 await transcriptionSession.DisposeAsync().ConfigureAwait(false);
-            }
-
-            if (transcriptEventTask is not null)
-            {
-                try
-                {
-                    await transcriptEventTask.ConfigureAwait(false);
-                }
-                catch
-                {
-                    // The primary workflow has already translated its result or failure.
-                }
             }
         }
     }
@@ -469,17 +448,6 @@ public sealed class DictationCoordinator
             {
                 // Best-effort cleanup after cancellation.
             }
-        }
-    }
-
-    private static async Task ForwardTranscriptEventsAsync(
-        IAsyncEnumerable<TranscriptEvent> events,
-        IProgress<TranscriptEvent> progress)
-    {
-        await foreach (TranscriptEvent transcriptEvent in events.ConfigureAwait(false))
-        {
-            if (transcriptEvent.Kind != TranscriptEventKind.PartialText)
-                progress.Report(transcriptEvent);
         }
     }
 }

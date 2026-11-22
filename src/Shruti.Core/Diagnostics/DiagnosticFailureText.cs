@@ -13,7 +13,7 @@ public static class DiagnosticFailureText
         "Model unavailable. Install or select a local speech model in Models, then retry once the model is present on this device.";
 
     public static string UnsupportedHardwareRecovery { get; } =
-        "This model/backend is not ready on this hardware. Choose Auto or CPU, install a smaller supported model, or enable slow mode only if slower-than-real-time transcription is acceptable.";
+        "This model and processor are incompatible. Choose Auto or CPU, or install a supported speech model.";
 
     public static string TargetInsertionRecovery { get; } =
         "Text insertion failed. Return to the target field, confirm it accepts typing, then retry with Preview first or use Copy if the app blocks insertion.";
@@ -87,7 +87,6 @@ public static class DiagnosticFailureText
         return readiness.Status switch
         {
             TranscriptionReadinessStatus.Ready => $"{message}{warnings}",
-            TranscriptionReadinessStatus.SlowModeRequired => $"{message} {UnsupportedHardwareRecovery}{warnings}",
             TranscriptionReadinessStatus.Unsupported when LooksLikeMissingModel(message) => MissingModelRecovery,
             TranscriptionReadinessStatus.Unsupported => $"{message} {UnsupportedHardwareRecovery}{warnings}",
             _ => message

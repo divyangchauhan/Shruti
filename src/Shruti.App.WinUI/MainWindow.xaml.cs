@@ -386,11 +386,6 @@ public sealed partial class MainWindow : Window
         await PersistSettingsAsync();
     }
 
-    private async void AllowSlowTranscriptionCheckBox_Click(object sender, RoutedEventArgs e)
-    {
-        await PersistSettingsAsync();
-    }
-
     private async void TriggerConfigurationToggle_Toggled(object sender, RoutedEventArgs e)
     {
         await ApplyTriggerConfigurationAsync();
@@ -1556,7 +1551,6 @@ public sealed partial class MainWindow : Window
         SelectComboBoxItem(ThemeComboBox, ToElementTheme(settings.ThemePreference).ToString());
         SelectComboBoxItem(BackendPreferenceComboBox, settings.BackendPreference.ToString());
         SelectModelComboBoxItem(settings.SelectedModelId);
-        AllowSlowTranscriptionCheckBox.IsChecked = settings.AllowSlowTranscription;
         SaveAudioSwitch.IsOn = settings.AudioRetentionPolicy == AudioRetentionPolicy.Keep;
         _controller.KeepRecordings = SaveAudioSwitch.IsOn;
         ApplyTriggerConfigurationToControls(settings.TriggerConfiguration);
@@ -1598,7 +1592,6 @@ public sealed partial class MainWindow : Window
                 ThemePreference = GetSelectedThemePreference(),
                 AudioRetentionPolicy = SaveAudioSwitch.IsOn ? AudioRetentionPolicy.Keep : AudioRetentionPolicy.DeleteAfterTranscription,
                 BackendPreference = backendPreference,
-                AllowSlowTranscription = AllowSlowTranscriptionCheckBox.IsChecked == true,
                 HasCompletedOnboarding = _settings.HasCompletedOnboarding,
                 ShowFloatingBar = FloatingBarCheckBox.IsOn,
                 ShowFloatingBarOnAllMonitors = FloatingBarDisplayModeComboBox.SelectedIndex == 1,
