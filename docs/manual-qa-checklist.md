@@ -42,6 +42,12 @@ insertion mode, result, and any diagnostics snapshot for each failed case.
 - Partial direct input does not retry through clipboard.
 - Partial paste releases modifier keys and reports failure.
 - Diagnostics snapshots omit transcript text and target window titles by default.
+- With the floating bar enabled, launch Horizon Zero Dawn in fullscreen mode. Bring the game to the foreground and wait at least ten seconds. It must stay visible without minimizing. Repeat after returning to the desktop.
+
+To check the floating bar's window order on an interactive Windows desktop, run
+`./scripts/test-popup-rendering.ps1 -WindowOrder`. This uses the real WinUI bar
+and checks its idle timer, display reconciliation, and status resizing against
+another topmost window. It complements the fullscreen game check above.
 
 ## Accessibility And Recovery
 
