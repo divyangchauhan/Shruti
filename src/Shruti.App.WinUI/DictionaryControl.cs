@@ -61,11 +61,11 @@ public sealed class DictionaryControl : LibraryPage
         var vocabulary = await Repository.ListVocabularyAsync(LanguageCode(_language), default);
         var corrections = await Repository.ListCorrectionsAsync(LanguageCode(_language), default);
         if (generation != _generation) return;
-        var rows = new List<(string Phrase, string? Replacement, Func<Task> Edit, Func<Task> Delete)>();
+        var rows = new List<(Guid Id, string Phrase, string? Replacement, Func<Task> Edit, Func<Task> Delete)>();
         if (_filter.SelectedIndex != 2)
-            rows.AddRange(vocabulary.Select(v => (v.Term, (string?)null, (Func<Task>)(() => ShowEditorAsync(v, null)), (Func<Task>)(() => Repository.DeleteVocabularyAsync(v.Id, default)))));
+            rows.AddRange(vocabulary.Select(v => (v.Id, v.Term, (string?)null, (Func<Task>)(() => ShowEditorAsync(v, null)), (Func<Task>)(() => Repository.DeleteVocabularyAsync(v.Id, default)))));
         if (_filter.SelectedIndex != 1)
-            rows.AddRange(corrections.Select(c => (c.HeardText, (string?)c.ReplacementText, (Func<Task>)(() => ShowEditorAsync(null, c)), (Func<Task>)(() => Repository.DeleteCorrectionAsync(c.Id, default)))));
+            rows.AddRange(corrections.Select(c => (c.Id, c.HeardText, (string?)c.ReplacementText, (Func<Task>)(() => ShowEditorAsync(null, c)), (Func<Task>)(() => Repository.DeleteCorrectionAsync(c.Id, default)))));
 
         var matches = rows.Where(r => r.Phrase.Contains(_search.Text, StringComparison.CurrentCultureIgnoreCase) ||
             (r.Replacement?.Contains(_search.Text, StringComparison.CurrentCultureIgnoreCase) ?? false));
@@ -74,7 +74,7 @@ public sealed class DictionaryControl : LibraryPage
         foreach (var row in ordered)
         {
             string description = row.Replacement is null ? "Vocabulary" : $"Replace with {row.Replacement}";
-            AddEntryRow(_entries, row.Replacement is null ? "\uE82D" : "\uE8AB", row.Phrase, description, row.Phrase, row.Edit, async () =>
+            AddEntryRow(_entries, row.Id, row.Replacement is null ? "\uE82D" : "\uE8AB", row.Phrase, description, row.Phrase, row.Edit, async () =>
             {
                 if (await ConfirmAsync("Delete dictionary entry?", row.Phrase))
                 {
@@ -93,6 +93,7 @@ public sealed class DictionaryControl : LibraryPage
         var languageAction = UpdateListTools(_tools, _language, count > 0 || filtering || !defaultLanguage);
         if (count == 0)
         {
+            if (filtering) languageAction = ResetSearch(_search, _filter);
             string title = filtering ? "No matching entries" : defaultLanguage ? "No English entries yet" : "No entries in this language";
             AddListEmpty(_entries, "\uE82D", title, filtering ? "Change the search, entry type, or language."
                 : "Add a name Shruti should recognize or a spelling it should correct.", languageAction);
@@ -111,11 +112,14 @@ public sealed class DictionaryControl : LibraryPage
 
     private async Task ShowEditorAsync(VocabularyEntry? word, CorrectionRule? correction)
     {
+        Guid id = word?.Id ?? correction?.Id ?? Guid.NewGuid();
         bool editing = word is not null || correction is not null;
         var type = new ComboBox { Header = "Entry type", ItemsSource = new[] { "Vocabulary hint", "Exact correction" }, SelectedIndex = correction is null ? 0 : 1, IsEnabled = !editing, HorizontalAlignment = HorizontalAlignment.Stretch };
         var phrase = Field("Word or phrase", word?.Term ?? correction?.HeardText ?? "");
         string language = word?.Language ?? correction?.Language ?? LanguageCode(_language);
         var replacement = Field("Replace with", correction?.ReplacementText ?? "");
+        phrase.TextWrapping = replacement.TextWrapping = TextWrapping.Wrap;
+        phrase.MaxHeight = replacement.MaxHeight = 104;
         var usage = Secondary("", 14);
         void UpdateFields()
         {
@@ -137,10 +141,10 @@ public sealed class DictionaryControl : LibraryPage
         fields.Children.Add(phrase);
         fields.Children.Add(replacement);
         fields.Children.Add(usage);
-        await EditAsync(editing ? "Edit dictionary entry" : "Add dictionary entry", fields, language, async code =>
+        await EditAsync(editing ? "Edit dictionary entry" : "Add dictionary entry", fields, language, _entries, id, async code =>
         {
-            if (type.SelectedIndex == 0) await Repository.SaveVocabularyAsync(new(word?.Id ?? Guid.NewGuid(), code, phrase.Text, word?.CreatedAtUtc ?? DateTimeOffset.UtcNow), default);
-            else await Repository.SaveCorrectionAsync(new(correction?.Id ?? Guid.NewGuid(), code, phrase.Text, replacement.Text, correction?.CreatedAtUtc ?? DateTimeOffset.UtcNow), default);
+            if (type.SelectedIndex == 0) await Repository.SaveVocabularyAsync(new(id, code, phrase.Text, word?.CreatedAtUtc ?? DateTimeOffset.UtcNow), default);
+            else await Repository.SaveCorrectionAsync(new(id, code, phrase.Text, replacement.Text, correction?.CreatedAtUtc ?? DateTimeOffset.UtcNow), default);
             SetLanguage(_language, code);
         }, phrase, replacement);
     }

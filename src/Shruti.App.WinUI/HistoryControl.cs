@@ -188,51 +188,64 @@ public sealed class HistoryControl : LibraryPage
                 time.Opacity = .75;
                 time.VerticalAlignment = VerticalAlignment.Center;
                 var preview = Text(entry.Text, 16);
-                preview.MaxLines = ActualWidth < 700 ? 3 : 5;
-                preview.SizeChanged += (_, _) => preview.MaxLines = ActualWidth < 700 ? 3 : 5;
-                preview.TextTrimming = TextTrimming.CharacterEllipsis;
+                preview.MaxLines = ActualWidth < 700 ? 3 : 4;
+                preview.SizeChanged += (_, _) => preview.MaxLines = ActualWidth < 700 ? 3 : 4;
+                preview.TextTrimming = TextTrimming.WordEllipsis;
                 content.Children.Add(preview);
                 var readMore = new HyperlinkButton
                 {
-                    Content = "Read full transcript",
-                    Padding = new Thickness(0),
-                    Visibility = Visibility.Collapsed
+                    Content = "Read transcript",
+                    HorizontalAlignment = HorizontalAlignment.Left,
+                    Padding = new Thickness(0)
                 };
-                readMore.Click += async (_, _) => await RunAsync(() => OpenAsync(entry));
+                readMore.Click += async (_, _) => await RunAsync(() => OpenAsync(entry, readMore));
                 preview.IsTextTrimmedChanged += (_, _) =>
-                    readMore.Visibility = preview.IsTextTrimmed ? Visibility.Visible : Visibility.Collapsed;
-                content.Children.Add(readMore);
+                    readMore.Content = preview.IsTextTrimmed ? "Read full transcript" : "Read transcript";
+
+                var more = IconButton(Symbol.More, "Transcript options");
                 var menu = PopupAppearance.CreateMenuFlyout();
                 menu.Placement = Microsoft.UI.Xaml.Controls.Primitives.FlyoutPlacementMode.BottomEdgeAlignedRight;
-                var open = new MenuFlyoutItem { Text = "View transcript", Icon = new SymbolIcon(Symbol.Document) };
-                open.Click += async (_, _) => await RunAsync(() => OpenAsync(entry)); menu.Items.Add(open);
+                var open = new MenuFlyoutItem { Text = "Read transcript", Icon = new SymbolIcon(Symbol.Document) };
+                open.Click += async (_, _) => await RunAsync(() => OpenAsync(entry, more)); menu.Items.Add(open);
                 var delete = new MenuFlyoutItem { Text = "Delete", Icon = new SymbolIcon(Symbol.Delete) };
                 delete.Click += async (_, _) => await RunAsync(async () =>
                 {
                     if (await ConfirmAsync("Delete this transcript?", "This also removes it from Insights."))
                     { await _repository.DeleteAsync(entry.Id); await RefreshAsync(); }
                 }); menu.Items.Add(delete);
+                var copyLabel = new TextBlock { Text = "Copy" };
+                AutomationProperties.SetLiveSetting(copyLabel, AutomationLiveSetting.Polite);
+                var copyIcon = new FontIcon { Glyph = "\uE8C8", FontSize = 14 };
+                int copyGeneration = 0;
                 var copy = new Button
                 {
                     Content = new StackPanel
                     {
                         Orientation = Orientation.Horizontal,
                         Spacing = 6,
-                        Children = { new FontIcon { Glyph = "\uE8C8", FontSize = 14 }, new TextBlock { Text = "Copy" } }
+                        Children = { copyIcon, copyLabel }
                     },
                     VerticalAlignment = VerticalAlignment.Center,
                     Height = 32
                 };
+                copy.MinWidth = 90;
                 AutomationProperties.SetName(copy, "Copy transcript");
-                copy.Click += async (_, _) => await RunAsync(() =>
+                copy.Click += async (_, _) => await RunAsync(async () =>
                 {
                     Copy(entry.Text);
-                    Message.Text = "Transcript copied.";
-                    return Task.CompletedTask;
+                    int generation = ++copyGeneration;
+                    copyIcon.Glyph = "\uE73E";
+                    copyLabel.Text = "Copied";
+                    await Task.Delay(1800);
+                    if (generation == copyGeneration)
+                    {
+                        copyIcon.Glyph = "\uE8C8";
+                        copyLabel.Text = "Copy";
+                    }
                 });
-                var more = IconButton(Symbol.More, "Transcript options");
                 more.Flyout = menu;
                 content.Children.Insert(0, Row(time, copy, more));
+                content.Children.Add(readMore);
                 var item = Card(content);
                 item.CornerRadius = new CornerRadius(0);
                 item.Padding = new Thickness(18, 12, 18, 12);
@@ -254,7 +267,7 @@ public sealed class HistoryControl : LibraryPage
         }
         _more.Visibility = rows.Count >= _limit ? Visibility.Visible : Visibility.Collapsed;
     });
-    private async Task OpenAsync(TranscriptHistoryEntry entry)
+    private async Task OpenAsync(TranscriptHistoryEntry entry, Control opener)
     {
         const double lineHeight = 28;
         var fields = new StackPanel { Spacing = 12, MinWidth = 240 };
@@ -288,47 +301,45 @@ public sealed class HistoryControl : LibraryPage
         AutomationProperties.SetName(reader, "Transcript text");
         var frame = Card(reader);
         frame.Padding = new Thickness(14, 8, 8, 8);
-        reader.GotFocus += (_, _) => frame.Style = (Style)Application.Current.Resources[
-            reader.FocusState == FocusState.Keyboard ? "FocusedTranscriptFrame" : "LibraryCardStyle"];
-        reader.LostFocus += (_, _) => frame.Style = (Style)Application.Current.Resources["LibraryCardStyle"];
-        var position = Secondary("End of transcript", 14);
+        reader.RegisterPropertyChangedCallback(Control.FocusStateProperty, (_, _) => frame.Style = (Style)Application.Current.Resources[
+            reader.FocusState == FocusState.Keyboard ? "FocusedTranscriptFrame" : "LibraryCardStyle"]);
+        var position = Text("", 14);
         position.Name = "ReaderEndStatus";
         position.HorizontalAlignment = HorizontalAlignment.Right;
         position.VerticalAlignment = VerticalAlignment.Center;
-        AutomationProperties.SetLiveSetting(position, AutomationLiveSetting.Polite);
-        var arrow = new FontIcon { Glyph = "\uE74B", FontSize = 14 };
-        var next = new Button
+        position.FontWeight = FontWeights.SemiBold;
+        reader.PreviewKeyDown += (_, args) =>
         {
-            Name = "ReaderNextPage",
-            HorizontalAlignment = HorizontalAlignment.Right,
-            Content = new StackPanel { Spacing = 6, Orientation = Orientation.Horizontal, Children = { Text("Next page", 14), arrow } }
-        };
-        AutomationProperties.SetName(next, "Next page");
-        ToolTipService.SetToolTip(next, "Read the next part of the transcript");
-        next.Click += (_, _) =>
-        {
-            double firstLine = Math.Floor(reader.VerticalOffset / lineHeight);
-            double advance = Math.Max(1, Math.Floor(reader.ViewportHeight / lineHeight) - 1);
-            reader.ChangeView(null, Math.Min(reader.ScrollableHeight, (firstLine + advance) * lineHeight), null, true);
+            if (reader.FocusState == FocusState.Unfocused) return;
+            double pageLines = Math.Max(1, Math.Floor(reader.ViewportHeight / lineHeight) - 1);
+            double line = reader.VerticalOffset / lineHeight;
+            double offset;
+            switch (args.Key)
+            {
+                case Windows.System.VirtualKey.PageDown: offset = (Math.Floor(line) + pageLines) * lineHeight; break;
+                case Windows.System.VirtualKey.PageUp: offset = (Math.Ceiling(line) - pageLines) * lineHeight; break;
+                case Windows.System.VirtualKey.Home: offset = 0; break;
+                case Windows.System.VirtualKey.End: offset = reader.ScrollableHeight; break;
+                default: return;
+            }
+            args.Handled = true;
+            reader.Focus(FocusState.Keyboard);
+            reader.ChangeView(null, Math.Clamp(offset, 0, reader.ScrollableHeight), null, true);
         };
         var content = new Grid { RowSpacing = 8 };
         content.RowDefinitions.Add(new() { Height = GridLength.Auto });
         content.RowDefinitions.Add(new() { Height = new GridLength(1, GridUnitType.Star) });
-        content.RowDefinitions.Add(new() { Height = GridLength.Auto });
-        content.Children.Add(Text($"{timestamp:D}  ·  {timestamp:t}", 14));
+        content.Children.Add(Row(Text($"{timestamp:D}  ·  {timestamp:t}", 14), position));
         Grid.SetRow(frame, 1);
         content.Children.Add(frame);
-        var navigation = new Grid { MinHeight = 32, Children = { position, next } };
-        Grid.SetRow(navigation, 2);
-        content.Children.Add(navigation);
         void UpdatePosition()
         {
-            bool more = reader.VerticalOffset < reader.ScrollableHeight - 1;
-            if (!more && next.FocusState == FocusState.Keyboard) reader.Focus(FocusState.Keyboard);
-            navigation.Visibility = reader.ScrollableHeight > 1 ? Visibility.Visible : Visibility.Collapsed;
-            next.IsEnabled = more;
-            next.Visibility = more ? Visibility.Visible : Visibility.Collapsed;
-            position.Visibility = more ? Visibility.Collapsed : Visibility.Visible;
+            position.Visibility = reader.ScrollableHeight > 1 ? Visibility.Visible : Visibility.Collapsed;
+            bool atEnd = reader.VerticalOffset >= reader.ScrollableHeight - 1;
+            AutomationProperties.SetLiveSetting(position, atEnd ? AutomationLiveSetting.Polite : AutomationLiveSetting.Off);
+            position.Text = atEnd ? "End of transcript"
+                : reader.VerticalOffset < 1 ? "Scroll to read more"
+                : $"{Math.Clamp(reader.VerticalOffset / Math.Max(1, reader.ScrollableHeight) * 100, 0, 99):0}% scrolled";
         }
         reader.Loaded += (_, _) => UpdatePosition();
         reader.SizeChanged += (_, _) => UpdatePosition();
@@ -345,11 +356,15 @@ public sealed class HistoryControl : LibraryPage
             CloseButtonText = "Close",
             PrimaryButtonText = "Copy final text"
         };
-        double width = Math.Clamp(XamlRoot.Size.Width - 48, 0, 608);
-        dialog.Resources["ContentDialogMinWidth"] = width;
-        dialog.Resources["ContentDialogMaxWidth"] = width;
+        dialog.Opened += (_, _) => dialog.DispatcherQueue.TryEnqueue(() => reader.Focus(FocusState.Programmatic));
+        dialog.Resources["ContentDialogMaxWidth"] = 608d;
         ApplyDialogAccent(dialog);
-        void SizeReader() => reader.MaxHeight = lineHeight * Math.Clamp(Math.Floor((XamlRoot.Size.Height - 260) / lineHeight), 1, 11);
+        void SizeReader()
+        {
+            // Reserve space for the dialog chrome and keep the last visible line whole.
+            reader.MaxHeight = lineHeight * Math.Clamp(Math.Floor((XamlRoot.Size.Height - 288) / lineHeight), 1, 11);
+            content.Width = Math.Clamp(XamlRoot.Size.Width - 104, 0, 558);
+        }
         void OnRootChanged(XamlRoot sender, XamlRootChangedEventArgs args) => SizeReader();
         SizeReader();
         XamlRoot.Changed += OnRootChanged;
@@ -358,5 +373,6 @@ public sealed class HistoryControl : LibraryPage
             if (await dialog.ShowAsync() == ContentDialogResult.Primary) Copy(entry.Text);
         }
         finally { XamlRoot.Changed -= OnRootChanged; }
+        if (opener.IsLoaded && opener.XamlRoot is not null) opener.Focus(FocusState.Keyboard);
     }
 }

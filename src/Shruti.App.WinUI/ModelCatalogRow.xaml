@@ -13,22 +13,11 @@
             <StackPanel x:Name="Description" VerticalAlignment="Center" Spacing="4">
                 <TextBlock x:Name="ModelTitle" FontSize="16" FontWeight="SemiBold" TextWrapping="Wrap" />
                 <Grid ColumnSpacing="8">
-                    <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
-                    <TextBlock x:Name="Metadata" FontSize="14" VerticalAlignment="Center" Foreground="{ThemeResource ShrutiTextSecondaryBrush}" TextWrapping="Wrap" />
-                    <Button x:Name="CompatibilityButton" Grid.Column="1" Visibility="Collapsed" Content="Model details" Style="{StaticResource SubtleButtonStyle}">
-                        <Button.Flyout>
-                            <Flyout>
-                                <StackPanel MaxWidth="250" Spacing="3">
-                                    <TextBlock x:Name="DetailsHeading" FontWeight="SemiBold" FontSize="16" TextWrapping="Wrap" />
-                                    <TextBlock x:Name="FormatDescription" TextWrapping="Wrap" />
-                                    <TextBlock Margin="0,6,0,0" Text="Supported processors" FontWeight="SemiBold" />
-                                    <TextBlock x:Name="SupportedProcessors" TextWrapping="Wrap" />
-                                    <TextBlock Margin="0,6,0,0" Text="Detected on this PC" FontWeight="SemiBold" />
-                                    <TextBlock x:Name="DetectedProcessors" TextWrapping="Wrap" />
-                                </StackPanel>
-                            </Flyout>
-                        </Button.Flyout>
-                    </Button>
+                    <Grid.ColumnDefinitions><ColumnDefinition Width="Auto" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
+                    <Button x:Name="CompatibilityButton" Visibility="Collapsed" Content="Model details"
+                            Style="{StaticResource SubtleButtonStyle}" Click="ShowProcessorDetails_Click" />
+                    <TextBlock x:Name="Metadata" Grid.Column="1" FontSize="14" VerticalAlignment="Center"
+                               Foreground="{ThemeResource ShrutiTextSecondaryBrush}" TextWrapping="Wrap" />
                 </Grid>
                 <HyperlinkButton x:Name="License" Content="Model license" Padding="0" Visibility="Collapsed" />
             </StackPanel>

@@ -1,3 +1,4 @@
+using System.Globalization;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Automation;
 using Microsoft.UI.Xaml.Controls;
@@ -11,7 +12,7 @@ public sealed class InsightsControl : LibraryPage
     private readonly StackPanel _content = new() { Spacing = 12 };
     private int _generation;
 
-    public InsightsControl() : base("Insights", "Dictation activity from the history saved on this PC.")
+    public InsightsControl() : base("Insights", "Dictation activity from the history saved on this PC.", pinHeader: true)
     {
         Body.Spacing = 14;
         Body.Children.Add(_content);
@@ -30,17 +31,17 @@ public sealed class InsightsControl : LibraryPage
             return;
         }
 
-        var metrics = new List<(string Value, string Label)>
+        var metrics = new List<(string Value, string Label, string Unit)>
         {
-            (stats.Words.ToString("N0"), "Words dictated"),
-            (stats.Dictations.ToString("N0"), "Dictations")
+            (stats.Words.ToString("N0"), "Words dictated", stats.Words == 1 ? "word" : "words"),
+            (stats.Dictations.ToString("N0"), "Dictations", stats.Dictations == 1 ? "dictation" : "dictations")
         };
         if (stats.AudioSeconds > 0 && stats.AudioSeconds < 60)
-            metrics.Add((Math.Max(1, Math.Round(stats.AudioSeconds)).ToString("N0"), "Seconds recorded"));
+            metrics.Add((Math.Max(1, Math.Round(stats.AudioSeconds)).ToString("N0"), "Seconds recorded", "sec recorded"));
         else if (stats.AudioSeconds >= 60)
-            metrics.Add((TimeSpan.FromSeconds(stats.AudioSeconds).TotalMinutes.ToString("N1"), "Minutes recorded"));
-        if (stats.Edits > 0) metrics.Add((stats.Edits.ToString("N0"), "Transcript edits"));
-        var totals = new Grid { ColumnSpacing = 12, RowSpacing = 4 };
+            metrics.Add((TimeSpan.FromSeconds(stats.AudioSeconds).TotalMinutes.ToString("N1"), "Minutes recorded", "min recorded"));
+        if (stats.Edits > 0) metrics.Add((stats.Edits.ToString("N0"), "Transcript edits", stats.Edits == 1 ? "edit" : "edits"));
+        var totals = new Grid { ColumnSpacing = 16, RowSpacing = 10 };
         bool? compactTotals = null;
         void ArrangeTotals(double width)
         {
@@ -55,18 +56,22 @@ public sealed class InsightsControl : LibraryPage
             for (int i = 0; i < metrics.Count; i++)
             {
                 if (i % columns == 0) totals.RowDefinitions.Add(new() { Height = GridLength.Auto });
-                var label = Secondary(metrics[i].Label);
-                var value = Heading(metrics[i].Value, compact ? 21 : 26);
-                Grid cell = compact ? Row(label, value) : new Grid();
-                if (!compact)
+                var metric = metrics[i];
+                FrameworkElement cell;
+                if (compact)
                 {
-                    cell.RowDefinitions.Add(new() { Height = GridLength.Auto });
-                    cell.RowDefinitions.Add(new() { Height = GridLength.Auto });
-                    cell.Children.Add(label);
-                    cell.Children.Add(value);
-                    Grid.SetRow(value, 1);
+                    var phrase = Text($"{metric.Value}\u00A0{metric.Unit}", 17);
+                    AutomationProperties.SetName(phrase, $"{metric.Label}, {metric.Value}");
+                    cell = phrase;
                 }
-                label.VerticalAlignment = VerticalAlignment.Center;
+                else
+                {
+                    cell = new StackPanel
+                    {
+                        Spacing = 2,
+                        Children = { Secondary(metric.Label), Heading(metric.Value, 26) }
+                    };
+                }
                 Grid.SetRow(cell, i / columns);
                 Grid.SetColumn(cell, i % columns);
                 totals.Children.Add(cell);
@@ -196,10 +201,17 @@ public sealed class InsightsControl : LibraryPage
         var grid = new Grid { ColumnSpacing = 4, RowSpacing = compact ? 2 : 3, Margin = new Thickness(0, 3, 0, 0) };
         grid.ColumnDefinitions.Add(new() { Width = new GridLength(36) });
         grid.RowDefinitions.Add(new() { Height = new GridLength(22) });
+        grid.RowDefinitions.Add(new() { Height = new GridLength(18) });
         for (int week = 0; week < weeks; week++)
         {
             grid.ColumnDefinitions.Add(new());
             var first = start.AddDays(week * 7);
+            var weekStart = Secondary(first.Day.ToString(CultureInfo.CurrentCulture), 12);
+            weekStart.HorizontalAlignment = HorizontalAlignment.Center;
+            AutomationProperties.SetName(weekStart, first.ToString("D"));
+            Grid.SetColumn(weekStart, week + 1);
+            Grid.SetRow(weekStart, 1);
+            grid.Children.Add(weekStart);
             if ((week == 0 || first.Month != first.AddDays(-7).Month) && (week + 2 >= weeks || first.Month == first.AddDays(7).Month))
             {
                 var month = Text(first.ToString("MMM"), 14);
@@ -212,12 +224,10 @@ public sealed class InsightsControl : LibraryPage
         for (int day = 0; day < 7; day++)
         {
             grid.RowDefinitions.Add(new() { Height = new GridLength(compact ? 20 : 22) });
-            if (day is 1 or 3 or 5)
-            {
-                var label = Text(start.AddDays(day).ToString("ddd"), 14);
-                Grid.SetRow(label, day + 1);
-                grid.Children.Add(label);
-            }
+            var label = Secondary(start.AddDays(day).ToString("ddd"), 12);
+            label.VerticalAlignment = VerticalAlignment.Center;
+            Grid.SetRow(label, day + 2);
+            grid.Children.Add(label);
         }
         for (int i = 0; i < weeks * 7; i++)
         {
@@ -245,7 +255,7 @@ public sealed class InsightsControl : LibraryPage
             ToolTipService.SetToolTip(cell, detail);
             AutomationProperties.SetName(cell, detail);
             Grid.SetColumn(cell, i / 7 + 1);
-            Grid.SetRow(cell, i % 7 + 1);
+            Grid.SetRow(cell, i % 7 + 2);
             grid.Children.Add(cell);
         }
         activity.Children.Add(grid);

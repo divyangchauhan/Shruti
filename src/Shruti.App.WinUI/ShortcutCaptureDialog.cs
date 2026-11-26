@@ -90,7 +90,7 @@ internal sealed class ShortcutCaptureDialog : ContentDialog
         PrimaryButtonClick += SaveClicked;
     }
 
-    internal static void SetKeycaps(StackPanel panel, string gesture)
+    internal static void SetKeycaps(StackPanel panel, string gesture, bool emphasize = false)
     {
         panel.Children.Clear();
         foreach (string key in gesture.Split('+', StringSplitOptions.RemoveEmptyEntries))
@@ -98,10 +98,10 @@ internal sealed class ShortcutCaptureDialog : ContentDialog
             panel.Children.Add(new Border
             {
                 Style = (Style)Application.Current.Resources["LibraryCardStyle"],
-                Padding = new Thickness(8, 3, 8, 3),
+                Padding = emphasize ? new Thickness(9, 3, 9, 3) : new Thickness(8, 3, 8, 3),
                 CornerRadius = new CornerRadius(5),
                 BorderThickness = new Thickness(1, 1, 1, 2),
-                Child = new TextBlock { Text = key == "RightControl" ? "Right Ctrl" : key, FontSize = 13 }
+                Child = new TextBlock { Text = key == "RightControl" ? "Right Ctrl" : key, FontSize = emphasize ? 17 : 13 }
             });
         }
         AutomationProperties.SetName(panel, gesture.Replace("+", " + ", StringComparison.Ordinal));
@@ -138,7 +138,7 @@ internal sealed class ShortcutCaptureDialog : ContentDialog
         {
             if (!_isOpen || sender is not WindowsShortcutCapture capture || capture != _capture) return;
             WindowsShortcutRecorder recorder = capture.Recorder;
-            SetKeycaps(_keys, recorder.DisplayText);
+            SetKeycaps(_keys, recorder.DisplayText, emphasize: true);
             _status.Text = "Release all keys to finish.";
             if (!recorder.IsComplete) return;
             StopCapture();
@@ -152,7 +152,7 @@ internal sealed class ShortcutCaptureDialog : ContentDialog
             _record.IsEnabled = true;
             IsPrimaryButtonEnabled = _gesture is not null;
             _status.Text = _gesture is null ? "Try another shortcut." : "Ready to save";
-            if (_gesture is not null) SetKeycaps(_keys, _gesture);
+            if (_gesture is not null) SetKeycaps(_keys, _gesture, emphasize: true);
             if (recorder.Error is not null) ShowError(recorder.Error);
         });
     }

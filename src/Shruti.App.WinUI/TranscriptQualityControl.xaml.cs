@@ -31,6 +31,19 @@ public sealed partial class TranscriptQualityControl : UserControl
         }
     }
 
+    private async void CompareModels_Click(object sender, RoutedEventArgs args)
+    {
+        var dialog = new ContentDialog
+        {
+            XamlRoot = XamlRoot,
+            RequestedTheme = ActualTheme,
+            Title = "Compare cleanup models",
+            Content = ((DataTemplate)Resources["CleanupBenchmark"]).LoadContent(),
+            CloseButtonText = "Close"
+        };
+        await dialog.ShowAsync();
+    }
+
     internal void FocusFirstOption() => CleanupBox.Focus(FocusState.Programmatic);
 
     public void Configure(ISettingsRepository repository, TranscriptQualitySettings settings, string modelsDirectory)
@@ -72,9 +85,9 @@ public sealed partial class TranscriptQualityControl : UserControl
             action.IsEnabled = !_saving && !_installing;
             AutomationProperties.SetName(action, $"{label} {model.Name} for cleanup");
         }
-        ModelGuidance.Text = activeModel is not null ? $"{activeModel} cleans new dictations. Disable it to return to light cleanup alone."
-            : anyInstalled ? "Choose Set active to use an installed model for cleanup."
-            : "Download a model, then choose Set active to use it for cleanup.";
+        ModelGuidance.Text = activeModel is not null ? $"{activeModel} is active for new dictations."
+            : anyInstalled ? "Choose an installed model for new dictations."
+            : "Download a model to add an editing pass.";
         DownloadProgress.Visibility = _installing ? Visibility.Visible : Visibility.Collapsed;
         CleanupBox.IsChecked = Settings.CleanupMode == TranscriptCleanupMode.Light;
         ContextBox.IsChecked = Settings.EnableCursorContext;

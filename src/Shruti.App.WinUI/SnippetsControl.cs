@@ -52,7 +52,7 @@ public sealed class SnippetsControl : LibraryPage
             _count.Text = "Saved snippets";
             _sort.Visibility = Visibility.Collapsed;
             _tools.Visibility = Visibility.Visible;
-            AddListEmpty(_entries, "\uE8C8", "Choose a language", "Enter a language code, such as en, to see your snippets.", null);
+            AddListEmpty(_entries, "\uE70B", "Choose a language", "Enter a language code, such as en, to see your snippets.", null);
             return;
         }
         var snippets = await _repository.ListAsync(LanguageCode(_language), default);
@@ -61,14 +61,14 @@ public sealed class SnippetsControl : LibraryPage
         var ordered = _descending ? snippets.OrderByDescending(s => s.Phrase, StringComparer.CurrentCultureIgnoreCase) : snippets.OrderBy(s => s.Phrase, StringComparer.CurrentCultureIgnoreCase);
         foreach (var snippet in ordered.Where(s => s.Phrase.Contains(_search.Text, StringComparison.CurrentCultureIgnoreCase) || s.Text.Contains(_search.Text, StringComparison.CurrentCultureIgnoreCase)))
         {
-            AddEntryRow(_entries, "\uE8C8", snippet.Phrase, snippet.Text, snippet.Phrase, () => ShowEditorAsync(snippet), async () =>
+            AddEntryRow(_entries, snippet.Id, "\uE70B", snippet.Phrase, snippet.Text.Trim(), snippet.Phrase, () => ShowEditorAsync(snippet), async () =>
             {
                 if (await ConfirmAsync("Delete snippet?", snippet.Phrase))
                 {
                     await _repository.DeleteAsync(snippet.Id, default);
                     await RefreshAsync();
                 }
-            });
+            }, isTextPreview: true);
         }
 
         int count = _entries.Children.Count;
@@ -78,13 +78,15 @@ public sealed class SnippetsControl : LibraryPage
         bool searching = _search.Text.Length > 0;
         bool defaultLanguage = string.Equals(LanguageCode(_language).Trim(), "en", StringComparison.OrdinalIgnoreCase);
         var languageAction = UpdateListTools(_tools, _language, count > 0 || searching || !defaultLanguage);
+        if (searching && count == 0) languageAction = ResetSearch(_search);
         if (count == 0)
-            AddListEmpty(_entries, "\uE8C8", searching ? "No matching snippets" : defaultLanguage ? "No English snippets yet" : "No snippets in this language",
+            AddListEmpty(_entries, "\uE70B", searching ? "No matching snippets" : defaultLanguage ? "No English snippets yet" : "No snippets in this language",
                 searching ? "Change the search or language." : "Add an address, link, or signature to insert with a spoken phrase.", languageAction);
     });
 
     private Task ShowEditorAsync(TranscriptSnippet? snippet)
     {
+        Guid id = snippet?.Id ?? Guid.NewGuid();
         var phrase = Field("When I say", snippet?.Phrase ?? "");
         string language = snippet?.Language ?? LanguageCode(_language);
         phrase.MinWidth = 120;
@@ -92,13 +94,18 @@ public sealed class SnippetsControl : LibraryPage
         var text = Field("Insert this text", snippet?.Text ?? "", 16000, true);
         text.PlaceholderText = "Type or paste your text";
         text.MinWidth = 0;
-        text.Height = 104;
+        text.Header = null;
+        var bodyLabel = Text("Insert this text", 14);
+        AutomationProperties.SetLabeledBy(text, bodyLabel);
+        text.Height = 128;
+        ScrollViewer.SetVerticalScrollBarVisibility(text, ScrollBarVisibility.Visible);
+        var body = new StackPanel { Spacing = 5, Children = { bodyLabel, text } };
         var fields = new StackPanel { Spacing = 10 };
         fields.Children.Add(phrase);
-        fields.Children.Add(text);
-        return EditAsync(snippet is null ? "Add snippet" : "Edit snippet", fields, language, async code =>
+        fields.Children.Add(body);
+        return EditAsync(snippet is null ? "Add snippet" : "Edit snippet", fields, language, _entries, id, async code =>
         {
-            await _repository.SaveAsync(new(snippet?.Id ?? Guid.NewGuid(), code, phrase.Text, text.Text), default);
+            await _repository.SaveAsync(new(id, code, phrase.Text, text.Text), default);
             SetLanguage(_language, code);
         }, phrase, text);
     }

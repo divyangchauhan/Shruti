@@ -8,6 +8,8 @@ public sealed partial class ModelCatalogRow : UserControl
 {
     private readonly string _details = string.Empty;
 
+    private (string Name, string Format, string Supported, string Detected) _processors;
+
     public ModelCatalogRow() => InitializeComponent();
 
     internal ModelCatalogRow(string title, string metadata, bool divider, Uri? license = null) : this()
@@ -37,13 +39,38 @@ public sealed partial class ModelCatalogRow : UserControl
 
     internal void SetProcessorDetails(string modelName, string format, string supported, string detected)
     {
-        DetailsHeading.Text = modelName;
-        FormatDescription.Text = format;
-        FormatDescription.Visibility = format.Length == 0 ? Visibility.Collapsed : Visibility.Visible;
-        SupportedProcessors.Text = supported;
-        DetectedProcessors.Text = detected;
+        _processors = (modelName, format, supported, detected);
         AutomationProperties.SetName(CompatibilityButton, $"{modelName} compatibility and format details");
         CompatibilityButton.Visibility = Visibility.Visible;
+    }
+
+    private async void ShowProcessorDetails_Click(object sender, RoutedEventArgs args)
+    {
+        var fields = new StackPanel { Spacing = 4 };
+        if (!string.IsNullOrEmpty(_processors.Format))
+            fields.Children.Add(new TextBlock { Text = _processors.Format, TextWrapping = TextWrapping.Wrap });
+
+        void AddProcessors(string label, string value)
+        {
+            fields.Children.Add(new TextBlock
+            {
+                Text = label,
+                Margin = new Thickness(0, 8, 0, 0),
+                FontWeight = Microsoft.UI.Text.FontWeights.SemiBold
+            });
+            fields.Children.Add(new TextBlock { Text = value, TextWrapping = TextWrapping.Wrap });
+        }
+        AddProcessors("Supported processors", _processors.Supported);
+        AddProcessors("Detected on this PC", _processors.Detected);
+        var dialog = new ContentDialog
+        {
+            Title = _processors.Name,
+            Content = fields,
+            CloseButtonText = "Close",
+            XamlRoot = XamlRoot,
+            RequestedTheme = ActualTheme
+        };
+        await dialog.ShowAsync();
     }
 
     internal void AddAction(Button button) => RowActions.Children.Add(button);
