@@ -19,7 +19,7 @@ public sealed class HistoryControl : LibraryPage
     private readonly TextBlock _summary = Text("", 14);
     private readonly TextBlock _shortcut = Text("", 14);
     private readonly Border _emptyState;
-    private readonly FrameworkElement _modelPrompt;
+    private readonly StackPanel _modelPrompt;
     public event EventHandler? ModelsRequested;
     public event EventHandler? DictationRequested;
     private readonly Button _record = new();
@@ -64,9 +64,9 @@ public sealed class HistoryControl : LibraryPage
         intro.Children.Add(_shortcut);
         var modelPrompt = new StackPanel { Spacing = 10, Visibility = Visibility.Collapsed };
         modelPrompt.Children.Add(Secondary("Download your selected speech model to start recording on this PC.", 14));
-        var models = new Button { Content = "Open Models", Style = (Style)Application.Current.Resources["LibraryPrimaryButton"] };
-        models.Click += (_, _) => ModelsRequested?.Invoke(this, EventArgs.Empty);
-        modelPrompt.Children.Add(models);
+        var openModels = new Button { Content = "Open Models", Style = (Style)Application.Current.Resources["LibraryPrimaryButton"] };
+        openModels.Click += (_, _) => ModelsRequested?.Invoke(this, EventArgs.Empty);
+        modelPrompt.Children.Add(openModels);
         intro.Children.Add(modelPrompt);
         _modelPrompt = modelPrompt;
         var microphone = new FontIcon { Glyph = "\uE720", FontSize = 26 };
@@ -119,6 +119,7 @@ public sealed class HistoryControl : LibraryPage
 
     public void SetModelInstalled(bool installed)
     {
+        _record.Visibility = installed ? Visibility.Visible : Visibility.Collapsed;
         _shortcut.Visibility = installed ? Visibility.Visible : Visibility.Collapsed;
         _modelPrompt.Visibility = installed ? Visibility.Collapsed : Visibility.Visible;
     }
@@ -158,7 +159,10 @@ public sealed class HistoryControl : LibraryPage
             rows.AddRange(await _repository.ListAsync(_search.Text, 100, offset));
         var stats = await _repository.GetInsightsAsync();
         if (generation != _generation) return;
-        _summary.Text = $"{stats.Dictations:N0} {(stats.Dictations == 1 ? "dictation" : "dictations")}  ·  {stats.Words:N0} {(stats.Words == 1 ? "word" : "words")} on this PC";
+        string total = $"{stats.Dictations:N0} {(stats.Dictations == 1 ? "dictation" : "dictations")}";
+        _summary.Text = string.IsNullOrWhiteSpace(_search.Text)
+            ? $"{total}  ·  {stats.Words:N0} {(stats.Words == 1 ? "word" : "words")} on this PC"
+            : $"Searching {total} on this PC";
         bool hasHistory = stats.Dictations > 0;
         _summary.Visibility = hasHistory ? Visibility.Visible : Visibility.Collapsed;
         _search.Visibility = hasHistory || _search.Text.Length > 0 ? Visibility.Visible : Visibility.Collapsed;
@@ -182,15 +186,27 @@ public sealed class HistoryControl : LibraryPage
                 var timestamp = entry.CreatedAtUtc.LocalDateTime.ToString("t");
                 var time = Text(string.IsNullOrWhiteSpace(entry.ProcessName) ? timestamp : $"{timestamp}  ·  {entry.ProcessName}", 13);
                 time.Opacity = .75;
-                content.Children.Add(time);
+                time.VerticalAlignment = VerticalAlignment.Center;
                 var preview = Text(entry.Text, 16);
-                preview.MaxLines = 5;
+                preview.MaxLines = ActualWidth < 700 ? 3 : 5;
+                preview.SizeChanged += (_, _) => preview.MaxLines = ActualWidth < 700 ? 3 : 5;
                 preview.TextTrimming = TextTrimming.CharacterEllipsis;
                 content.Children.Add(preview);
+                var readMore = new HyperlinkButton
+                {
+                    Content = "Read full transcript",
+                    Padding = new Thickness(0),
+                    Visibility = Visibility.Collapsed
+                };
+                readMore.Click += async (_, _) => await RunAsync(() => OpenAsync(entry));
+                preview.IsTextTrimmedChanged += (_, _) =>
+                    readMore.Visibility = preview.IsTextTrimmed ? Visibility.Visible : Visibility.Collapsed;
+                content.Children.Add(readMore);
                 var menu = PopupAppearance.CreateMenuFlyout();
-                var open = new MenuFlyoutItem { Text = "View transcript" };
+                menu.Placement = Microsoft.UI.Xaml.Controls.Primitives.FlyoutPlacementMode.BottomEdgeAlignedRight;
+                var open = new MenuFlyoutItem { Text = "View transcript", Icon = new SymbolIcon(Symbol.Document) };
                 open.Click += async (_, _) => await RunAsync(() => OpenAsync(entry)); menu.Items.Add(open);
-                var delete = new MenuFlyoutItem { Text = "Delete" };
+                var delete = new MenuFlyoutItem { Text = "Delete", Icon = new SymbolIcon(Symbol.Delete) };
                 delete.Click += async (_, _) => await RunAsync(async () =>
                 {
                     if (await ConfirmAsync("Delete this transcript?", "This also removes it from Insights."))
@@ -216,8 +232,8 @@ public sealed class HistoryControl : LibraryPage
                 });
                 var more = IconButton(Symbol.More, "Transcript options");
                 more.Flyout = menu;
-                var row = Row(content, copy, more);
-                var item = Card(row);
+                content.Children.Insert(0, Row(time, copy, more));
+                var item = Card(content);
                 item.CornerRadius = new CornerRadius(0);
                 item.Padding = new Thickness(18, 12, 18, 12);
                 item.Background = null;
@@ -227,22 +243,33 @@ public sealed class HistoryControl : LibraryPage
         }
         _emptyState.Visibility = !hasHistory && _search.Text.Length == 0 ? Visibility.Visible : Visibility.Collapsed;
         if (rows.Count == 0 && _search.Text.Length > 0)
-            _entries.Children.Add(Card(Text("No matching transcripts.")));
+        {
+            var clearSearch = new Button { Content = "Clear search" };
+            clearSearch.Click += (_, _) =>
+            {
+                _search.Text = string.Empty;
+                _search.Focus(FocusState.Programmatic);
+            };
+            _entries.Children.Add(Card(Row(Text("No matching transcripts."), clearSearch)));
+        }
         _more.Visibility = rows.Count >= _limit ? Visibility.Visible : Visibility.Collapsed;
     });
     private async Task OpenAsync(TranscriptHistoryEntry entry)
     {
-        var fields = new StackPanel { Spacing = 12, MinWidth = 300 };
+        const double lineHeight = 28;
+        var fields = new StackPanel { Spacing = 12, MinWidth = 240 };
         var timestamp = entry.CreatedAtUtc.LocalDateTime;
-        fields.Children.Add(Text($"{timestamp:D}  ·  {timestamp:t}", 14));
         var final = Text(entry.Text, 19);
         final.IsTextSelectionEnabled = true;
-        final.LineHeight = 28;
-        fields.Children.Add(Card(final));
+        final.LineHeight = lineHeight;
+        final.LineStackingStrategy = LineStackingStrategy.BlockLineHeight;
+        fields.Children.Add(final);
         if (entry.RawText != entry.Text)
         {
             var original = Text(entry.RawText);
             original.IsTextSelectionEnabled = true;
+            original.LineHeight = lineHeight;
+            original.LineStackingStrategy = LineStackingStrategy.BlockLineHeight;
             fields.Children.Add(new Expander
             {
                 Header = "Original recognition",
@@ -251,17 +278,85 @@ public sealed class HistoryControl : LibraryPage
                 Content = original
             });
         }
+        var page = new Border { Child = fields };
+        fields.SizeChanged += (_, e) =>
+        {
+            double height = e.NewSize.Height;
+            page.Padding = new Thickness(0, 0, 0, Math.Ceiling(height / lineHeight) * lineHeight - height);
+        };
+        var reader = new ScrollViewer { Name = "TranscriptReader", Content = page, IsTabStop = true, UseSystemFocusVisuals = false, VerticalScrollBarVisibility = ScrollBarVisibility.Visible };
+        AutomationProperties.SetName(reader, "Transcript text");
+        var frame = Card(reader);
+        frame.Padding = new Thickness(14, 8, 8, 8);
+        reader.GotFocus += (_, _) => frame.Style = (Style)Application.Current.Resources[
+            reader.FocusState == FocusState.Keyboard ? "FocusedTranscriptFrame" : "LibraryCardStyle"];
+        reader.LostFocus += (_, _) => frame.Style = (Style)Application.Current.Resources["LibraryCardStyle"];
+        var position = Secondary("End of transcript", 14);
+        position.Name = "ReaderEndStatus";
+        position.HorizontalAlignment = HorizontalAlignment.Right;
+        position.VerticalAlignment = VerticalAlignment.Center;
+        AutomationProperties.SetLiveSetting(position, AutomationLiveSetting.Polite);
+        var arrow = new FontIcon { Glyph = "\uE74B", FontSize = 14 };
+        var next = new Button
+        {
+            Name = "ReaderNextPage",
+            HorizontalAlignment = HorizontalAlignment.Right,
+            Content = new StackPanel { Spacing = 6, Orientation = Orientation.Horizontal, Children = { Text("Next page", 14), arrow } }
+        };
+        AutomationProperties.SetName(next, "Next page");
+        ToolTipService.SetToolTip(next, "Read the next part of the transcript");
+        next.Click += (_, _) =>
+        {
+            double firstLine = Math.Floor(reader.VerticalOffset / lineHeight);
+            double advance = Math.Max(1, Math.Floor(reader.ViewportHeight / lineHeight) - 1);
+            reader.ChangeView(null, Math.Min(reader.ScrollableHeight, (firstLine + advance) * lineHeight), null, true);
+        };
+        var content = new Grid { RowSpacing = 8 };
+        content.RowDefinitions.Add(new() { Height = GridLength.Auto });
+        content.RowDefinitions.Add(new() { Height = new GridLength(1, GridUnitType.Star) });
+        content.RowDefinitions.Add(new() { Height = GridLength.Auto });
+        content.Children.Add(Text($"{timestamp:D}  ·  {timestamp:t}", 14));
+        Grid.SetRow(frame, 1);
+        content.Children.Add(frame);
+        var navigation = new Grid { MinHeight = 32, Children = { position, next } };
+        Grid.SetRow(navigation, 2);
+        content.Children.Add(navigation);
+        void UpdatePosition()
+        {
+            bool more = reader.VerticalOffset < reader.ScrollableHeight - 1;
+            if (!more && next.FocusState == FocusState.Keyboard) reader.Focus(FocusState.Keyboard);
+            navigation.Visibility = reader.ScrollableHeight > 1 ? Visibility.Visible : Visibility.Collapsed;
+            next.IsEnabled = more;
+            next.Visibility = more ? Visibility.Visible : Visibility.Collapsed;
+            position.Visibility = more ? Visibility.Collapsed : Visibility.Visible;
+        }
+        reader.Loaded += (_, _) => UpdatePosition();
+        reader.SizeChanged += (_, _) => UpdatePosition();
+        fields.SizeChanged += (_, _) => UpdatePosition();
+        reader.ViewChanged += (_, _) => UpdatePosition();
+        UpdatePosition();
         var dialog = new ContentDialog
         {
             XamlRoot = XamlRoot,
             RequestedTheme = ActualTheme,
             Title = "Transcript",
             DefaultButton = ContentDialogButton.Primary,
-            Content = new ScrollViewer { Content = fields, MaxHeight = 460 },
+            Content = content,
             CloseButtonText = "Close",
             PrimaryButtonText = "Copy final text"
         };
+        double width = Math.Clamp(XamlRoot.Size.Width - 48, 0, 608);
+        dialog.Resources["ContentDialogMinWidth"] = width;
+        dialog.Resources["ContentDialogMaxWidth"] = width;
         ApplyDialogAccent(dialog);
-        if (await dialog.ShowAsync() == ContentDialogResult.Primary) Copy(entry.Text);
+        void SizeReader() => reader.MaxHeight = lineHeight * Math.Clamp(Math.Floor((XamlRoot.Size.Height - 260) / lineHeight), 1, 11);
+        void OnRootChanged(XamlRoot sender, XamlRootChangedEventArgs args) => SizeReader();
+        SizeReader();
+        XamlRoot.Changed += OnRootChanged;
+        try
+        {
+            if (await dialog.ShowAsync() == ContentDialogResult.Primary) Copy(entry.Text);
+        }
+        finally { XamlRoot.Changed -= OnRootChanged; }
     }
 }

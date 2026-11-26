@@ -13,9 +13,11 @@
                 <Setter Property="local:PopupAppearance.UseOpaqueBackground" Value="True" />
             </Style>
             <Style x:Key="OpaqueMenuFlyoutPresenterStyle" TargetType="MenuFlyoutPresenter">
+                <Setter Property="Padding" Value="5,4" />
+                <Setter Property="CornerRadius" Value="6" />
                 <Setter Property="Background" Value="{ThemeResource ShrutiPopupBackgroundBrush}" />
                 <Setter Property="Foreground" Value="{ThemeResource TextFillColorPrimaryBrush}" />
-                <Setter Property="BorderBrush" Value="{ThemeResource SurfaceStrokeColorFlyoutBrush}" />
+                <Setter Property="BorderBrush" Value="{ThemeResource ShrutiBorderStrongBrush}" />
                 <Setter Property="BorderThickness" Value="1" />
             </Style>
             <Style x:Key="LibraryTextStyle" TargetType="TextBlock">
@@ -34,6 +36,9 @@
                 <Setter Property="BorderThickness" Value="1" />
                 <Setter Property="CornerRadius" Value="14" />
                 <Setter Property="Padding" Value="22" />
+            </Style>
+            <Style x:Key="FocusedTranscriptFrame" TargetType="Border" BasedOn="{StaticResource LibraryCardStyle}">
+                <Setter Property="BorderBrush" Value="{ThemeResource SystemControlFocusVisualPrimaryBrush}" />
             </Style>
             <ResourceDictionary.ThemeDictionaries>
                 <ResourceDictionary x:Key="Default">
@@ -142,7 +147,7 @@
                     <SolidColorBrush x:Key="ShrutiSuccessSoftBrush" Color="#173527" />
                     <SolidColorBrush x:Key="ShrutiWarningBrush" Color="#E0A63C" />
                     <SolidColorBrush x:Key="ShrutiWarningSoftBrush" Color="#372B17" />
-                    <SolidColorBrush x:Key="ShrutiDangerBrush" Color="#E5605F" />
+                    <SolidColorBrush x:Key="ShrutiDangerBrush" Color="#FF9290" />
                     <SolidColorBrush x:Key="ShrutiDangerSoftBrush" Color="#3A1D1D" />
                     <SolidColorBrush x:Key="ShrutiInfoBrush" Color="#6BA3F5" />
                     <SolidColorBrush x:Key="ShrutiInfoSoftBrush" Color="#1C2C43" />

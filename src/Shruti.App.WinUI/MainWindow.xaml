@@ -6,8 +6,7 @@
     Title="Shruti dictation">
     <Grid
         x:Name="Root"
-        MinWidth="900"
-        MinHeight="640"
+        SizeChanged="Root_SizeChanged"
         Background="{ThemeResource ShrutiPageBrush}">
         <Grid.Resources>
             <Style TargetType="TextBlock">
@@ -85,7 +84,7 @@
             <RowDefinition Height="*" />
         </Grid.RowDefinitions>
         <Grid.ColumnDefinitions>
-            <ColumnDefinition Width="232" />
+            <ColumnDefinition x:Name="NavigationColumn" Width="232" />
             <ColumnDefinition Width="*" />
         </Grid.ColumnDefinitions>
 
@@ -96,9 +95,10 @@
             Background="{ThemeResource ShrutiCardBrush}">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="Auto" />
                 <ColumnDefinition x:Name="CaptionButtonInsetColumn" Width="140" />
             </Grid.ColumnDefinitions>
-            <Grid VerticalAlignment="Center">
+            <Grid x:Name="TitleBarDragArea" Background="Transparent">
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="Auto" />
                     <ColumnDefinition Width="Auto" />
@@ -126,6 +126,18 @@
                     LineHeight="18"
                     Text="Shruti" />
             </Grid>
+            <Grid Grid.Column="1" Visibility="{Binding Visibility, ElementName=AppNavigation}">
+                <Button x:Name="CompactModelButton" Visibility="Collapsed" MaxWidth="176" Height="26" Margin="4,0,15,0" Padding="8,0" MinHeight="0"
+                        HorizontalContentAlignment="Stretch" Background="{ThemeResource ShrutiSunkenBrush}" BorderBrush="{ThemeResource ShrutiBorderSubtleBrush}"
+                        Tag="Models" Click="NavigationButton_Click" AutomationProperties.Name="Manage selected speech model">
+                    <Grid ColumnSpacing="7">
+                        <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                        <TextBlock x:Name="CompactModelName" FontSize="12" FontWeight="SemiBold" VerticalAlignment="Center"
+                                   TextTrimming="CharacterEllipsis" Text="{Binding Text, ElementName=ModelSummaryText}" />
+                        <FontIcon Grid.Column="1" FontFamily="Segoe Fluent Icons" FontSize="9" Glyph="&#xE76C;" />
+                    </Grid>
+                </Button>
+            </Grid>
         </Grid>
 
         <Border
@@ -134,77 +146,78 @@
             Background="{ThemeResource ShrutiCardBrush}"
             BorderBrush="{ThemeResource ShrutiBorderSubtleBrush}"
             BorderThickness="0,0,1,0">
-            <Grid Padding="12,16">
+            <Grid x:Name="NavLayout" Padding="12,16">
                 <Grid.RowDefinitions>
-                    <RowDefinition Height="Auto" />
                     <RowDefinition Height="*" />
                     <RowDefinition Height="Auto" />
                 </Grid.RowDefinitions>
-                <StackPanel Spacing="4">
-                    <Button x:Name="HistoryNavButton" AutomationProperties.Name="Transcriptions" Style="{StaticResource NavButtonStyle}" Tag="History" Click="NavigationButton_Click">
-                        <StackPanel Orientation="Horizontal" Spacing="12">
-                            <FontIcon FontFamily="Segoe Fluent Icons" FontSize="18" Glyph="&#xE8A5;" />
-                            <TextBlock VerticalAlignment="Center" Text="Transcriptions" />
-                        </StackPanel>
-                    </Button>
-                    <Button x:Name="InsightsNavButton" AutomationProperties.Name="Insights" Style="{StaticResource NavButtonStyle}" Tag="Insights" Click="NavigationButton_Click">
-                        <StackPanel Orientation="Horizontal" Spacing="12">
-                            <FontIcon FontFamily="Segoe Fluent Icons" FontSize="18" Glyph="&#xE9D9;" />
-                            <TextBlock VerticalAlignment="Center" Text="Insights" />
-                        </StackPanel>
-                    </Button>
-                    <Button x:Name="DictionaryNavButton" AutomationProperties.Name="Dictionary" Style="{StaticResource NavButtonStyle}" Tag="Dictionary" Click="NavigationButton_Click">
-                        <StackPanel Orientation="Horizontal" Spacing="12">
-                            <FontIcon FontFamily="Segoe Fluent Icons" FontSize="18" Glyph="&#xE82D;" />
-                            <TextBlock VerticalAlignment="Center" Text="Dictionary" />
-                        </StackPanel>
-                    </Button>
-                    <Button x:Name="SnippetsNavButton" AutomationProperties.Name="Snippets" Style="{StaticResource NavButtonStyle}" Tag="Snippets" Click="NavigationButton_Click">
-                        <StackPanel Orientation="Horizontal" Spacing="12">
-                            <FontIcon FontFamily="Segoe Fluent Icons" FontSize="18" Glyph="&#xE8C8;" />
-                            <TextBlock VerticalAlignment="Center" Text="Snippets" />
-                        </StackPanel>
-                    </Button>
-                    <Border Height="1" Margin="12,9" Background="{ThemeResource ShrutiBorderSubtleBrush}" />
-                    <Button
-                        x:Name="ModelsNavButton"
-                        AutomationProperties.Name="Models"
-                        Style="{StaticResource NavButtonStyle}"
-                        Tag="Models"
-                        Click="NavigationButton_Click">
-                        <StackPanel Orientation="Horizontal" Spacing="12">
-                            <FontIcon FontFamily="Segoe Fluent Icons" FontSize="18" Glyph="&#xE81E;" />
-                            <TextBlock VerticalAlignment="Center" Text="Models" />
-                        </StackPanel>
-                    </Button>
-                    <Button
-                        x:Name="SettingsNavButton"
-                        AutomationProperties.Name="Settings"
-                        Style="{StaticResource NavButtonStyle}"
-                        Tag="Settings"
-                        Click="NavigationButton_Click">
-                        <StackPanel Orientation="Horizontal" Spacing="12">
-                            <FontIcon FontFamily="Segoe Fluent Icons" FontSize="18" Glyph="&#xE9E9;" />
-                            <TextBlock VerticalAlignment="Center" Text="Settings" />
-                        </StackPanel>
-                    </Button>
-                </StackPanel>
-
-                <Button Grid.Row="2" Padding="12" HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch"
+                <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+                    <StackPanel Spacing="4">
+                        <Button x:Name="HistoryNavButton" ToolTipService.ToolTip="Transcriptions" AutomationProperties.Name="Transcriptions" Style="{StaticResource NavButtonStyle}" Tag="History" Click="NavigationButton_Click">
+                            <StackPanel Orientation="Horizontal" Spacing="12">
+                                <FontIcon FontFamily="Segoe Fluent Icons" FontSize="18" Glyph="&#xE8A5;" />
+                                <TextBlock VerticalAlignment="Center" Text="Transcriptions" />
+                            </StackPanel>
+                        </Button>
+                        <Button x:Name="InsightsNavButton" ToolTipService.ToolTip="Insights" AutomationProperties.Name="Insights" Style="{StaticResource NavButtonStyle}" Tag="Insights" Click="NavigationButton_Click">
+                            <StackPanel Orientation="Horizontal" Spacing="12">
+                                <FontIcon FontFamily="Segoe Fluent Icons" FontSize="18" Glyph="&#xE9D9;" />
+                                <TextBlock VerticalAlignment="Center" Text="Insights" />
+                            </StackPanel>
+                        </Button>
+                        <Button x:Name="DictionaryNavButton" ToolTipService.ToolTip="Dictionary" AutomationProperties.Name="Dictionary" Style="{StaticResource NavButtonStyle}" Tag="Dictionary" Click="NavigationButton_Click">
+                            <StackPanel Orientation="Horizontal" Spacing="12">
+                                <FontIcon FontFamily="Segoe Fluent Icons" FontSize="18" Glyph="&#xE82D;" />
+                                <TextBlock VerticalAlignment="Center" Text="Dictionary" />
+                            </StackPanel>
+                        </Button>
+                        <Button x:Name="SnippetsNavButton" ToolTipService.ToolTip="Snippets" AutomationProperties.Name="Snippets" Style="{StaticResource NavButtonStyle}" Tag="Snippets" Click="NavigationButton_Click">
+                            <StackPanel Orientation="Horizontal" Spacing="12">
+                                <FontIcon FontFamily="Segoe Fluent Icons" FontSize="18" Glyph="&#xE8C8;" />
+                                <TextBlock VerticalAlignment="Center" Text="Snippets" />
+                            </StackPanel>
+                        </Button>
+                        <Border Height="1" Margin="12,9" Background="{ThemeResource ShrutiBorderSubtleBrush}" />
+                        <Button
+                            x:Name="ModelsNavButton"
+                            ToolTipService.ToolTip="Models" AutomationProperties.Name="Models"
+                            Style="{StaticResource NavButtonStyle}"
+                            Tag="Models"
+                            Click="NavigationButton_Click">
+                            <StackPanel Orientation="Horizontal" Spacing="12">
+                                <FontIcon FontFamily="Segoe Fluent Icons" FontSize="18" Glyph="&#xE81E;" />
+                                <TextBlock VerticalAlignment="Center" Text="Models" />
+                            </StackPanel>
+                        </Button>
+                        <Button
+                            x:Name="SettingsNavButton"
+                            ToolTipService.ToolTip="Settings" AutomationProperties.Name="Settings"
+                            Style="{StaticResource NavButtonStyle}"
+                            Tag="Settings"
+                            Click="NavigationButton_Click">
+                            <StackPanel Orientation="Horizontal" Spacing="12">
+                                <FontIcon FontFamily="Segoe Fluent Icons" FontSize="18" Glyph="&#xE713;" />
+                                <TextBlock VerticalAlignment="Center" Text="Settings" />
+                            </StackPanel>
+                        </Button>
+                    </StackPanel>
+                </ScrollViewer>
+                <Button x:Name="SidebarModel" Grid.Row="1" Padding="12" HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch"
                         AutomationProperties.Name="Manage selected speech model" Tag="Models" Click="NavigationButton_Click"
                         Background="{ThemeResource ShrutiPageBrush}" BorderBrush="{ThemeResource ShrutiBorderSubtleBrush}" CornerRadius="9">
                     <Grid RowSpacing="4" ColumnSpacing="6">
                         <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
                         <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
-                        <TextBlock FontSize="12" Foreground="{ThemeResource ShrutiTextSecondaryBrush}" Text="Selected model" />
+                        <TextBlock x:Name="ModelCardLabel" TextWrapping="Wrap" FontSize="12" Foreground="{ThemeResource ShrutiTextSecondaryBrush}" Text="Speech model" />
                         <FontIcon Grid.Column="1" FontFamily="Segoe Fluent Icons" FontSize="11" Glyph="&#xE76C;" />
                         <TextBlock Grid.Row="1" Grid.ColumnSpan="2" x:Name="ModelSummaryText" FontSize="15" FontWeight="SemiBold" Text="Whisper tiny.en" TextWrapping="Wrap" MaxLines="2" TextTrimming="CharacterEllipsis" />
-                        <StackPanel Grid.Row="2" Grid.ColumnSpan="2" Orientation="Horizontal" Spacing="7">
+                        <Grid Grid.Row="2" Grid.ColumnSpan="2" ColumnSpacing="4">
+                            <Grid.ColumnDefinitions><ColumnDefinition Width="Auto" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
                             <Border x:Name="ActiveComputeBadgeBorder" Padding="5,1" Background="{ThemeResource ShrutiCpuSoftBrush}" CornerRadius="4">
                                 <TextBlock x:Name="ActiveComputeBadgeText" FontSize="11" FontWeight="SemiBold" Foreground="{ThemeResource ShrutiCpuBrush}" Text="CPU" />
                             </Border>
-                            <TextBlock x:Name="BackendSummaryText" VerticalAlignment="Center" FontSize="12" Foreground="{ThemeResource ShrutiTextSecondaryBrush}" Text="on this PC" TextTrimming="CharacterEllipsis" />
-                        </StackPanel>
+                            <TextBlock Grid.Column="1" x:Name="BackendSummaryText" VerticalAlignment="Center" FontSize="12" Foreground="{ThemeResource ShrutiTextSecondaryBrush}" Text="on this PC" TextWrapping="Wrap" />
+                        </Grid>
                     </Grid>
                 </Button>
             </Grid>
@@ -239,27 +252,24 @@
                                     <TextBlock x:Name="ErrorText" Grid.Column="1" AutomationProperties.LiveSetting="Assertive" Foreground="{ThemeResource ShrutiTextPrimaryBrush}" TextWrapping="Wrap" />
                                 </Grid>
                                 <TextBlock x:Name="UserMessageText" AutomationProperties.LiveSetting="Polite" Style="{StaticResource MutedTextStyle}" Text="Dictation is ready." />
-                                <StackPanel x:Name="PreviewTools" Orientation="Horizontal" Spacing="10">
-                                    <Button x:Name="UseOriginalButton" Content="Restore original text" Click="UseOriginalButton_Click" />
-                                    <Button x:Name="ReviewCorrectionButton" Content="Save a correction to Dictionary" Click="ReviewCorrectionButton_Click" />
-                                </StackPanel>
-                                <Grid Padding="0,8,0,0" ColumnSpacing="12">
-                                    <Grid.ColumnDefinitions>
-                                        <ColumnDefinition Width="*" />
-                                        <ColumnDefinition Width="Auto" />
-                                    </Grid.ColumnDefinitions>
-                                    <CheckBox x:Name="ReplaceSelectionCheckBox" Content="Replace selected text" Visibility="Collapsed" />
-                                    <Grid Grid.Column="1" ColumnSpacing="8">
-                                        <Grid.ColumnDefinitions>
-                                            <ColumnDefinition Width="Auto" />
-                                            <ColumnDefinition Width="Auto" />
-                                            <ColumnDefinition Width="Auto" />
-                                        </Grid.ColumnDefinitions>
-                                        <Button x:Name="RetryButton" Content="Record again" AutomationProperties.Name="Record again" Click="RetryButton_Click" />
-                                        <Button x:Name="CopyButton" Grid.Column="1" Content="Copy" AutomationProperties.Name="Copy transcript" Click="CopyButton_Click" />
-                                        <Button x:Name="InsertPreviewButton" Grid.Column="2" Content="Insert" AutomationProperties.Name="Insert preview transcript"
-                                                Style="{StaticResource LibraryPrimaryButton}" Click="InsertPreviewButton_Click" />
-                                    </Grid>
+                                <Grid ColumnSpacing="8">
+                                    <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                                    <DropDownButton x:Name="PreviewTools" HorizontalAlignment="Left" Content="More actions" MinHeight="35"
+                                                    AutomationProperties.Name="More transcript actions">
+                                        <DropDownButton.Flyout>
+                                            <MenuFlyout Placement="BottomEdgeAlignedLeft" MenuFlyoutPresenterStyle="{StaticResource OpaqueMenuFlyoutPresenterStyle}">
+                                                <MenuFlyoutItem x:Name="CopyPreviewMenuItem" Text="Copy transcript" Click="CopyButton_Click" />
+                                                <ToggleMenuFlyoutItem x:Name="ReplaceSelectionMenuItem" Text="Allow replacing selected text" />
+                                                <MenuFlyoutItem x:Name="UseOriginalButton" Text="Restore original text" Click="UseOriginalButton_Click" />
+                                                <MenuFlyoutItem x:Name="ReviewCorrectionButton" Text="Save a correction to Dictionary" Click="ReviewCorrectionButton_Click" />
+                                                <MenuFlyoutItem x:Name="RecordAgainMenuItem" Text="Record again" Click="RetryButton_Click" />
+                                            </MenuFlyout>
+                                        </DropDownButton.Flyout>
+                                    </DropDownButton>
+                                    <Button x:Name="RetryButton" Grid.Column="1" Content="Record again" AutomationProperties.Name="Record again" Style="{StaticResource LibraryPrimaryButton}" Click="RetryButton_Click" />
+                                    <Button x:Name="CopyButton" Grid.Column="1" Content="Copy transcript" AutomationProperties.Name="Copy transcript" Style="{StaticResource LibraryPrimaryButton}" Click="CopyButton_Click" />
+                                    <Button x:Name="InsertPreviewButton" Grid.Column="1" Content="Insert" AutomationProperties.Name="Insert preview transcript"
+                                            Style="{StaticResource LibraryPrimaryButton}" Click="InsertPreviewButton_Click" />
                                 </Grid>
                             </StackPanel>
                         </Border>
@@ -271,39 +281,25 @@
             <local:SnippetsControl x:Name="SnippetsPage" Visibility="Collapsed" />
             <ScrollViewer x:Name="ModelsPage" Visibility="Collapsed" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" HorizontalContentAlignment="Stretch">
                 <StackPanel Padding="40,36,40,48" Spacing="0">
-                    <TextBlock Text="Models" FontFamily="Segoe UI Variable Display, Segoe UI" FontWeight="SemiBold" FontSize="32" />
-                    <TextBlock Margin="0,8,0,24" Style="{StaticResource MutedTextStyle}" Text="Start with tiny.en for the smallest download. Try a larger model if Shruti misses words you use." />
-                    <Grid Margin="0,0,0,10" ColumnSpacing="12">
+                    <Grid Margin="0,0,0,20" ColumnSpacing="12">
                         <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
-                        <TextBlock VerticalAlignment="Center" FontSize="19" FontWeight="SemiBold" Text="Speech models" />
-                        <Border Grid.Column="1" Padding="3" Background="{ThemeResource ShrutiSunkenBrush}" CornerRadius="9" AutomationProperties.Name="Filter speech models by processor">
-                            <StackPanel Orientation="Horizontal" Spacing="2">
-                                <Button x:Name="BackendAutoButton" Style="{StaticResource ComputeButtonStyle}" Tag="Auto" Click="BackendButton_Click" Content="All" />
-                                <Button x:Name="BackendNpuButton" Style="{StaticResource ComputeButtonStyle}" Tag="Npu" Click="BackendButton_Click" Content="NPU" />
-                                <Button x:Name="BackendGpuButton" Style="{StaticResource ComputeButtonStyle}" Tag="Gpu" Click="BackendButton_Click" Content="GPU" />
-                                <Button x:Name="BackendCpuButton" Style="{StaticResource ComputeButtonStyle}" Tag="Cpu" Click="BackendButton_Click" Content="CPU" />
-                            </StackPanel>
-                        </Border>
+                        <TextBlock Text="Models" FontFamily="Segoe UI Variable Display, Segoe UI" FontWeight="SemiBold" FontSize="32" />
+                        <HyperlinkButton Grid.Column="1" VerticalAlignment="Center" Content="Dictation cleanup" Click="JumpToCleanup_Click" Padding="6,3" />
                     </Grid>
-                    <TextBlock x:Name="ModelsStatusText" Margin="0,0,0,12" Style="{StaticResource MutedTextStyle}" FontSize="13" AutomationProperties.LiveSetting="Polite" Text="Checking installed models" />
-                    <ProgressBar x:Name="ModelDownloadProgressBar" Margin="0,0,0,8" Height="4" IsIndeterminate="False" Maximum="100" Minimum="0" Visibility="Collapsed" />
-                    <TextBlock x:Name="ModelsDirectoryText" Style="{StaticResource CaptionTextStyle}" TextTrimming="CharacterEllipsis" Visibility="Collapsed" />
-                    <Border Style="{StaticResource CardBorderStyle}" CornerRadius="12">
-                        <StackPanel x:Name="ModelListPanel" />
-                    </Border>
-                    <TextBlock Margin="0,28,0,12" FontSize="20" FontWeight="SemiBold" Text="Transcription processor" />
-                    <Border Style="{StaticResource CardBorderStyle}" Padding="18,0" CornerRadius="12">
+                    <TextBlock Margin="0,0,0,8" FontSize="19" FontWeight="SemiBold" Text="Run dictation on" />
+                    <Border Style="{StaticResource CardBorderStyle}" Padding="16,0" CornerRadius="12" Margin="0,0,0,20">
                         <StackPanel>
-                            <Grid Padding="0,14" ColumnSpacing="14">
+                            <Grid Padding="0,12" ColumnSpacing="14" SizeChanged="ProcessorLayout_SizeChanged">
+                                <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
                                 <Grid.ColumnDefinitions>
                                     <ColumnDefinition Width="*" />
                                     <ColumnDefinition Width="Auto" />
                                 </Grid.ColumnDefinitions>
-                                <StackPanel VerticalAlignment="Center" Spacing="3">
+                                <StackPanel x:Name="ProcessorDescription" VerticalAlignment="Center" Spacing="3">
                                     <TextBlock x:Name="SelectedModelStatusText" FontWeight="SemiBold" Text="Checking model" TextWrapping="Wrap" />
-                                    <TextBlock Style="{StaticResource MutedTextStyle}" Text="Auto chooses a processor for the selected model." />
+                                    <TextBlock Style="{StaticResource MutedTextStyle}" x:Name="ProcessorResolutionText" Text="Checking processor availability." />
                                 </StackPanel>
-                                <Border Grid.Column="1" VerticalAlignment="Center" Background="{ThemeResource ShrutiSunkenBrush}" Padding="3" CornerRadius="9">
+                                <Border x:Name="ProcessorChoices" Grid.Column="1" VerticalAlignment="Center" Background="{ThemeResource ShrutiSunkenBrush}" Padding="3" CornerRadius="9">
                                     <StackPanel Orientation="Horizontal" Spacing="2">
                                         <Button x:Name="ProcessorAutoButton" Style="{StaticResource ComputeButtonStyle}" Tag="Auto" Click="BackendButton_Click" Content="Auto" />
                                         <Button x:Name="ProcessorNpuButton" Style="{StaticResource ComputeButtonStyle}" Tag="Npu" Click="BackendButton_Click" Content="NPU" />
@@ -312,8 +308,41 @@
                                     </StackPanel>
                                 </Border>
                             </Grid>
-                            <Border Height="1" Background="{ThemeResource ShrutiBorderSubtleBrush}" />
                         </StackPanel>
+                    </Border>
+                    <Grid Margin="0,0,0,10" ColumnSpacing="12">
+                        <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                        <TextBlock VerticalAlignment="Center" FontSize="19" FontWeight="SemiBold" Text="Speech models" />
+                        <DropDownButton x:Name="CatalogFilterButton" Grid.Column="1" ToolTipService.ToolTip="Filter the catalog by processor compatibility"
+                                        AutomationProperties.Name="Filter speech models by processor">
+                            <DropDownButton.Content>
+                                <StackPanel Orientation="Horizontal" Spacing="7">
+                                    <FontIcon FontFamily="Segoe Fluent Icons" FontSize="13" Glyph="&#xE71C;" />
+                                    <TextBlock x:Name="CatalogFilterLabel" Text="Filter models" />
+                                </StackPanel>
+                            </DropDownButton.Content>
+                            <DropDownButton.Flyout>
+                                <MenuFlyout MenuFlyoutPresenterStyle="{StaticResource OpaqueMenuFlyoutPresenterStyle}">
+                                    <RadioMenuFlyoutItem Text="All speech models" Tag="Auto" IsChecked="True" Click="CatalogFilter_Click" />
+                                    <RadioMenuFlyoutItem Text="NPU models" Tag="Npu" Click="CatalogFilter_Click" />
+                                    <RadioMenuFlyoutItem Text="GPU models" Tag="Gpu" Click="CatalogFilter_Click" />
+                                    <RadioMenuFlyoutItem Text="CPU models" Tag="Cpu" Click="CatalogFilter_Click" />
+                                </MenuFlyout>
+                            </DropDownButton.Flyout>
+                        </DropDownButton>
+                    </Grid>
+                    <Grid Margin="0,0,0,8" ColumnSpacing="10">
+                        <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                        <TextBlock x:Name="ModelsStatusText" Style="{StaticResource MutedTextStyle}" FontSize="13" AutomationProperties.LiveSetting="Polite" Text="Checking installed models" />
+                        <TextBlock x:Name="ModelTransferPercent" Grid.Column="1" FontWeight="SemiBold" Foreground="{ThemeResource ShrutiAccentBrush}"
+                                   Visibility="{Binding Visibility, ElementName=ModelDownloadProgressBar}" />
+                    </Grid>
+                    <InfoBar x:Name="ModelInstallError" Severity="Error" IsClosable="True" Margin="0,0,0,12"
+                             AutomationProperties.LiveSetting="Assertive" />
+                    <ProgressBar x:Name="ModelDownloadProgressBar" Margin="0,0,0,8" Height="6" Foreground="{ThemeResource ShrutiAccentBrush}" IsIndeterminate="False" Maximum="100" Minimum="0" Visibility="Collapsed" />
+                    <TextBlock x:Name="ModelsDirectoryText" Style="{StaticResource CaptionTextStyle}" TextTrimming="CharacterEllipsis" Visibility="Collapsed" />
+                    <Border Style="{StaticResource CardBorderStyle}" CornerRadius="12">
+                        <StackPanel x:Name="ModelListPanel" />
                     </Border>
                     <Grid Visibility="Collapsed">
                         <ComboBox x:Name="ModelSelectionComboBox" SelectionChanged="ModelSelectionComboBox_SelectionChanged" />
@@ -347,6 +376,7 @@
                                 <StaticResource x:Key="CheckBoxCheckBackgroundStrokeCheckedPointerOver" ResourceKey="ToggleSwitchFillOnPointerOver" />
                                 <StaticResource x:Key="CheckBoxCheckBackgroundFillCheckedPressed" ResourceKey="ToggleSwitchFillOnPointerOver" />
                                 <StaticResource x:Key="CheckBoxCheckBackgroundStrokeCheckedPressed" ResourceKey="ToggleSwitchFillOnPointerOver" />
+                                <StaticResource x:Key="SelectorBarItemPillFill" ResourceKey="ToggleSwitchFillOn" />
                                 <StaticResource x:Key="ComboBoxItemPillFillBrush" ResourceKey="ToggleSwitchFillOn" />
                                 <SolidColorBrush x:Key="ComboBoxBackground" Color="#FAF9F7" />
                                 <SolidColorBrush x:Key="ComboBoxBorderBrush" Color="#9C958C" />
@@ -366,6 +396,7 @@
                                 <StaticResource x:Key="CheckBoxCheckBackgroundStrokeCheckedPointerOver" ResourceKey="ToggleSwitchFillOnPointerOver" />
                                 <StaticResource x:Key="CheckBoxCheckBackgroundFillCheckedPressed" ResourceKey="ToggleSwitchFillOnPointerOver" />
                                 <StaticResource x:Key="CheckBoxCheckBackgroundStrokeCheckedPressed" ResourceKey="ToggleSwitchFillOnPointerOver" />
+                                <StaticResource x:Key="SelectorBarItemPillFill" ResourceKey="ToggleSwitchFillOn" />
                                 <StaticResource x:Key="ComboBoxItemPillFillBrush" ResourceKey="ToggleSwitchFillOn" />
                                 <SolidColorBrush x:Key="ComboBoxBackground" Color="#2C2925" />
                                 <SolidColorBrush x:Key="ComboBoxBorderBrush" Color="#817A72" />
@@ -377,188 +408,230 @@
                         <Style x:Key="SettingSection" TargetType="TextBlock">
                             <Setter Property="FontSize" Value="20" />
                             <Setter Property="FontWeight" Value="SemiBold" />
-                            <Setter Property="Margin" Value="0,32,0,12" />
+                            <Setter Property="Margin" Value="0,20,0,8" />
                         </Style>
                         <Style x:Key="SettingDetail" TargetType="TextBlock" BasedOn="{StaticResource MutedTextStyle}">
                             <Setter Property="FontSize" Value="13" />
                         </Style>
                     </ResourceDictionary>
                 </ScrollViewer.Resources>
-                <StackPanel Padding="40,36,40,48">
+                <StackPanel Padding="32,24,32,40">
                     <TextBlock FontFamily="Segoe UI Variable Display, Segoe UI" FontSize="32" FontWeight="SemiBold" Text="Settings" />
-                    <TextBlock Style="{StaticResource SettingSection}" Text="Dictation" />
-                    <Border Style="{StaticResource CardBorderStyle}" Padding="18,0" CornerRadius="12">
-                        <StackPanel>
-                            <Grid Padding="0,14" ColumnSpacing="14">
-                                <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="32" />
-                                    <ColumnDefinition Width="*" />
-                                    <ColumnDefinition Width="Auto" />
-                                </Grid.ColumnDefinitions>
-                                <FontIcon VerticalAlignment="Center" FontSize="18" FontFamily="Segoe Fluent Icons" Foreground="{ThemeResource ShrutiTextSecondaryBrush}" Glyph="&#xE765;" />
-                                <StackPanel Grid.Column="1" VerticalAlignment="Center" Spacing="5">
-                                    <TextBlock FontWeight="SemiBold" Text="Hold to dictate" />
-                                    <TextBlock Style="{StaticResource SettingDetail}" Text="Hold the shortcut while speaking. Release to finish." />
-                                    <StackPanel Orientation="Horizontal" Spacing="8" Margin="0,5,0,0">
-                                        <StackPanel x:Name="PushToTalkShortcutKeys" Orientation="Horizontal" VerticalAlignment="Center" Spacing="4" />
-                                        <Button x:Name="ChangeHoldShortcutButton" Style="{StaticResource SubtleButtonStyle}" AutomationProperties.Name="Change hold-to-dictate shortcut" Click="ChangeHotkeyButton_Click" Content="Change" />
+                    <SelectorBar x:Name="SettingsSections" Margin="0,8,0,8" AutomationProperties.Name="Settings sections"
+                                 SelectionChanged="SettingsSection_SelectionChanged">
+                        <SelectorBarItem x:Name="DictationTab" Text="Dictation" IsSelected="True" />
+                        <SelectorBarItem x:Name="AppearanceTab" Text="Appearance" />
+                        <SelectorBarItem x:Name="SupportTab" Text="Support" />
+                    </SelectorBar>
+                    <StackPanel x:Name="DictationSection">
+                        <Border Style="{StaticResource CardBorderStyle}" Padding="18,0" CornerRadius="12">
+                            <StackPanel>
+                                <Grid Padding="0,7" ColumnSpacing="10">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="24" />
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="Auto" />
+                                    </Grid.ColumnDefinitions>
+                                    <FontIcon VerticalAlignment="Center" FontSize="18" FontFamily="Segoe Fluent Icons" Foreground="{ThemeResource ShrutiTextSecondaryBrush}" Glyph="&#xE765;" />
+                                    <StackPanel Grid.Column="1" VerticalAlignment="Center" Spacing="2">
+                                        <TextBlock FontWeight="SemiBold" Text="Hold to dictate" />
+                                        <TextBlock Style="{StaticResource SettingDetail}" Text="Hold to speak. Release to finish." />
+                                        <StackPanel Orientation="Horizontal" Spacing="8">
+                                            <StackPanel x:Name="PushToTalkShortcutKeys" Orientation="Horizontal" VerticalAlignment="Center" Spacing="4" />
+                                            <Button x:Name="ChangeHoldShortcutButton" Style="{StaticResource SubtleButtonStyle}" AutomationProperties.Name="Change hold-to-dictate shortcut" Click="ChangeHotkeyButton_Click" Content="Change" />
+                                        </StackPanel>
+                                    </StackPanel>
+                                    <ToggleSwitch Grid.Column="2" VerticalAlignment="Center" x:Name="PushToTalkCheckBox" AutomationProperties.Name="Hold-to-dictate shortcut" MinWidth="0" OnContent="On" OffContent="Off" IsOn="True" Toggled="TriggerConfigurationToggle_Toggled" />
+                                </Grid>
+                                <Border Height="1" Background="{ThemeResource ShrutiBorderSubtleBrush}" />
+                                <Grid Padding="0,7" ColumnSpacing="10">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="24" />
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="Auto" />
+                                    </Grid.ColumnDefinitions>
+                                    <FontIcon VerticalAlignment="Center" FontSize="18" FontFamily="Segoe Fluent Icons" Foreground="{ThemeResource ShrutiTextSecondaryBrush}" Glyph="&#xE92E;" />
+                                    <StackPanel Grid.Column="1" VerticalAlignment="Center" Spacing="2">
+                                        <TextBlock FontWeight="SemiBold" Text="Press to toggle" />
+                                        <TextBlock Style="{StaticResource SettingDetail}" Text="Press to start or stop. Assign different keys to use both shortcuts." />
+                                        <StackPanel Orientation="Horizontal" Spacing="8">
+                                            <StackPanel x:Name="GlobalShortcutKeys" Orientation="Horizontal" VerticalAlignment="Center" Spacing="4" />
+                                            <Button Style="{StaticResource SubtleButtonStyle}" AutomationProperties.Name="Change single-press shortcut" Click="ChangeSinglePressHotkeyButton_Click" Content="Change" />
+                                        </StackPanel>
+                                    </StackPanel>
+                                    <ToggleSwitch Grid.Column="2" VerticalAlignment="Center" x:Name="GlobalHotkeyCheckBox" AutomationProperties.Name="Single-press global trigger" MinWidth="0" OnContent="On" OffContent="Off" IsOn="False" Toggled="TriggerConfigurationToggle_Toggled" />
+                                </Grid>
+                                <Border Height="1" Background="{ThemeResource ShrutiBorderSubtleBrush}" />
+                                <Grid Padding="0,7" ColumnSpacing="10">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="24" />
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="Auto" />
+                                    </Grid.ColumnDefinitions>
+                                    <FontIcon VerticalAlignment="Center" FontSize="18" FontFamily="Segoe Fluent Icons" Foreground="{ThemeResource ShrutiTextSecondaryBrush}" Glyph="&#xE8A7;" />
+                                    <StackPanel Grid.Column="1" VerticalAlignment="Center" Spacing="3">
+                                        <TextBlock FontWeight="SemiBold" Text="After dictation" TextWrapping="Wrap" />
+                                        <TextBlock Style="{StaticResource SettingDetail}" Text="Choose where the finished text goes." />
+                                    </StackPanel>
+                                    <ComboBox Grid.Column="2" VerticalAlignment="Center" x:Name="InsertionModeComboBox" Width="178" AutomationProperties.Name="Insertion mode" SelectionChanged="InsertionModeComboBox_SelectionChanged">
+                                        <ComboBoxItem Content="Auto-insert" Tag="AutoInsert" />
+                                        <ComboBoxItem Content="Preview first" Tag="PreviewFirst" />
+                                        <ComboBoxItem Content="Copy only" Tag="CopyOnly" />
+                                    </ComboBox>
+                                </Grid>
+                                <Border Height="1" Background="{ThemeResource ShrutiBorderSubtleBrush}" />
+                                <Grid Padding="0,7" ColumnSpacing="10">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="24" />
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="Auto" />
+                                    </Grid.ColumnDefinitions>
+                                    <FontIcon FontSize="18" Glyph="&#xE72E;" Foreground="{ThemeResource ShrutiTextSecondaryBrush}" />
+                                    <StackPanel Grid.Column="1" VerticalAlignment="Center" Spacing="3">
+                                        <TextBlock FontWeight="SemiBold" Text="Save dictation audio" />
+                                        <TextBlock Style="{StaticResource SettingDetail}" Text="Keep a WAV file on this PC for each transcribed recording. When off, audio stays in memory." />
+                                        <HyperlinkButton Padding="0" Content="Open recordings folder" Click="OpenRecordingsFolder_Click" />
+                                    </StackPanel>
+                                    <ToggleSwitch x:Name="SaveAudioSwitch" Grid.Column="2" VerticalAlignment="Center" MinWidth="0" OnContent="On" OffContent="Off" AutomationProperties.Name="Save dictation audio" Toggled="SaveAudioSwitch_Toggled" />
+                                </Grid>
+                                <Border Height="1" Background="{ThemeResource ShrutiBorderSubtleBrush}" />
+                                <Grid Padding="0,7" ColumnSpacing="10">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="24" />
+                                        <ColumnDefinition Width="*" />
+                                    </Grid.ColumnDefinitions>
+                                    <FontIcon VerticalAlignment="Top" Margin="0,3,0,0" FontSize="18" FontFamily="Segoe Fluent Icons" Foreground="{ThemeResource ShrutiTextSecondaryBrush}" Glyph="&#xE720;" />
+                                    <StackPanel Grid.Column="1" Spacing="3">
+                                        <Grid ColumnSpacing="8">
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="*" />
+                                                <ColumnDefinition Width="1.5*" MaxWidth="310" />
+                                            </Grid.ColumnDefinitions>
+                                            <TextBlock VerticalAlignment="Center" FontWeight="SemiBold" Text="Microphone" TextWrapping="Wrap" />
+                                            <ComboBox Grid.Column="1" x:Name="AudioDeviceComboBox" HorizontalAlignment="Stretch" AutomationProperties.Name="Microphone" IsEnabled="False" PlaceholderText="Loading microphones" SelectionChanged="AudioDeviceComboBox_SelectionChanged" />
+                                        </Grid>
+                                        <Border x:Name="MicrophoneRecoveryPanel" Visibility="Collapsed" Padding="12,8" Margin="0,3,0,0"
+                                                Background="{ThemeResource ShrutiSunkenBrush}" CornerRadius="6">
+                                            <StackPanel Spacing="3">
+                                                <TextBlock x:Name="MicrophoneRecoveryText" FontWeight="SemiBold" TextWrapping="Wrap"
+                                                           AutomationProperties.LiveSetting="Polite" />
+                                                <TextBlock x:Name="MicrophoneRecoveryHelp" FontSize="13" TextWrapping="Wrap"
+                                                           Text="Connect a microphone and allow desktop apps to use it." />
+                                                <HyperlinkButton x:Name="MicrophonePrivacyLink" Content="Open Windows microphone settings" NavigateUri="ms-settings:privacy-microphone" Padding="0" />
+                                            </StackPanel>
+                                        </Border>
+                                    </StackPanel>
+                                </Grid>
+                            </StackPanel>
+                        </Border>
+                        <TextBlock x:Name="TriggerStatusText" Margin="0,8,0,0" Style="{StaticResource SettingDetail}" AutomationProperties.LiveSetting="Polite" Visibility="Collapsed" />
+                    </StackPanel>
+                    <StackPanel x:Name="AppearanceSection" Visibility="Collapsed">
+                        <Border Style="{StaticResource CardBorderStyle}" Padding="18,0" CornerRadius="12">
+                            <StackPanel>
+                                <Grid Padding="0,7" ColumnSpacing="10">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="32" />
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="Auto" />
+                                    </Grid.ColumnDefinitions>
+                                    <FontIcon VerticalAlignment="Center" FontSize="18" FontFamily="Segoe Fluent Icons" Foreground="{ThemeResource ShrutiTextSecondaryBrush}" Glyph="&#xE790;" />
+                                    <StackPanel Grid.Column="1" VerticalAlignment="Center" Spacing="3">
+                                        <TextBlock FontWeight="SemiBold" Text="Theme" TextWrapping="Wrap" />
+                                    </StackPanel>
+                                    <ComboBox Grid.Column="2" VerticalAlignment="Center" x:Name="ThemeComboBox" Width="178" AutomationProperties.Name="Theme" SelectionChanged="ThemeComboBox_SelectionChanged">
+                                        <ComboBoxItem Content="Use Windows setting" Tag="Default" />
+                                        <ComboBoxItem Content="Light" Tag="Light" />
+                                        <ComboBoxItem Content="Dark" Tag="Dark" />
+                                    </ComboBox>
+                                </Grid>
+                                <Border Height="1" Background="{ThemeResource ShrutiBorderSubtleBrush}" />
+                                <Grid Padding="0,7" ColumnSpacing="10">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="32" />
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="Auto" />
+                                    </Grid.ColumnDefinitions>
+                                    <FontIcon VerticalAlignment="Center" FontSize="18" FontFamily="Segoe Fluent Icons" Foreground="{ThemeResource ShrutiTextSecondaryBrush}" Glyph="&#xE7C8;" />
+                                    <StackPanel Grid.Column="1" VerticalAlignment="Center" Spacing="3">
+                                        <TextBlock FontWeight="SemiBold" Text="Floating dictation bar" TextWrapping="Wrap" />
+                                        <TextBlock x:Name="BarPlacementSummary" FontSize="13" TextWrapping="Wrap" />
+                                    </StackPanel>
+                                    <ToggleSwitch Grid.Column="2" VerticalAlignment="Center" x:Name="FloatingBarCheckBox" AutomationProperties.Name="Show floating dictation bar" MinWidth="0" OnContent="On" OffContent="Off" IsOn="True" Toggled="FloatingBarCheckBox_Toggled" />
+                                </Grid>
+                                <StackPanel x:Name="BarPlacementSettings">
+                                    <Border Height="1" Background="{ThemeResource ShrutiBorderSubtleBrush}" />
+                                    <Grid x:Name="PlacementModeRow" Padding="0,7" ColumnSpacing="10" SizeChanged="PlacementLayout_SizeChanged">
+                                        <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="32" />
+                                            <ColumnDefinition Width="*" />
+                                            <ColumnDefinition Width="Auto" />
+                                        </Grid.ColumnDefinitions>
+                                        <FontIcon VerticalAlignment="Center" FontSize="18" FontFamily="Segoe Fluent Icons" Foreground="{ThemeResource ShrutiTextSecondaryBrush}" Glyph="&#xEBC6;" />
+                                        <StackPanel x:Name="PlacementModeLabel" Grid.Column="1" VerticalAlignment="Center" Spacing="3">
+                                            <TextBlock FontWeight="SemiBold" Text="Show the bar on" TextWrapping="Wrap" />
+                                        </StackPanel>
+                                        <ComboBox Grid.Column="2" VerticalAlignment="Center" x:Name="FloatingBarDisplayModeComboBox" Width="178" AutomationProperties.Name="Show the bar on" SelectionChanged="FloatingBarDisplayPreference_SelectionChanged">
+                                            <ComboBoxItem Content="One monitor" />
+                                            <ComboBoxItem Content="All monitors" />
+                                        </ComboBox>
+                                    </Grid>
+                                    <StackPanel x:Name="SingleMonitorSettings">
+                                        <Border Height="1" Background="{ThemeResource ShrutiBorderSubtleBrush}" />
+                                        <Grid x:Name="PlacementMonitorRow" Padding="0,7" ColumnSpacing="10" SizeChanged="PlacementLayout_SizeChanged">
+                                            <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="32" />
+                                                <ColumnDefinition Width="*" />
+                                                <ColumnDefinition Width="Auto" />
+                                            </Grid.ColumnDefinitions>
+                                            <FontIcon VerticalAlignment="Center" FontSize="18" FontFamily="Segoe Fluent Icons" Foreground="{ThemeResource ShrutiTextSecondaryBrush}" Glyph="&#xE7F4;" />
+                                            <StackPanel x:Name="PlacementMonitorLabel" Grid.Column="1" Spacing="3">
+                                                <TextBlock FontWeight="SemiBold" Text="Monitor" />
+                                                <TextBlock x:Name="FloatingBarMonitorStatusText" Style="{StaticResource SettingDetail}" Visibility="Collapsed" />
+                                            </StackPanel>
+                                            <ComboBox Grid.Column="2" VerticalAlignment="Center" x:Name="FloatingBarMonitorComboBox" Width="178" AutomationProperties.Name="Monitor" SelectionChanged="FloatingBarDisplayPreference_SelectionChanged" />
+                                        </Grid>
                                     </StackPanel>
                                 </StackPanel>
-                                <ToggleSwitch Grid.Column="2" VerticalAlignment="Center" x:Name="PushToTalkCheckBox" AutomationProperties.Name="Hold-to-dictate shortcut" MinWidth="0" OnContent="" OffContent="" IsOn="True" Toggled="TriggerConfigurationToggle_Toggled" />
-                            </Grid>
-                            <Border Height="1" Background="{ThemeResource ShrutiBorderSubtleBrush}" />
-                            <Grid Padding="0,14" ColumnSpacing="14">
-                                <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="32" />
-                                    <ColumnDefinition Width="*" />
-                                    <ColumnDefinition Width="Auto" />
-                                </Grid.ColumnDefinitions>
-                                <FontIcon VerticalAlignment="Center" FontSize="18" FontFamily="Segoe Fluent Icons" Foreground="{ThemeResource ShrutiTextSecondaryBrush}" Glyph="&#xE92E;" />
-                                <StackPanel Grid.Column="1" VerticalAlignment="Center" Spacing="5">
-                                    <TextBlock FontWeight="SemiBold" Text="Press to toggle" />
-                                    <TextBlock Style="{StaticResource SettingDetail}" Text="Press once to start dictation and again to finish." />
-                                    <StackPanel Orientation="Horizontal" Spacing="8" Margin="0,5,0,0">
-                                        <StackPanel x:Name="GlobalShortcutKeys" Orientation="Horizontal" VerticalAlignment="Center" Spacing="4" />
-                                        <Button Style="{StaticResource SubtleButtonStyle}" AutomationProperties.Name="Change single-press shortcut" Click="ChangeSinglePressHotkeyButton_Click" Content="Change" />
+                                <Border Height="1" Background="{ThemeResource ShrutiBorderSubtleBrush}" />
+                                <Grid Padding="0,7" ColumnSpacing="10">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="32" />
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="Auto" />
+                                    </Grid.ColumnDefinitions>
+                                    <FontIcon VerticalAlignment="Center" FontSize="18" FontFamily="Segoe Fluent Icons" Foreground="{ThemeResource ShrutiTextSecondaryBrush}" Glyph="&#xE700;" />
+                                    <StackPanel Grid.Column="1" VerticalAlignment="Center" Spacing="3">
+                                        <TextBlock FontWeight="SemiBold" Text="Dictation commands in tray" TextWrapping="Wrap" />
                                     </StackPanel>
-                                </StackPanel>
-                                <ToggleSwitch Grid.Column="2" VerticalAlignment="Center" x:Name="GlobalHotkeyCheckBox" AutomationProperties.Name="Single-press global trigger" MinWidth="0" OnContent="" OffContent="" IsOn="False" Toggled="TriggerConfigurationToggle_Toggled" />
-                            </Grid>
-                            <Border Height="1" Background="{ThemeResource ShrutiBorderSubtleBrush}" />
-                            <Grid Padding="0,14" ColumnSpacing="14">
-                                <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="32" />
-                                    <ColumnDefinition Width="*" />
-                                    <ColumnDefinition Width="Auto" />
-                                </Grid.ColumnDefinitions>
-                                <FontIcon VerticalAlignment="Center" FontSize="18" FontFamily="Segoe Fluent Icons" Foreground="{ThemeResource ShrutiTextSecondaryBrush}" Glyph="&#xE8A7;" />
-                                <StackPanel Grid.Column="1" VerticalAlignment="Center" Spacing="3">
-                                    <TextBlock FontWeight="SemiBold" Text="After dictation" TextWrapping="Wrap" />
-                                    <TextBlock Style="{StaticResource SettingDetail}" Text="Choose where the finished text goes." />
-                                </StackPanel>
-                                <ComboBox Grid.Column="2" VerticalAlignment="Center" x:Name="InsertionModeComboBox" Width="178" AutomationProperties.Name="Insertion mode" SelectionChanged="InsertionModeComboBox_SelectionChanged">
-                                    <ComboBoxItem Content="Auto-insert" Tag="AutoInsert" />
-                                    <ComboBoxItem Content="Preview first" Tag="PreviewFirst" />
-                                    <ComboBoxItem Content="Copy only" Tag="CopyOnly" />
-                                </ComboBox>
-                            </Grid>
-                            <Border Height="1" Background="{ThemeResource ShrutiBorderSubtleBrush}" />
-                            <Grid Padding="0,14" ColumnSpacing="14">
-                                <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="32" />
-                                    <ColumnDefinition Width="*" />
-                                </Grid.ColumnDefinitions>
-                                <FontIcon VerticalAlignment="Top" Margin="0,3,0,0" FontSize="18" FontFamily="Segoe Fluent Icons" Foreground="{ThemeResource ShrutiTextSecondaryBrush}" Glyph="&#xE720;" />
-                                <StackPanel Grid.Column="1" Spacing="3">
-                                    <TextBlock FontWeight="SemiBold" Text="Microphone" TextWrapping="Wrap" />
-                                    <ComboBox x:Name="AudioDeviceComboBox" Margin="0,5,0,0" HorizontalAlignment="Stretch" AutomationProperties.Name="Microphone" IsEnabled="False" PlaceholderText="Loading microphones" SelectionChanged="AudioDeviceComboBox_SelectionChanged" />
-                                </StackPanel>
-                            </Grid>
-                            <Border Height="1" Background="{ThemeResource ShrutiBorderSubtleBrush}" />
-                            <Grid Padding="0,14" ColumnSpacing="14">
-                                <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="32" />
-                                    <ColumnDefinition Width="*" />
-                                    <ColumnDefinition Width="Auto" />
-                                </Grid.ColumnDefinitions>
-                                <FontIcon FontSize="18" Glyph="&#xE72E;" Foreground="{ThemeResource ShrutiTextSecondaryBrush}" />
-                                <StackPanel Grid.Column="1" VerticalAlignment="Center" Spacing="3">
-                                    <TextBlock FontWeight="SemiBold" Text="Save dictation audio" />
-                                    <TextBlock Style="{StaticResource SettingDetail}" Text="Keep a WAV file on this PC for each transcribed recording. When off, audio stays in memory." />
-                                    <HyperlinkButton Padding="0" Content="Open recordings folder" Click="OpenRecordingsFolder_Click" />
-                                </StackPanel>
-                                <ToggleSwitch x:Name="SaveAudioSwitch" Grid.Column="2" VerticalAlignment="Center" MinWidth="0" OnContent="" OffContent="" AutomationProperties.Name="Save dictation audio" Toggled="SaveAudioSwitch_Toggled" />
-                            </Grid>
-                        </StackPanel>
-                    </Border>
-                    <TextBlock x:Name="TriggerStatusText" Margin="0,8,0,0" Style="{StaticResource SettingDetail}" AutomationProperties.LiveSetting="Polite" Visibility="Collapsed" />
-                    <TextBlock Style="{StaticResource SettingSection}" Text="Appearance" />
-                    <Border Style="{StaticResource CardBorderStyle}" Padding="18,0" CornerRadius="12">
-                        <StackPanel>
-                            <Grid Padding="0,14" ColumnSpacing="14">
-                                <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="32" />
-                                    <ColumnDefinition Width="*" />
-                                    <ColumnDefinition Width="Auto" />
-                                </Grid.ColumnDefinitions>
-                                <FontIcon VerticalAlignment="Center" FontSize="18" FontFamily="Segoe Fluent Icons" Foreground="{ThemeResource ShrutiTextSecondaryBrush}" Glyph="&#xE790;" />
-                                <StackPanel Grid.Column="1" VerticalAlignment="Center" Spacing="3">
-                                    <TextBlock FontWeight="SemiBold" Text="Theme" TextWrapping="Wrap" />
-                                </StackPanel>
-                                <ComboBox Grid.Column="2" VerticalAlignment="Center" x:Name="ThemeComboBox" Width="178" AutomationProperties.Name="Theme" SelectionChanged="ThemeComboBox_SelectionChanged">
-                                    <ComboBoxItem Content="Use Windows setting" Tag="Default" />
-                                    <ComboBoxItem Content="Light" Tag="Light" />
-                                    <ComboBoxItem Content="Dark" Tag="Dark" />
-                                </ComboBox>
-                            </Grid>
-                            <Border Height="1" Background="{ThemeResource ShrutiBorderSubtleBrush}" />
-                            <Grid Padding="0,14" ColumnSpacing="14">
-                                <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="32" />
-                                    <ColumnDefinition Width="*" />
-                                    <ColumnDefinition Width="Auto" />
-                                </Grid.ColumnDefinitions>
-                                <FontIcon VerticalAlignment="Center" FontSize="18" FontFamily="Segoe Fluent Icons" Foreground="{ThemeResource ShrutiTextSecondaryBrush}" Glyph="&#xE7F4;" />
-                                <StackPanel Grid.Column="1" VerticalAlignment="Center" Spacing="3">
-                                    <TextBlock FontWeight="SemiBold" Text="Floating dictation bar" TextWrapping="Wrap" />
-                                    <TextBlock Style="{StaticResource SettingDetail}" Text="Display recording controls above the taskbar." />
-                                </StackPanel>
-                                <ToggleSwitch Grid.Column="2" VerticalAlignment="Center" x:Name="FloatingBarCheckBox" AutomationProperties.Name="Show floating dictation bar" MinWidth="0" OnContent="" OffContent="" IsOn="True" Toggled="FloatingBarCheckBox_Toggled" />
-                            </Grid>
-                            <Border Height="1" Background="{ThemeResource ShrutiBorderSubtleBrush}" />
-                            <Grid Padding="0,14" ColumnSpacing="14">
-                                <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="32" />
-                                    <ColumnDefinition Width="*" />
-                                    <ColumnDefinition Width="Auto" />
-                                </Grid.ColumnDefinitions>
-                                <FontIcon VerticalAlignment="Center" FontSize="18" FontFamily="Segoe Fluent Icons" Foreground="{ThemeResource ShrutiTextSecondaryBrush}" Glyph="&#xE7F4;" />
-                                <StackPanel Grid.Column="1" VerticalAlignment="Center" Spacing="3">
-                                    <TextBlock FontWeight="SemiBold" Text="Show the bar on" TextWrapping="Wrap" />
-                                </StackPanel>
-                                <ComboBox Grid.Column="2" VerticalAlignment="Center" x:Name="FloatingBarDisplayModeComboBox" Width="178" AutomationProperties.Name="Show the bar on" SelectionChanged="FloatingBarDisplayPreference_SelectionChanged">
-                                    <ComboBoxItem Content="One monitor" />
-                                    <ComboBoxItem Content="All monitors" />
-                                </ComboBox>
-                            </Grid>
-                            <Border Height="1" Background="{ThemeResource ShrutiBorderSubtleBrush}" />
-                            <Grid Padding="0,14" ColumnSpacing="14">
-                                <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="32" />
-                                    <ColumnDefinition Width="*" />
-                                    <ColumnDefinition Width="Auto" />
-                                </Grid.ColumnDefinitions>
-                                <FontIcon VerticalAlignment="Center" FontSize="18" FontFamily="Segoe Fluent Icons" Foreground="{ThemeResource ShrutiTextSecondaryBrush}" Glyph="&#xE7F4;" />
-                                <StackPanel Grid.Column="1" Spacing="3">
-                                    <TextBlock FontWeight="SemiBold" Text="Monitor" />
-                                    <TextBlock x:Name="FloatingBarMonitorStatusText" Style="{StaticResource SettingDetail}" Visibility="Collapsed" />
-                                </StackPanel>
-                                <ComboBox Grid.Column="2" VerticalAlignment="Center" x:Name="FloatingBarMonitorComboBox" Width="178" AutomationProperties.Name="Monitor" SelectionChanged="FloatingBarDisplayPreference_SelectionChanged" />
-                            </Grid>
-                            <Border Height="1" Background="{ThemeResource ShrutiBorderSubtleBrush}" />
-                            <Grid Padding="0,14" ColumnSpacing="14">
-                                <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="32" />
-                                    <ColumnDefinition Width="*" />
-                                    <ColumnDefinition Width="Auto" />
-                                </Grid.ColumnDefinitions>
-                                <FontIcon VerticalAlignment="Center" FontSize="18" FontFamily="Segoe Fluent Icons" Foreground="{ThemeResource ShrutiTextSecondaryBrush}" Glyph="&#xE700;" />
-                                <StackPanel Grid.Column="1" VerticalAlignment="Center" Spacing="3">
-                                    <TextBlock FontWeight="SemiBold" Text="Tray menu commands" TextWrapping="Wrap" />
-                                    <TextBlock Style="{StaticResource SettingDetail}" Text="Start or stop dictation from the system tray." />
-                                </StackPanel>
-                                <ToggleSwitch Grid.Column="2" VerticalAlignment="Center" x:Name="TrayMenuCheckBox" AutomationProperties.Name="Tray menu commands" MinWidth="0" OnContent="" OffContent="" IsOn="True" Toggled="TriggerConfigurationToggle_Toggled" />
-                            </Grid>
-                        </StackPanel>
-                    </Border>
-                    <TextBlock Style="{StaticResource SettingSection}" Text="Support" />
-                    <Expander Header="Diagnostics" HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch">
-                        <StackPanel Spacing="8">
-                            <TextBlock x:Name="DiagnosticsOutcomeText" IsTextSelectionEnabled="True" Text="Dictate once to see diagnostic details here." TextWrapping="Wrap" />
-                            <TextBlock x:Name="DiagnosticsSnapshotText" IsTextSelectionEnabled="True" Style="{StaticResource MonoTextStyle}" Foreground="{ThemeResource ShrutiTextSecondaryBrush}" LineHeight="18" TextWrapping="Wrap" Visibility="Collapsed" />
-                        </StackPanel>
-                    </Expander>
-                    <Button HorizontalAlignment="Left" Margin="0,10,0,0" Click="ReplayWelcomeButton_Click" Content="Replay welcome" />
+                                    <ToggleSwitch Grid.Column="2" VerticalAlignment="Center" x:Name="TrayMenuCheckBox" AutomationProperties.Name="Tray menu commands" MinWidth="0" OnContent="On" OffContent="Off" IsOn="True" Toggled="TriggerConfigurationToggle_Toggled" />
+                                </Grid>
+                            </StackPanel>
+                        </Border>
+                    </StackPanel>
+                    <StackPanel x:Name="SupportSection" Visibility="Collapsed">
+                        <Expander x:Name="DiagnosticsExpander" Header="Diagnostics" HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch">
+                            <StackPanel Spacing="8">
+                                <TextBlock x:Name="DiagnosticsOutcomeText" IsTextSelectionEnabled="True" Foreground="{ThemeResource ShrutiTextPrimaryBrush}" Text="Finish a dictation, then return here to see its result and where the text went." TextWrapping="Wrap" />
+                                <TextBlock Text="Session details" FontSize="14" FontWeight="SemiBold"
+                                           Visibility="{Binding Visibility, ElementName=DiagnosticsFields}" />
+                                <ItemsControl x:Name="DiagnosticsFields" Visibility="Collapsed">
+                                    <ItemsControl.ItemTemplate>
+                                        <DataTemplate>
+                                            <Grid Padding="0,6" ColumnSpacing="14" BorderThickness="0,1,0,0" BorderBrush="{ThemeResource ShrutiBorderSubtleBrush}">
+                                                <Grid.ColumnDefinitions><ColumnDefinition Width="2*" /><ColumnDefinition Width="3*" /></Grid.ColumnDefinitions>
+                                                <TextBlock Text="{Binding Key}" Foreground="{ThemeResource ShrutiTextPrimaryBrush}" TextWrapping="Wrap" />
+                                                <TextBlock Grid.Column="1" Text="{Binding Value}" FontWeight="SemiBold" IsTextSelectionEnabled="True" TextWrapping="Wrap" />
+                                            </Grid>
+                                        </DataTemplate>
+                                    </ItemsControl.ItemTemplate>
+                                </ItemsControl>
+                            </StackPanel>
+                        </Expander>
+                        <Button HorizontalAlignment="Left" Margin="0,10,0,0" Click="ReplayWelcomeButton_Click" Content="Replay welcome" />
+                    </StackPanel>
                 </StackPanel>
             </ScrollViewer>
         </Grid>
@@ -618,7 +691,11 @@
                             <TextBlock Style="{StaticResource SetupBody}" Text="Shruti will listen briefly to check that your microphone works. The check does not save a recording." />
                             <InfoBar x:Name="OnboardingMicrophoneError" Severity="Error" IsOpen="False" IsClosable="False"
                                      AutomationProperties.LiveSetting="Assertive" Title="Microphone unavailable"
-                                     Message="Allow desktop apps to use your microphone in Windows privacy settings.&#x0a;Already allowed? Reconnect your microphone or choose another input in Sound settings." />
+                                     Message="Connect a microphone and allow desktop apps to use it. Then retry the check.">
+                                <InfoBar.ActionButton>
+                                    <HyperlinkButton Content="Open microphone settings" NavigateUri="ms-settings:privacy-microphone" />
+                                </InfoBar.ActionButton>
+                            </InfoBar>
                             <Button x:Name="OnboardingMicrophoneButton" Margin="0,10,0,0" Style="{StaticResource SetupAction}" Click="OnboardingMicrophoneButton_Click">Check microphone</Button>
                             <TextBlock x:Name="OnboardingMicStatusText" AutomationProperties.LiveSetting="Polite" Style="{StaticResource MutedTextStyle}" />
                         </StackPanel>

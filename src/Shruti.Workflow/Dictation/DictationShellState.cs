@@ -23,6 +23,8 @@ public sealed record DictationShellState(
     string? ErrorText = null,
     bool CanInsertPreview = false)
 {
+    public DictationSessionState? FailedOperation { get; init; }
+    public bool MicrophoneUnavailable => FailedOperation == DictationSessionState.RequestingMicrophone;
     public string RawTranscript { get; init; } = string.Empty;
     public bool CanUseRawTranscript { get; init; }
     public IReadOnlyList<TranscriptEdit> AppliedEdits { get; init; } = [];

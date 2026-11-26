@@ -45,6 +45,17 @@ public sealed class WindowsTargetFocusService : ITargetFocusService, IDisposable
     private FocusTarget? _lastExternalTarget;
     private bool _isDisposed;
 
+    internal FocusTarget? LastExternalTarget
+    {
+        get
+        {
+            lock (_targetSync)
+            {
+                return _lastExternalTarget;
+            }
+        }
+    }
+
     public WindowsTargetFocusService()
         : this(
             new Win32Windowing(),
@@ -206,11 +217,7 @@ public sealed class WindowsTargetFocusService : ITargetFocusService, IDisposable
 
     private FocusTarget? RefreshAndGetLastExternalTarget()
     {
-        FocusTarget? cachedTarget;
-        lock (_targetSync)
-        {
-            cachedTarget = _lastExternalTarget;
-        }
+        FocusTarget? cachedTarget = LastExternalTarget;
 
         if (cachedTarget is null)
         {
@@ -246,6 +253,22 @@ public sealed class WindowsTargetFocusService : ITargetFocusService, IDisposable
             {
                 _lastExternalTarget = null;
             }
+        }
+    }
+
+    internal void ReturnForegroundFromTrayMenu(IntPtr menuOwner, FocusTarget target)
+    {
+        if (menuOwner == IntPtr.Zero || _windowing.IsMinimized(target.WindowHandle))
+        {
+            return;
+        }
+
+        WindowsWindowSnapshot? current = _windowing.CaptureWindow(target.WindowHandle);
+        if (current?.ProcessId == target.ProcessId && current.ThreadId == target.ThreadId &&
+            _windowing.GetForegroundWindow() == menuOwner)
+        {
+            // One attempt while the tray owns focus. A later user switch takes precedence.
+            _windowing.SetForegroundWindow(target.WindowHandle);
         }
     }
 

@@ -3,11 +3,14 @@ using Microsoft.UI.Windowing;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Automation;
 using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Controls.Primitives;
+using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
 using Shruti.Core;
 using Shruti.Core.Dictation;
 using Shruti.Platform.Windows;
 using Shruti.Workflow.Dictation;
+using Windows.System;
 using WinRT.Interop;
 
 namespace Shruti.App.WinUI;
@@ -15,7 +18,7 @@ namespace Shruti.App.WinUI;
 public sealed class FloatingMicWindow : Window
 {
     private readonly Border _root;
-    private readonly StackPanel _content = new() { Orientation = Orientation.Horizontal, Spacing = 6, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center };
+    private readonly StackPanel _content = new() { Orientation = Orientation.Horizontal, Spacing = 4, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center };
     private readonly List<Border> _bars = [];
     private readonly List<Border> _dots = [];
     private readonly IWindowsWindowVisibility _visibility;
@@ -27,11 +30,23 @@ public sealed class FloatingMicWindow : Window
     private DateTimeOffset _noticeUntil;
     private bool _hovered;
     private bool _closing;
+    private MenuFlyout _actionsMenu;
+    private Style? _stripMenuStyle;
+    private bool _horizontalMenu;
+    private const int MenuHotKeyBase = 0x5300;
+    private readonly List<VirtualKey> _reservedMenuKeys = [];
+    private readonly List<(MenuFlyoutItem Item, Action Invoke)> _menuCommands = [];
+    private int _keyboardMenuIndex = -1;
+    private IntPtr _menuForegroundWindow;
+    private WindowsForegroundWindowTracker? _menuForegroundTracker;
+    private bool _menuItemInvoked;
+    private string _hint = string.Empty;
     private string _mode = "";
     private string _shortcut = "";
     private string _renderedLabel = string.Empty;
-    private double _width = 40;
-    private double _height = 8;
+    private const double ActiveWidth = 198;
+    private double _width = 76;
+    private double _height = 20;
     private int _tick;
     private int _regionWidth;
     private int _regionHeight;
@@ -52,14 +67,13 @@ public sealed class FloatingMicWindow : Window
             RequestedTheme = ElementTheme.Dark
         };
         Content = _root;
-        var menu = PopupAppearance.CreateMenuFlyout();
-        var settings = new MenuFlyoutItem { Text = "Settings", Icon = new SymbolIcon(Symbol.Setting) };
-        settings.Click += (_, _) => SettingsRequested?.Invoke(this, EventArgs.Empty);
-        var hide = new MenuFlyoutItem { Text = "Hide floating bar", Icon = new FontIcon { Glyph = "\uED1A" } };
-        hide.Click += (_, _) => DismissRequested?.Invoke(this, EventArgs.Empty);
-        menu.Items.Add(settings);
-        menu.Items.Add(hide);
-        _root.ContextFlyout = menu;
+        _actionsMenu = PopupAppearance.CreateMenuFlyout();
+        ConfigureActionsMenu(_actionsMenu);
+        _root.AddHandler(UIElement.RightTappedEvent, new RightTappedEventHandler((_, args) =>
+        {
+            args.Handled = true;
+            ShowActionsMenu();
+        }), true);
         AutomationProperties.SetName(_root, "Shruti floating dictation bar");
         AutomationProperties.SetLiveSetting(_root, Microsoft.UI.Xaml.Automation.Peers.AutomationLiveSetting.Polite);
         _handle = WindowNative.GetWindowHandle(this);
@@ -92,7 +106,15 @@ public sealed class FloatingMicWindow : Window
             {
                 IntPtr hitWindow = Native.WindowFromPoint(cursor);
                 bool hovered = hitWindow == _handle || Native.GetAncestor(hitWindow, 2) == _handle;
-                if (_hovered != hovered)
+                if (_actionsMenu.IsOpen)
+                {
+                    // Freeze the anchor while the pointer crosses into the popup window.
+                    bool overMenuOrBar = Native.GetAncestor(hitWindow, 3) == _handle; // GA_ROOTOWNER
+                    bool mousePressed = ReadMouseButtons();
+                    if ((!overMenuOrBar && mousePressed) || Native.GetForegroundWindow() != _menuForegroundWindow)
+                        _actionsMenu.Hide();
+                }
+                else if (_hovered != hovered)
                 {
                     _hovered = hovered;
                     Render();
@@ -148,6 +170,244 @@ public sealed class FloatingMicWindow : Window
         Render();
     }
 
+    private static bool ReadMouseButtons()
+    {
+        // Read both buttons on every menu tick, including clicks shorter than the timer interval.
+        int buttons = Native.GetAsyncKeyState(1) | Native.GetAsyncKeyState(2);
+        return buttons != 0;
+    }
+
+    private void ConfigureActionsMenu(MenuFlyout menu)
+    {
+        if (_horizontalMenu)
+        {
+            if (_stripMenuStyle is null)
+            {
+                var resources = new ResourceDictionary { Source = new Uri("ms-appx:///Styles/PopupResources.xaml") };
+                _stripMenuStyle = (Style)resources["FloatingMenuStripStyle"];
+            }
+            menu.MenuFlyoutPresenterStyle = _stripMenuStyle;
+        }
+        AddMenuCommand(menu, "Settings", new SymbolIcon(Symbol.Setting), () => SettingsRequested?.Invoke(this, EventArgs.Empty));
+        AddMenuCommand(menu, "Hide floating bar", new FontIcon { Glyph = "\uED1A" }, () => DismissRequested?.Invoke(this, EventArgs.Empty));
+        menu.ShouldConstrainToRootBounds = false;
+        menu.Placement = FlyoutPlacementMode.Top;
+        menu.ShowMode = FlyoutShowMode.Transient;
+        menu.Opening += (_, _) =>
+        {
+            // Keep keyboard focus in the editor while the menu handles its own navigation.
+            _menuItemInvoked = false;
+            SetMenuToolTips(visible: false);
+            _menuForegroundWindow = Native.GetForegroundWindow();
+            _menuForegroundTracker = new WindowsForegroundWindowTracker();
+            _menuForegroundTracker.ForegroundWindowChanged += MenuForegroundChanged;
+            _menuForegroundTracker.Start();
+            ReadMouseButtons();
+            if (!ReserveMenuKey(VirtualKey.Enter) || !ReserveMenuKey(VirtualKey.Up) || !ReserveMenuKey(VirtualKey.Down))
+                ReleaseMenuKeys();
+            else if (_horizontalMenu)
+            {
+                ReserveMenuKey(VirtualKey.Left);
+                ReserveMenuKey(VirtualKey.Right);
+            }
+            ReserveMenuKey(VirtualKey.Escape);
+        };
+        menu.Closing += (_, _) => StopMenuInput();
+        menu.Closed += (_, _) =>
+        {
+            if (menu != _actionsMenu) return;
+            SetKeyboardMenuItem(-1);
+            SetMenuToolTips(visible: true);
+        };
+    }
+
+    private void ShowActionsMenu()
+    {
+        if (_actionsMenu.IsOpen) return;
+        var options = new FlyoutShowOptions { Placement = FlyoutPlacementMode.Top, ShowMode = FlyoutShowMode.Transient };
+        bool horizontalMenu = false;
+        var input = new Native.GuiThreadInfo { Size = Marshal.SizeOf<Native.GuiThreadInfo>() };
+        if (_placedBounds is { } bar && Native.GetGUIThreadInfo(0, ref input) && input.Caret != IntPtr.Zero &&
+            Native.GetWindowRect(input.Caret, out var field))
+        {
+            // Keep the focused text field readable when opening the menu over an editor.
+            double scale = _root.XamlRoot.RasterizationScale;
+            options.ExclusionRect = new Windows.Foundation.Rect(
+                (field.Left - bar.X) / scale, (field.Top - bar.Y) / scale,
+                (field.Right - field.Left) / scale, (field.Bottom - field.Top) / scale);
+            var monitor = new Native.MonitorInfo { Size = Marshal.SizeOf<Native.MonitorInfo>() };
+            double menuWidth = 200 * scale;
+            bool nearMenu = field.Right > bar.X - menuWidth / 2 && field.Left < bar.X + bar.Width + menuWidth / 2
+                && field.Bottom > bar.Y - 110 * scale && field.Top < bar.Y + bar.Height;
+            if (nearMenu && Native.GetMonitorInfo(_monitor, ref monitor))
+            {
+                bool fitsRight = monitor.Work.Right - field.Right >= menuWidth;
+                bool fitsLeft = field.Left - monitor.Work.Left >= menuWidth;
+                if (fitsRight || fitsLeft)
+                {
+                    double edge = fitsRight ? (field.Right - bar.X) / scale + 6 : (field.Left - bar.X) / scale - 6;
+                    options.Position = new Windows.Foundation.Point(edge, 0);
+                    options.Placement = fitsRight ? FlyoutPlacementMode.RightEdgeAlignedBottom : FlyoutPlacementMode.LeftEdgeAlignedBottom;
+                }
+                else if (field.Top >= bar.Y - 110 * scale && field.Top - monitor.Work.Top >= 110 * scale)
+                {
+                    // A wide, shallow field can leave room just above it when neither side fits.
+                    options.Position = new Windows.Foundation.Point(bar.Width / (2 * scale), (field.Top - bar.Y) / scale - 6);
+                    options.Placement = FlyoutPlacementMode.Top;
+                }
+                else if (monitor.Work.Bottom - field.Bottom >= 44 * scale)
+                {
+                    // Keep both commands in the strip below a tall field, beside the bottom-center bar.
+                    horizontalMenu = true;
+                    options.ExclusionRect = new Windows.Foundation.Rect(0, (monitor.Work.Top - bar.Y) / scale,
+                        (monitor.Work.Right - bar.X) / scale, (monitor.Work.Bottom - monitor.Work.Top) / scale);
+                    options.Position = new Windows.Foundation.Point(-6, (monitor.Work.Bottom - bar.Y) / scale - 3);
+                    options.Placement = FlyoutPlacementMode.LeftEdgeAlignedBottom;
+                }
+                else
+                {
+                    // When the editor fills the work area, keep the menu close and protect the insertion point.
+                    var start = new Native.Point { X = input.CaretBounds.Left, Y = input.CaretBounds.Top };
+                    var end = new Native.Point { X = input.CaretBounds.Right, Y = input.CaretBounds.Bottom };
+                    if (Native.ClientToScreen(input.Caret, ref start) && Native.ClientToScreen(input.Caret, ref end))
+                    {
+                        int left = Math.Min(start.X, end.X), top = Math.Min(start.Y, end.Y);
+                        const double caretClearance = 16; // Include the popup shadow around the insertion point.
+                        options.ExclusionRect = new Windows.Foundation.Rect((left - bar.X) / scale - caretClearance, (top - bar.Y) / scale - caretClearance,
+                            Math.Abs(end.X - start.X) / scale + 2 * caretClearance, Math.Abs(end.Y - start.Y) / scale + 2 * caretClearance);
+                        bool menuOnRight = (start.X + (long)end.X) / 2 < bar.X + bar.Width / 2;
+                        options.Position = new Windows.Foundation.Point(menuOnRight ? bar.Width / scale + 6 : -6, 0);
+                        options.Placement = menuOnRight ? FlyoutPlacementMode.RightEdgeAlignedBottom : FlyoutPlacementMode.LeftEdgeAlignedBottom;
+                    }
+                }
+            }
+        }
+        // WinUI keeps the presenter's original ItemsPanel after the menu is closed.
+        if (horizontalMenu != _horizontalMenu)
+        {
+            SetKeyboardMenuItem(-1);
+            _menuCommands.Clear();
+            _horizontalMenu = horizontalMenu;
+            _actionsMenu = PopupAppearance.CreateMenuFlyout();
+            ConfigureActionsMenu(_actionsMenu);
+        }
+        _actionsMenu.ShowAt(_root, options);
+    }
+
+    private void AddMenuCommand(MenuFlyout menu, string label, IconElement icon, Action action)
+    {
+        var item = new MenuFlyoutItem { Text = label, Icon = icon };
+        if (_horizontalMenu) item.Padding = new Thickness(8, 2, 8, 2);
+        uint? pressedPointer = null;
+        void Invoke()
+        {
+            if (_menuItemInvoked || menu != _actionsMenu || !menu.IsOpen) return;
+            _menuItemInvoked = true;
+            menu.Hide();
+            action();
+        }
+
+        item.Click += (_, _) => Invoke();
+        // WinUI can omit Click on a non-activating popup even after the item receives both pointer events.
+        item.AddHandler(UIElement.PointerPressedEvent, new PointerEventHandler((_, args) =>
+        {
+            pressedPointer = args.GetCurrentPoint(item).Properties.IsLeftButtonPressed ? args.Pointer.PointerId : null;
+        }), true);
+        item.AddHandler(UIElement.PointerReleasedEvent, new PointerEventHandler((_, args) =>
+        {
+            if (pressedPointer != args.Pointer.PointerId) return;
+            pressedPointer = null;
+            var point = args.GetCurrentPoint(item).Position;
+            if (point.X >= 0 && point.X < item.ActualWidth && point.Y >= 0 && point.Y < item.ActualHeight) Invoke();
+        }), true);
+        item.PointerCanceled += (_, _) => pressedPointer = null;
+        menu.Closed += (_, _) => pressedPointer = null;
+        menu.Items.Add(item);
+        _menuCommands.Add((item, Invoke));
+    }
+
+    private void SetMenuToolTips(bool visible)
+    {
+        // A tooltip uses its own HWND, which can cover a flyout row on this non-activating window.
+        SetHint(_root, visible ? _hint : null);
+        foreach (var button in _content.Children.OfType<Button>())
+        {
+            SetHint(button, visible ? AutomationProperties.GetName(button) : null);
+        }
+    }
+
+    private static void SetHint(FrameworkElement element, string? hint)
+    {
+        if (ToolTipService.GetToolTip(element) is ToolTip previous)
+        {
+            if (hint is not null && Equals(previous.Content, hint)) return;
+            previous.IsOpen = false;
+        }
+        ToolTipService.SetToolTip(element, hint is null ? null : new ToolTip { Content = hint });
+    }
+
+    private bool ReserveMenuKey(VirtualKey key)
+    {
+        if (!Native.RegisterHotKey(_handle, MenuHotKeyBase + (int)key, 0x4000, (uint)key)) return false;
+        _reservedMenuKeys.Add(key);
+        return true;
+    }
+
+    private void ReleaseMenuKeys()
+    {
+        foreach (var key in _reservedMenuKeys)
+            Native.UnregisterHotKey(_handle, MenuHotKeyBase + (int)key);
+        _reservedMenuKeys.Clear();
+    }
+
+    private void MenuForegroundChanged(object? sender, IntPtr foreground)
+    {
+        if (foreground != _menuForegroundWindow && Native.GetForegroundWindow() == foreground && _actionsMenu.IsOpen)
+            _actionsMenu.Hide();
+    }
+
+    private void StopMenuInput()
+    {
+        ReleaseMenuKeys();
+        _menuForegroundTracker?.Dispose();
+        _menuForegroundTracker = null;
+    }
+
+    private void SetKeyboardMenuItem(int index)
+    {
+        if (_keyboardMenuIndex >= 0)
+        {
+            var previous = _menuCommands[_keyboardMenuIndex].Item;
+            previous.ClearValue(Control.BackgroundProperty);
+            previous.ClearValue(Control.FontWeightProperty);
+            AutomationProperties.SetItemStatus(previous, string.Empty);
+        }
+        _keyboardMenuIndex = index;
+        if (index < 0) return;
+        var selected = _menuCommands[index].Item;
+        selected.Background = new SolidColorBrush(Windows.UI.Color.FromArgb(255, 106, 64, 35));
+        if (!_horizontalMenu) selected.FontWeight = Microsoft.UI.Text.FontWeights.SemiBold;
+        AutomationProperties.SetItemStatus(selected, "Selected");
+    }
+
+    private void HandleMenuKey(VirtualKey key)
+    {
+        if (!_actionsMenu.IsOpen || Native.GetForegroundWindow() != _menuForegroundWindow || key == VirtualKey.Escape)
+        {
+            _actionsMenu.Hide();
+            return;
+        }
+        if (key == VirtualKey.Enter)
+        {
+            if (_keyboardMenuIndex >= 0) _menuCommands[_keyboardMenuIndex].Invoke();
+            return;
+        }
+        int count = _menuCommands.Count;
+        int next = key is VirtualKey.Down or VirtualKey.Right ? (_keyboardMenuIndex + 1) % count
+            : _keyboardMenuIndex <= 0 ? count - 1 : _keyboardMenuIndex - 1;
+        SetKeyboardMenuItem(next);
+    }
+
     public void UpdateAudioLevel(float peak)
     {
         for (int i = 0; i < _bars.Count; i++)
@@ -160,6 +420,8 @@ public sealed class FloatingMicWindow : Window
     public void Hide()
     {
         _timer.Stop();
+        _actionsMenu.Hide();
+        StopMenuInput();
         _visibility.Hide(_handle);
         IsVisible = false;
         _hovered = false;
@@ -168,53 +430,73 @@ public sealed class FloatingMicWindow : Window
     public void CloseForApplicationExit()
     {
         _closing = true;
+        _actionsMenu.Hide();
+        StopMenuInput();
         _timer.Stop();
         Close();
     }
 
     private void Render()
     {
+        bool starting = _state.SessionState is DictationSessionState.PreparingTarget or DictationSessionState.RequestingMicrophone;
         string mode = _state.IsRunning
-            ? (_state.CanStop ? "capture" : "processing")
+            ? (_state.IsPaused ? "paused" : starting ? "starting" : _state.CanStop ? "capture" : "processing")
             : _state.LastOutcome == DictationRunOutcome.Failed ? "error"
             : DateTimeOffset.UtcNow < _noticeUntil ? "notice"
             : _hovered ? "hover" : "idle";
         string label = mode switch
         {
-            "capture" or "processing" when _state.IsPaused => "Paused",
-            "capture" or "processing" when _state.SessionState is DictationSessionState.PreparingTarget or DictationSessionState.RequestingMicrophone => "Starting",
+            "paused" => "Paused",
+            "starting" => "Starting",
             "capture" => "Recording",
             "processing" => "Processing",
             "notice" => NoticeText(_state.LastOutcome) ?? string.Empty,
-            "error" => "Dictation failed",
+            "error" => _state.FailedOperation switch
+            {
+                DictationSessionState.RequestingMicrophone => "Mic unavailable",
+                DictationSessionState.Recording => "Recording failed",
+                DictationSessionState.Complete when _state.InsertionMode == DictationInsertionMode.CopyOnly => "Copy failed",
+                DictationSessionState.TranscribingFinalAudio => "No transcript",
+                DictationSessionState.RefiningTranscript => "Format failed",
+                DictationSessionState.InsertingText => "Insertion failed",
+                _ => "Dictation failed"
+            },
             _ => "Dictate"
         };
         string hint = mode is "idle" or "hover"
             ? string.IsNullOrWhiteSpace(_shortcut) ? "Start dictation" : $"Dictate with {_shortcut}"
+            : mode == "error" && _state.MicrophoneUnavailable ? "Open Mic settings to choose an input or check Windows microphone access. Then try dictation again."
+            : mode == "error" ? "Record again to start a new dictation. Right-click for Settings and expand Diagnostics for details."
             : _state.UserMessage;
-        ToolTipService.SetToolTip(_root, hint);
-        AutomationProperties.SetName(_root, mode == "error" ? _state.UserMessage : mode is "idle" or "hover" ? hint : label);
+        _hint = hint;
+        if (!_actionsMenu.IsOpen) SetHint(_root, hint);
+        AutomationProperties.SetName(_root, mode == "error" ? $"{label}. {hint}" : mode is "idle" or "hover" ? hint : label);
         if (_mode == mode && _renderedLabel == label) return;
         _mode = mode;
         _renderedLabel = label;
         _content.Children.Clear();
         _bars.Clear();
         _dots.Clear();
-        _height = mode == "idle" ? 8 : 36;
+        _height = mode == "idle" ? 20 : 32;
 
         switch (mode)
         {
+            case "idle":
+                _content.Children.Add(StateIcon("\uE720"));
+                _content.Children.Add(StateLabel("Dictate"));
+                break;
             case "hover":
                 _content.Children.Add(ActionButton("\uE720", "Start dictation", () => TriggerRequested?.Invoke(this, EventArgs.Empty), "Dictate"));
                 _content.Children.Add(ActionButton("\uE713", "Open settings", () => SettingsRequested?.Invoke(this, EventArgs.Empty)));
                 break;
+            case "starting":
             case "capture":
-                _content.Children.Add(ActionButton("\uE711", "Cancel dictation", () => CancelRequested?.Invoke(this, EventArgs.Empty)));
+                _content.Children.Add(ActionButton(null, "Cancel dictation", () => CancelRequested?.Invoke(this, EventArgs.Empty), "Cancel"));
                 if (label == "Recording")
                 {
                     var waveform = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 2, Height = 18, VerticalAlignment = VerticalAlignment.Center };
                     var waveBrush = new SolidColorBrush(Windows.UI.Color.FromArgb(255, 250, 165, 97));
-                    for (int i = 0; i < 7; i++)
+                    for (int i = 0; i < 4; i++)
                     {
                         var bar = new Border { Width = 2, Height = 2, CornerRadius = new CornerRadius(1), VerticalAlignment = VerticalAlignment.Center, Background = waveBrush };
                         _bars.Add(bar);
@@ -224,12 +506,16 @@ public sealed class FloatingMicWindow : Window
                 }
                 else
                 {
-                    _content.Children.Add(StateIcon(label == "Paused" ? "\uE769" : "\uE720"));
+                    _content.Children.Add(StateIcon("\uE720"));
                 }
                 _content.Children.Add(StateLabel(label));
-                if (_state.IsPaused)
-                    _content.Children.Add(ActionButton("\uE768", "Resume recording", () => ResumeRequested?.Invoke(this, EventArgs.Empty), "Resume"));
-                _content.Children.Add(ActionButton("\uE73E", "Finish dictation", () => TriggerRequested?.Invoke(this, EventArgs.Empty)));
+                _content.Children.Add(ActionButton(null, "Finish dictation", () => TriggerRequested?.Invoke(this, EventArgs.Empty), "Finish", primary: true));
+                break;
+            case "paused":
+                _content.Children.Add(ActionButton(null, "Cancel dictation", () => CancelRequested?.Invoke(this, EventArgs.Empty), "Cancel"));
+                _content.Children.Add(StateIcon("\uE769"));
+                _content.Children.Add(ActionButton(null, "Resume recording", () => ResumeRequested?.Invoke(this, EventArgs.Empty), "Resume", primary: true));
+                _content.Children.Add(ActionButton(null, "Finish dictation", () => TriggerRequested?.Invoke(this, EventArgs.Empty), "Finish"));
                 break;
             case "processing":
                 var activity = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 3, VerticalAlignment = VerticalAlignment.Center };
@@ -255,12 +541,26 @@ public sealed class FloatingMicWindow : Window
                 break;
             case "error":
                 _content.Children.Add(StateLabel(label));
-                _content.Children.Add(ActionButton("\uE72C", "Try dictation again", () => TriggerRequested?.Invoke(this, EventArgs.Empty), "Retry"));
-                _content.Children.Add(ActionButton("\uE713", "Open settings", () => SettingsRequested?.Invoke(this, EventArgs.Empty)));
+                if (_state.MicrophoneUnavailable)
+                {
+                    _content.Children.Add(ActionButton(null, "Open microphone settings", () => SettingsRequested?.Invoke(this, EventArgs.Empty), "Mic settings", primary: true));
+                }
+                else
+                {
+                    _content.Children.Add(ActionButton(null, "Record again", () => TriggerRequested?.Invoke(this, EventArgs.Empty), "Record again", primary: true));
+                }
                 break;
         }
+        if (_actionsMenu.IsOpen) SetMenuToolTips(visible: false);
         _content.Measure(new Windows.Foundation.Size(double.PositiveInfinity, double.PositiveInfinity));
-        _width = mode == "idle" ? 40 : Math.Ceiling(_content.DesiredSize.Width) + 24;
+        double contentWidth = Math.Ceiling(_content.DesiredSize.Width) + (mode is "starting" or "capture" or "paused" or "error" ? 14 : 24);
+        // Keep the same footprint from recording through insertion. Larger text can still expand it.
+        _width = mode switch
+        {
+            "idle" => Math.Max(76, contentWidth),
+            "hover" => contentWidth,
+            _ => Math.Max(ActiveWidth, contentWidth)
+        };
         _root.Width = _width;
         _root.Height = _height;
         Place();
@@ -293,11 +593,10 @@ public sealed class FloatingMicWindow : Window
         Foreground = new SolidColorBrush(Microsoft.UI.Colors.White)
     };
 
-    private static Button ActionButton(string glyph, string name, Action action, string? label = null)
+    private static Button ActionButton(string? glyph, string name, Action action, string? label = null, bool primary = false)
     {
-        var icon = new FontIcon { Glyph = glyph, FontFamily = new FontFamily("Segoe Fluent Icons"), FontSize = 13 };
         var content = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 6, VerticalAlignment = VerticalAlignment.Center };
-        content.Children.Add(icon);
+        if (glyph is not null) content.Children.Add(new FontIcon { Glyph = glyph, FontFamily = new FontFamily("Segoe Fluent Icons"), FontSize = 13 });
         if (label is not null) content.Children.Add(StateLabel(label));
         var button = new Button
         {
@@ -307,13 +606,13 @@ public sealed class FloatingMicWindow : Window
             MinHeight = 0,
             Padding = new Thickness(label is null ? 0 : 7, 0, label is null ? 0 : 7, 0),
             CornerRadius = new CornerRadius(15),
-            Background = new SolidColorBrush(Windows.UI.Color.FromArgb(255, 58, 52, 47)),
+            Background = new SolidColorBrush(primary ? Windows.UI.Color.FromArgb(255, 106, 64, 35) : Windows.UI.Color.FromArgb(255, 58, 52, 47)),
             BorderThickness = new Thickness(0),
             Foreground = new SolidColorBrush(Microsoft.UI.Colors.White),
             Content = content
         };
         AutomationProperties.SetName(button, name);
-        ToolTipService.SetToolTip(button, name);
+        SetHint(button, name);
         button.Click += (_, _) => action();
         return button;
     }
@@ -348,6 +647,15 @@ public sealed class FloatingMicWindow : Window
 
     private IntPtr WindowProcedure(IntPtr hwnd, uint message, IntPtr wParam, IntPtr lParam, UIntPtr id, IntPtr data)
     {
+        if (message == 0x0312) // WM_HOTKEY
+        {
+            var key = (VirtualKey)(wParam.ToInt32() - MenuHotKeyBase);
+            if (_reservedMenuKeys.Contains(key))
+            {
+                HandleMenuKey(key);
+                return IntPtr.Zero;
+            }
+        }
         if (message == 0x0024) // WM_GETMINMAXINFO: a pill is smaller than a normal app window.
         {
             Native.DefSubclassProc(hwnd, message, wParam, lParam);
@@ -364,6 +672,20 @@ public sealed class FloatingMicWindow : Window
 
     private static class Native
     {
+        [DllImport("user32.dll")] public static extern short GetAsyncKeyState(int key);
+        [DllImport("user32.dll")] public static extern IntPtr GetForegroundWindow();
+        [StructLayout(LayoutKind.Sequential)]
+        public struct GuiThreadInfo
+        {
+            public int Size, Flags;
+            public IntPtr Active, Focus, Capture, MenuOwner, MoveSize, Caret;
+            public Rect CaretBounds;
+        }
+        [DllImport("user32.dll")][return: MarshalAs(UnmanagedType.Bool)] public static extern bool GetGUIThreadInfo(uint thread, ref GuiThreadInfo info);
+        [DllImport("user32.dll")][return: MarshalAs(UnmanagedType.Bool)] public static extern bool ClientToScreen(IntPtr hwnd, ref Point point);
+        [DllImport("user32.dll")][return: MarshalAs(UnmanagedType.Bool)] public static extern bool GetWindowRect(IntPtr hwnd, out Rect rect);
+        [DllImport("user32.dll")] public static extern bool RegisterHotKey(IntPtr hwnd, int id, uint modifiers, uint virtualKey);
+        [DllImport("user32.dll")] public static extern bool UnregisterHotKey(IntPtr hwnd, int id);
         [DllImport("user32.dll")][return: MarshalAs(UnmanagedType.Bool)] public static extern bool GetCursorPos(out Point point);
         [DllImport("user32.dll")] public static extern IntPtr WindowFromPoint(Point point);
         [DllImport("user32.dll")] public static extern IntPtr GetAncestor(IntPtr hwnd, uint flags);

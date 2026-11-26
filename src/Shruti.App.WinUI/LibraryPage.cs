@@ -1,3 +1,4 @@
+using System.Globalization;
 using Microsoft.UI.Text;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Automation;
@@ -22,13 +23,38 @@ public abstract class LibraryPage : UserControl
         AutomationProperties.SetHeadingLevel(heading, AutomationHeadingLevel.Level1);
         titles.Children.Add(heading);
         if (subtitle is not null) titles.Children.Add(Secondary(subtitle, 14));
-        Body.Children.Add(Row(titles, Actions));
+        var header = new Grid { ColumnSpacing = 16 };
+        header.RowDefinitions.Add(new() { Height = GridLength.Auto });
+        header.RowDefinitions.Add(new() { Height = GridLength.Auto });
+        header.ColumnDefinitions.Add(new());
+        header.ColumnDefinitions.Add(new() { Width = GridLength.Auto });
+        header.Children.Add(titles);
+        header.Children.Add(Actions);
+        Grid.SetColumn(Actions, 1);
+        heading.Measure(new Windows.Foundation.Size(double.PositiveInfinity, double.PositiveInfinity));
+        double titleWidth = heading.DesiredSize.Width;
+        void ArrangeHeader()
+        {
+            bool stack = Actions.ActualWidth > 0 && header.ActualWidth < titleWidth + 16 + Actions.ActualWidth;
+            Grid.SetColumnSpan(titles, stack ? 2 : 1);
+            Grid.SetRow(Actions, stack ? 1 : 0);
+            Grid.SetColumn(Actions, stack ? 0 : 1);
+            Grid.SetColumnSpan(Actions, stack ? 2 : 1);
+            header.RowSpacing = stack ? 8 : 0;
+            Actions.HorizontalAlignment = stack ? HorizontalAlignment.Left : HorizontalAlignment.Right;
+        }
+        header.SizeChanged += (_, _) => ArrangeHeader();
+        Actions.SizeChanged += (_, _) => ArrangeHeader();
+        Body.Children.Add(header);
         Message.Visibility = Visibility.Collapsed;
         AutomationProperties.SetLiveSetting(Message, AutomationLiveSetting.Polite);
         Message.RegisterPropertyChangedCallback(TextBlock.TextProperty, (_, _) =>
             Message.Visibility = string.IsNullOrEmpty(Message.Text) ? Visibility.Collapsed : Visibility.Visible);
         Body.Children.Add(Message);
-        Content = new ScrollViewer { Content = Body, HorizontalContentAlignment = HorizontalAlignment.Stretch, Padding = new Thickness(40, 36, 40, 48), HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled };
+        var viewport = new ScrollViewer { Content = Body, HorizontalContentAlignment = HorizontalAlignment.Stretch, Padding = new Thickness(40, 36, 40, 48), HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled };
+        Content = viewport;
+        SizeChanged += (_, e) => viewport.Padding = e.NewSize.Width < 700
+            ? new Thickness(20, 16, 20, 24) : new Thickness(40, 36, 40, 48);
         Loaded += async (_, _) => await RefreshAsync();
     }
 
@@ -128,7 +154,7 @@ public abstract class LibraryPage : UserControl
         entries.Children.Add(new Border { Padding = new Thickness(22), Child = action is null ? message : Row(message, action) });
     }
 
-    protected Button? UpdateListTools(StackPanel tools, TextBox language, bool hasEntriesOrFilters)
+    protected Button? UpdateListTools(StackPanel tools, AutoSuggestBox language, bool hasEntriesOrFilters)
     {
         bool visible = hasEntriesOrFilters || _filtersOpened;
         tools.Visibility = visible ? Visibility.Visible : Visibility.Collapsed;
@@ -140,7 +166,6 @@ public abstract class LibraryPage : UserControl
             tools.Visibility = Visibility.Visible;
             change.Visibility = Visibility.Collapsed;
             language.Focus(FocusState.Programmatic);
-            language.SelectAll();
         };
         return change;
     }
@@ -170,19 +195,23 @@ public abstract class LibraryPage : UserControl
         }
         var editButton = Action("Edit", edit);
         AutomationProperties.SetName(editButton, $"Edit {name}");
-        var menu = PopupAppearance.CreateMenuFlyout();
-        var deleteItem = new MenuFlyoutItem { Text = "Delete", Icon = new SymbolIcon(Symbol.Delete) };
-        deleteItem.Click += async (_, _) => await RunAsync(delete);
-        menu.Items.Add(deleteItem);
-        var more = new Button { Content = new FontIcon { Glyph = "\uE712", FontSize = 15 }, Width = 36, Height = 32, Padding = new Thickness(0), Flyout = menu };
-        ToolTipService.SetToolTip(more, $"More options for {name}");
-        AutomationProperties.SetName(more, $"More options for {name}");
+        var remove = new Button
+        {
+            Content = new SymbolIcon(Symbol.Delete),
+            Width = 36,
+            Height = 32,
+            Padding = new Thickness(0),
+            Style = (Style)Application.Current.Resources["SubtleButtonStyle"]
+        };
+        AutomationProperties.SetName(remove, $"Delete {name}");
+        ToolTipService.SetToolTip(remove, $"Delete {name}");
+        remove.Click += async (_, _) => await RunAsync(delete);
         var item = new Border
         {
-            Padding = new Thickness(16, 13, 16, 13),
+            Padding = new Thickness(15, 10, 15, 10),
             BorderThickness = new Thickness(0, entries.Children.Count == 0 ? 0 : 1, 0, 0),
             Style = (Style)Application.Current.Resources["LibrarySeparator"],
-            Child = Row(WithLeadingIcon(IconTile(glyph), copy), editButton, more)
+            Child = Row(WithLeadingIcon(IconTile(glyph), copy), editButton, remove)
         };
         entries.Children.Add(item);
     }
@@ -220,7 +249,7 @@ public abstract class LibraryPage : UserControl
         return await dialog.ShowAsync() == ContentDialogResult.Primary;
     }
 
-    protected void ApplyDialogAccent(ContentDialog dialog, bool confirmDeletion = false)
+    internal static void ApplyDialogAccent(ContentDialog dialog, bool confirmDeletion = false)
     {
         foreach (string theme in new[] { "Light", "Dark" })
         {
@@ -272,47 +301,268 @@ public abstract class LibraryPage : UserControl
         dialog.Resources.ThemeDictionaries["HighContrast"] = new ResourceDictionary();
     }
 
-    protected async Task EditAsync(string title, StackPanel fields, Func<Task> save, TextBox firstField, params TextBox[] required)
+    protected async Task EditAsync(string title, StackPanel fields, string language, Func<string, Task> save, params TextBox[] required)
     {
+        var current = Text(DisplayLanguage(language));
+        current.Name = "EditorCurrentLanguage";
+        var change = new Button { Name = "ChangeEditorLanguage", Content = "Change language" };
+        var languageLabel = new StackPanel { Children = { Secondary("Language"), current } };
+        fields.Children.Add(Row(languageLabel, change));
         var error = Text("", 13);
         error.Visibility = Visibility.Collapsed;
         AutomationProperties.SetLiveSetting(error, AutomationLiveSetting.Assertive);
         fields.Children.Add(error);
+        var viewport = new ScrollViewer { Name = "EditorFields", Content = fields, VerticalScrollBarVisibility = ScrollBarVisibility.Auto };
+        var host = new Grid { Children = { viewport } };
+        double formHeight = 0;
+        void FitEditor(XamlRoot root, XamlRootChangedEventArgs? args)
+        {
+            host.Width = Math.Clamp(root.Size.Width - 96, 0, 480);
+            viewport.MaxHeight = Math.Clamp(root.Size.Height - 200, 96, 480);
+            if (!double.IsNaN(host.Height)) host.Height = Math.Min(formHeight, viewport.MaxHeight);
+        }
+        FitEditor(XamlRoot, null);
         var dialog = new ContentDialog
         {
             XamlRoot = XamlRoot,
             RequestedTheme = ActualTheme,
             Title = title,
-            Content = new ScrollViewer { Content = fields, MaxHeight = 480 },
+            Content = host,
             PrimaryButtonText = "Save",
             CloseButtonText = "Cancel",
             DefaultButton = ContentDialogButton.Primary
         };
         ApplyDialogAccent(dialog);
         dialog.Resources["ContentDialogMinWidth"] = Math.Clamp(XamlRoot.Size.Width - 48, 0, 528);
-        void Validate() => dialog.IsPrimaryButtonEnabled = required.All(box =>
+        var picker = new EditorLanguagePicker();
+        host.Children.Add(picker);
+        void ClosePicker(string? selected)
+        {
+            if (selected is not null)
+            {
+                language = selected;
+                current.Text = DisplayLanguage(language);
+            }
+            picker.Visibility = Visibility.Collapsed;
+            viewport.Visibility = Visibility.Visible;
+            host.Height = double.NaN;
+            dialog.Title = title;
+            Validate();
+            change.Focus(FocusState.Keyboard);
+        }
+        change.Click += (_, _) =>
+        {
+            formHeight = viewport.ActualHeight;
+            host.Height = formHeight;
+            viewport.Visibility = Visibility.Collapsed;
+            picker.Visibility = Visibility.Visible;
+            dialog.Title = "Choose language";
+            picker.Open(language);
+            Validate();
+        };
+        string PendingCode() => picker.Visibility == Visibility.Visible ? picker.PendingCode : language;
+        void Validate() => dialog.IsPrimaryButtonEnabled = PendingCode().Length is > 0 and <= 32 && required.All(box =>
             box.Visibility == Visibility.Collapsed || !string.IsNullOrWhiteSpace(box.Text));
+        picker.CodeChanged += Validate;
+        picker.Done += ClosePicker;
         foreach (var box in required)
         {
             box.TextChanged += (_, _) => Validate();
             box.RegisterPropertyChangedCallback(VisibilityProperty, (_, _) => Validate());
         }
         Validate();
-        dialog.Opened += (_, _) => dialog.DispatcherQueue.TryEnqueue(() => firstField.Focus(FocusState.Programmatic));
+        dialog.Opened += (_, _) => dialog.DispatcherQueue.TryEnqueue(() => required[0].Focus(FocusState.Programmatic));
         dialog.PrimaryButtonClick += async (_, args) =>
         {
             var deferral = args.GetDeferral();
-            try { await save(); }
+            try { await save(PendingCode()); }
             catch
             {
                 args.Cancel = true;
+                if (picker.Visibility == Visibility.Visible) ClosePicker(PendingCode());
                 error.Text = "Check the fields and try again. The phrase may already exist.";
                 error.Visibility = Visibility.Visible;
             }
             finally { deferral.Complete(); }
         };
-        if (await dialog.ShowAsync() == ContentDialogResult.Primary) await RefreshAsync();
+        var owner = XamlRoot;
+        owner.Changed += FitEditor;
+        try
+        {
+            if (await dialog.ShowAsync() == ContentDialogResult.Primary) await RefreshAsync();
+        }
+        finally { owner.Changed -= FitEditor; }
     }
+
+    private sealed record LanguageChoice(string Code, string Name)
+    {
+        public override string ToString() => $"{Name} · {Code}";
+    }
+
+    private static readonly LanguageChoice[] Languages = CultureInfo.GetCultures(CultureTypes.AllCultures)
+        .Where(c => c.Name.Length > 0)
+        .Select(c => new LanguageChoice(c.Name, c.EnglishName))
+        .OrderBy(c => c.Name, StringComparer.OrdinalIgnoreCase)
+        .ToArray();
+
+    protected static AutoSuggestBox LanguageField(string code)
+    {
+        var field = new AutoSuggestBox
+        {
+            Header = "Language",
+            PlaceholderText = "Search by name or code",
+            QueryIcon = new SymbolIcon(Symbol.Find),
+            HorizontalAlignment = HorizontalAlignment.Stretch
+        };
+        AutomationProperties.SetHelpText(field, "Search by language name or enter your own language code.");
+        SetLanguage(field, code);
+        field.TextChanged += (_, args) =>
+        {
+            if (args.Reason != AutoSuggestionBoxTextChangeReason.UserInput) return;
+            string query = field.Text.Trim();
+            field.ItemsSource = FindLanguages(query);
+        };
+        field.QuerySubmitted += (_, args) =>
+        {
+            string selected = args.ChosenSuggestion is LanguageChoice choice ? choice.Code : LanguageCode(field);
+            SetLanguage(field, selected);
+        };
+        return field;
+    }
+
+    private static LanguageChoice[] FindLanguages(string query) =>
+        Languages.Where(c => c.Code.StartsWith(query, StringComparison.OrdinalIgnoreCase) ||
+                    c.Name.Contains(query, StringComparison.OrdinalIgnoreCase))
+                .OrderByDescending(c => c.Code.Equals(query, StringComparison.OrdinalIgnoreCase))
+                .ThenByDescending(c => c.Name.StartsWith(query, StringComparison.OrdinalIgnoreCase))
+                .Take(16).ToArray();
+
+    private sealed class EditorLanguagePicker : Grid
+    {
+        private readonly TextBlock _current = Text("", 14);
+        private readonly TextBox _query = new() { Name = "EditorLanguageSearch", PlaceholderText = "Search by name or enter a code" };
+        private readonly ListView _results;
+        private string _original = "";
+
+        public event Action? CodeChanged;
+        public event Action<string?>? Done;
+        public string PendingCode => string.IsNullOrWhiteSpace(_query.Text) ? _original :
+            (_results.SelectedItem as LanguageChoice)?.Code ?? ResolveLanguageCode(_query.Text, _original);
+
+        public EditorLanguagePicker()
+        {
+            Name = "EditorLanguagePicker";
+            Visibility = Visibility.Collapsed;
+            RowSpacing = 5;
+            RowDefinitions.Add(new() { Height = GridLength.Auto });
+            RowDefinitions.Add(new() { Height = GridLength.Auto });
+            RowDefinitions.Add(new() { Height = new GridLength(1, GridUnitType.Star) });
+            var back = new HyperlinkButton { Name = "BackToEditor", Content = "Back", Padding = new Thickness(8, 2, 8, 2) };
+            AutomationProperties.SetName(back, "Back to entry without changing language");
+            back.Click += (_, _) => Done?.Invoke(null);
+            _current.VerticalAlignment = VerticalAlignment.Center;
+            Children.Add(Row(_current, back));
+            AutomationProperties.SetName(_query, "Language name or code");
+            SetRow(_query, 1);
+            Children.Add(_query);
+
+            var rowStyle = new Style(typeof(ListViewItem));
+            rowStyle.Setters.Add(new Setter(FrameworkElement.HeightProperty, 32d));
+            rowStyle.Setters.Add(new Setter(FrameworkElement.MinHeightProperty, 32d));
+            _results = new ListView
+            {
+                Name = "EditorLanguageSuggestions",
+                Style = (Style)Application.Current.Resources["LibraryLanguageResults"],
+                ItemContainerStyle = rowStyle,
+                Padding = new Thickness(0),
+                IsItemClickEnabled = true,
+                VerticalAlignment = VerticalAlignment.Top,
+                MaxHeight = 98
+            };
+            SetRow(_results, 2);
+            Children.Add(_results);
+            AutomationProperties.SetName(_results, "Matching languages");
+            ScrollViewer.SetVerticalScrollBarVisibility(_results, ScrollBarVisibility.Auto);
+            _query.TextChanged += (_, _) => RefreshMatches();
+            _results.SelectionChanged += (_, _) => CodeChanged?.Invoke();
+            _results.ItemClick += (_, e) => Done?.Invoke(((LanguageChoice)e.ClickedItem).Code);
+            PreviewKeyDown += (_, e) =>
+            {
+                if (e.Key == Windows.System.VirtualKey.Escape)
+                {
+                    e.Handled = true;
+                    Done?.Invoke(null);
+                }
+            };
+            _query.PreviewKeyDown += (_, e) =>
+            {
+                if (e.Key == Windows.System.VirtualKey.Down && _results.Items.Count > 0)
+                {
+                    e.Handled = true;
+                    _results.SelectedIndex = 0;
+                    _results.UpdateLayout();
+                    (_results.ContainerFromIndex(0) as ListViewItem)?.Focus(FocusState.Keyboard);
+                }
+                else if (e.Key == Windows.System.VirtualKey.Enter)
+                {
+                    e.Handled = true;
+                    string code = PendingCode;
+                    if (code.Length is > 0 and <= 32) Done?.Invoke(code);
+                }
+            };
+            _results.PreviewKeyDown += (_, e) =>
+            {
+                if (e.Key == Windows.System.VirtualKey.Enter && _results.SelectedItem is LanguageChoice choice)
+                {
+                    e.Handled = true;
+                    Done?.Invoke(choice.Code);
+                }
+            };
+        }
+
+        public void Open(string code)
+        {
+            _original = code;
+            _current.Text = $"Current language: {DisplayLanguage(code)}";
+            _query.Text = "";
+            RefreshMatches();
+            _query.Focus(FocusState.Keyboard);
+        }
+
+        private void RefreshMatches()
+        {
+            string query = _query.Text.Trim();
+            var choices = FindLanguages(query);
+            if (query.Length is > 0 and <= 32 && !choices.Any(c => c.Code.Equals(query, StringComparison.Ordinal)))
+                choices = [.. choices, new LanguageChoice(query, "Use code")];
+            _results.ItemsSource = choices;
+            _results.SelectedIndex = query.Length > 0 && choices.Length > 0 ? 0 : -1;
+            CodeChanged?.Invoke();
+        }
+    }
+
+    private static string DisplayLanguage(string code) =>
+        Languages.FirstOrDefault(c => c.Code.Equals(code, StringComparison.OrdinalIgnoreCase))?.ToString() ?? code;
+
+    protected static void SetLanguage(AutoSuggestBox field, string code)
+    {
+        field.Tag = code;
+        field.Text = DisplayLanguage(code);
+    }
+
+    protected static string LanguageCode(AutoSuggestBox field) => ResolveLanguageCode(field.Text, (string)field.Tag);
+
+    private static string ResolveLanguageCode(string text, string original)
+    {
+        string input = text.Trim();
+        if (input == DisplayLanguage(original)) return original;
+        var choice = Languages.FirstOrDefault(c => c.ToString().Equals(input, StringComparison.OrdinalIgnoreCase) ||
+            c.Name.Equals(input, StringComparison.OrdinalIgnoreCase));
+        return choice?.Code ?? input;
+    }
+
+    protected static string LanguageName(string code) =>
+        Languages.FirstOrDefault(c => c.Code.Equals(code, StringComparison.OrdinalIgnoreCase))?.Name ?? code;
 
     protected static TextBox Field(string label, string value = "", int maximum = 256, bool multiline = false) => new()
     {

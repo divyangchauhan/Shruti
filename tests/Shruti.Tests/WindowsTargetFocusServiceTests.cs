@@ -518,6 +518,35 @@ public sealed class WindowsTargetFocusServiceTests
         Assert.True(target.IsEditable);
     }
 
+    [Theory]
+    [InlineData(100, 123, 456, false, true)]  // Menu still owns focus.
+    [InlineData(300, 123, 456, false, false)] // User switched windows.
+    [InlineData(100, 999, 456, false, false)] // Another process now owns the handle.
+    [InlineData(100, 123, 999, false, false)] // Another thread now owns the handle.
+    [InlineData(100, 123, 456, true, false)]  // User minimized the editor.
+    public void ReturnForegroundFromTrayMenu_RequiresOriginalOwnerAndTarget(
+        int foreground, int processId, int threadId, bool minimized, bool shouldReturn)
+    {
+        IntPtr menuOwner = new(100);
+        IntPtr editor = new(200);
+        var windowing = new FakeWindowing
+        {
+            ForegroundWindow = new IntPtr(foreground),
+            CapturedWindow = new WindowsWindowSnapshot(editor, processId, threadId, "Sample editor"),
+            MinimizedWindow = minimized ? editor : IntPtr.Zero,
+            SetForegroundMakesWindowForeground = true
+        };
+        using var service = CreateService(windowing, new FakeProcessInspector(), new FakeFocusedElementInspector());
+
+        service.ReturnForegroundFromTrayMenu(menuOwner, CreateTarget(editor));
+
+        Assert.Equal(shouldReturn ? editor : new IntPtr(foreground), windowing.ForegroundWindow);
+        Assert.Equal(shouldReturn ? 1 : 0, windowing.SetForegroundCount);
+        Assert.Equal(0, windowing.RestoreWindowCount);
+        Assert.Equal(0, windowing.ThreadAttachCount);
+        Assert.Equal(0, windowing.PermissionInputCount);
+    }
+
     private static WindowsTargetFocusService CreateService(
         IWindowsWindowing windowing,
         IWindowsProcessInspector processInspector,

@@ -525,9 +525,8 @@ public sealed class DictationShellController
             SessionState = status.State,
             StatusText = status.Message,
             UserMessage = DescribeActiveState(status.State),
-            IsRunning = status.State is not DictationSessionState.Complete
-                and not DictationSessionState.Cancelled
-                and not DictationSessionState.Failed,
+            // RunOnceCoreAsync publishes the terminal outcome after saving history and handling the clipboard.
+            IsRunning = true,
             CanStart = false,
             CanStop = status.State is DictationSessionState.Recording or DictationSessionState.Paused,
             CanCancel = HasActiveRun() && status.State is not DictationSessionState.Complete
@@ -586,6 +585,9 @@ public sealed class DictationShellController
                 !string.IsNullOrWhiteSpace(transcript) &&
                 result.InsertionResult?.Submitted is not true)
         {
+            FailedOperation = result.Outcome == DictationRunOutcome.Failed
+                ? result.StatusHistory.LastOrDefault(status => status.State != DictationSessionState.Failed)?.State
+                : null,
             RawTranscript = result.RefinedTranscript?.Raw.Text ?? transcript,
             CanUseRawTranscript = result.RefinedTranscript is { } refined && refined.Raw.Text != transcript,
             AppliedEdits = result.RefinedTranscript?.Edits ?? []

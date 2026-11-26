@@ -12,17 +12,18 @@ public sealed class DictionaryControl : LibraryPage
     public IVocabularyRepository Repository { get; set; } = new SqliteVocabularyRepository(AppDataPaths.CreateDefault());
     private readonly StackPanel _entries;
     private readonly TextBox _search = new() { Header = "Search", PlaceholderText = "Search dictionary", MaxLength = 256 };
-    private readonly TextBox _language = new() { Text = "en", Header = "Language", Width = 80, MaxLength = 32 };
+    private readonly AutoSuggestBox _language = LanguageField("en");
     private readonly ComboBox _filter = new() { Header = "Entry type", ItemsSource = new[] { "All entries", "Vocabulary", "Corrections" }, SelectedIndex = 0, MinWidth = 132 };
     private readonly Button _sort;
     private readonly TextBlock _count;
-    private readonly StackPanel _tools = new() { Spacing = 22, Margin = new Thickness(0, 0, 0, -12) };
+    private readonly StackPanel _tools = new() { Spacing = 14 };
     private bool _descending;
     private int _generation;
 
     public DictionaryControl() : base("Dictionary", "Choose the spelling Shruti uses for names, terms, and corrections.")
     {
         AddCreateAction("Add entry", () => ShowEditorAsync(null, null));
+        _language.Width = 172;
         _tools.Children.Add(SearchTools(_search, _filter, _language));
         _count = Heading("Entries", 17);
         _sort = Action("A to Z", ToggleOrderAsync);
@@ -33,6 +34,7 @@ public sealed class DictionaryControl : LibraryPage
         _entries = AddEntryList();
         _search.TextChanged += async (_, _) => await RefreshAsync();
         _filter.SelectionChanged += async (_, _) => await RefreshAsync();
+        _language.QuerySubmitted += async (_, _) => await RefreshAsync();
         _language.LostFocus += async (_, _) => await RefreshAsync();
     }
 
@@ -47,7 +49,7 @@ public sealed class DictionaryControl : LibraryPage
     public override Task RefreshAsync() => RunAsync(async () =>
     {
         int generation = ++_generation;
-        if (string.IsNullOrWhiteSpace(_language.Text))
+        if (string.IsNullOrWhiteSpace(LanguageCode(_language)))
         {
             _entries.Children.Clear();
             _count.Text = "Entries";
@@ -56,8 +58,8 @@ public sealed class DictionaryControl : LibraryPage
             AddListEmpty(_entries, "\uE82D", "Choose a language", "Enter a language code, such as en, to see your entries.", null);
             return;
         }
-        var vocabulary = await Repository.ListVocabularyAsync(_language.Text, default);
-        var corrections = await Repository.ListCorrectionsAsync(_language.Text, default);
+        var vocabulary = await Repository.ListVocabularyAsync(LanguageCode(_language), default);
+        var corrections = await Repository.ListCorrectionsAsync(LanguageCode(_language), default);
         if (generation != _generation) return;
         var rows = new List<(string Phrase, string? Replacement, Func<Task> Edit, Func<Task> Delete)>();
         if (_filter.SelectedIndex != 2)
@@ -83,10 +85,11 @@ public sealed class DictionaryControl : LibraryPage
         }
 
         int count = _entries.Children.Count;
-        _count.Text = count switch { 0 => "Entries", 1 => "1 entry", _ => $"{count:N0} entries" };
+        string languageName = LanguageName(LanguageCode(_language));
+        _count.Text = count == 1 ? $"1 entry in {languageName}" : $"{count:N0} entries in {languageName}";
         _sort.Visibility = count > 1 ? Visibility.Visible : Visibility.Collapsed;
         bool filtering = _search.Text.Length > 0 || _filter.SelectedIndex != 0;
-        bool defaultLanguage = string.Equals(_language.Text.Trim(), "en", StringComparison.OrdinalIgnoreCase);
+        bool defaultLanguage = string.Equals(LanguageCode(_language).Trim(), "en", StringComparison.OrdinalIgnoreCase);
         var languageAction = UpdateListTools(_tools, _language, count > 0 || filtering || !defaultLanguage);
         if (count == 0)
         {
@@ -102,7 +105,7 @@ public sealed class DictionaryControl : LibraryPage
         {
             var suggestion = PreviewCorrectionSuggestion.Create(raw, edited);
             if (suggestion is null) { Message.Text = "Choose Add entry to save a specific correction."; return; }
-            await ShowEditorAsync(null, new CorrectionRule(Guid.NewGuid(), _language.Text, suggestion.HeardText, suggestion.ReplacementText, DateTimeOffset.UtcNow));
+            await ShowEditorAsync(null, new CorrectionRule(Guid.NewGuid(), LanguageCode(_language), suggestion.HeardText, suggestion.ReplacementText, DateTimeOffset.UtcNow));
         });
     }
 
@@ -110,10 +113,8 @@ public sealed class DictionaryControl : LibraryPage
     {
         bool editing = word is not null || correction is not null;
         var type = new ComboBox { Header = "Entry type", ItemsSource = new[] { "Vocabulary hint", "Exact correction" }, SelectedIndex = correction is null ? 0 : 1, IsEnabled = !editing, HorizontalAlignment = HorizontalAlignment.Stretch };
-        var language = Field("Language code", word?.Language ?? correction?.Language ?? _language.Text, 32);
-        language.MinWidth = 76;
-        language.Width = 108;
         var phrase = Field("Word or phrase", word?.Term ?? correction?.HeardText ?? "");
+        string language = word?.Language ?? correction?.Language ?? LanguageCode(_language);
         var replacement = Field("Replace with", correction?.ReplacementText ?? "");
         var usage = Secondary("", 14);
         void UpdateFields()
@@ -121,6 +122,7 @@ public sealed class DictionaryControl : LibraryPage
             bool correcting = type.SelectedIndex == 1;
             phrase.Header = correcting ? "When Shruti hears" : "Word or phrase";
             phrase.PlaceholderText = correcting ? "Words to replace" : "Enter the exact spelling";
+            replacement.MinWidth = 0;
             replacement.PlaceholderText = "Correct spelling or phrase";
             replacement.Visibility = correcting ? Visibility.Visible : Visibility.Collapsed;
             usage.Text = correcting ? "Replace matching whole words with the text you save." : "Help Shruti recognize a name or technical term during dictation.";
@@ -128,18 +130,18 @@ public sealed class DictionaryControl : LibraryPage
 
         UpdateFields();
         type.SelectionChanged += (_, _) => UpdateFields();
-        var fields = new StackPanel { Spacing = 16 };
+        var fields = new StackPanel { Spacing = 10 };
         if (editing) fields.Children.Add(Heading(correction is null ? "Vocabulary hint" : "Exact correction", 16));
         else fields.Children.Add(type);
         phrase.MinWidth = 100;
-        fields.Children.Add(Row(phrase, language));
+        fields.Children.Add(phrase);
         fields.Children.Add(replacement);
         fields.Children.Add(usage);
-        await EditAsync(editing ? "Edit dictionary entry" : "Add dictionary entry", fields, async () =>
+        await EditAsync(editing ? "Edit dictionary entry" : "Add dictionary entry", fields, language, async code =>
         {
-            if (type.SelectedIndex == 0) await Repository.SaveVocabularyAsync(new(word?.Id ?? Guid.NewGuid(), language.Text, phrase.Text, word?.CreatedAtUtc ?? DateTimeOffset.UtcNow), default);
-            else await Repository.SaveCorrectionAsync(new(correction?.Id ?? Guid.NewGuid(), language.Text, phrase.Text, replacement.Text, correction?.CreatedAtUtc ?? DateTimeOffset.UtcNow), default);
-            _language.Text = language.Text;
-        }, phrase, language, phrase, replacement);
+            if (type.SelectedIndex == 0) await Repository.SaveVocabularyAsync(new(word?.Id ?? Guid.NewGuid(), code, phrase.Text, word?.CreatedAtUtc ?? DateTimeOffset.UtcNow), default);
+            else await Repository.SaveCorrectionAsync(new(correction?.Id ?? Guid.NewGuid(), code, phrase.Text, replacement.Text, correction?.CreatedAtUtc ?? DateTimeOffset.UtcNow), default);
+            SetLanguage(_language, code);
+        }, phrase, replacement);
     }
 }

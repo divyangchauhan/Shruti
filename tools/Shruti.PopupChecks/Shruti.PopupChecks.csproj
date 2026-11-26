@@ -13,6 +13,7 @@
     <Compile Include="../../src/Shruti.App.WinUI/PopupAppearance.cs" Link="PopupAppearance.cs" />
     <Compile Include="../../src/Shruti.App.WinUI/FloatingMicWindow.cs" Link="FloatingMicWindow.cs" />
     <ProjectReference Include="../../src/Shruti.Platform.Windows/Shruti.Platform.Windows.csproj" />
+    <ProjectReference Include="../../src/Shruti.Models/Shruti.Models.csproj" />
     <ProjectReference Include="../../src/Shruti.Workflow/Shruti.Workflow.csproj" />
     <Page Include="../../src/Shruti.App.WinUI/Styles/PopupResources.xaml" Link="Styles/PopupResources.xaml" />
     <Page Include="../../src/Shruti.App.WinUI/Styles/LibraryResources.xaml" Link="Styles/LibraryResources.xaml" />

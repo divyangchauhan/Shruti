@@ -21,9 +21,9 @@ public sealed class WindowsPlatformModule
         return new WindowsGlobalTriggerService();
     }
 
-    public WindowsTrayIconService CreateTrayIconService()
+    public WindowsTrayIconService CreateTrayIconService(WindowsTargetFocusService? focusService = null)
     {
-        return new WindowsTrayIconService();
+        return new WindowsTrayIconService(focusService: focusService);
     }
 
     public IWindowsWindowVisibility CreateWindowVisibility()

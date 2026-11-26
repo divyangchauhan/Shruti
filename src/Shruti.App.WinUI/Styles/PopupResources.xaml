@@ -1,14 +1,31 @@
 <ResourceDictionary
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    <CornerRadius x:Key="OverlayCornerRadius">6</CornerRadius>
+    <Style x:Key="FloatingMenuStripStyle" TargetType="MenuFlyoutPresenter" BasedOn="{StaticResource OpaqueMenuFlyoutPresenterStyle}">
+        <Setter Property="Padding" Value="3,1" />
+        <Setter Property="ItemsPanel">
+            <Setter.Value>
+                <ItemsPanelTemplate>
+                    <StackPanel Orientation="Horizontal" />
+                </ItemsPanelTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
     <ResourceDictionary.ThemeDictionaries>
         <ResourceDictionary x:Key="Default">
+            <SolidColorBrush x:Key="ComboBoxItemPillFillBrush" Color="#BC5610" />
+            <SolidColorBrush x:Key="ComboBoxDropDownBorderBrush" Color="#D4D0C9" />
             <SolidColorBrush x:Key="ComboBoxDropDownBackground" Color="#FFFFFF" />
         </ResourceDictionary>
         <ResourceDictionary x:Key="Light">
+            <SolidColorBrush x:Key="ComboBoxItemPillFillBrush" Color="#BC5610" />
+            <SolidColorBrush x:Key="ComboBoxDropDownBorderBrush" Color="#D4D0C9" />
             <SolidColorBrush x:Key="ComboBoxDropDownBackground" Color="#FFFFFF" />
         </ResourceDictionary>
         <ResourceDictionary x:Key="Dark">
+            <SolidColorBrush x:Key="ComboBoxItemPillFillBrush" Color="#EA8D46" />
+            <SolidColorBrush x:Key="ComboBoxDropDownBorderBrush" Color="#625C56" />
             <SolidColorBrush x:Key="ComboBoxDropDownBackground" Color="#2C2925" />
         </ResourceDictionary>
         <ResourceDictionary x:Key="HighContrast">

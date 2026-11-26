@@ -31,6 +31,8 @@ public sealed partial class TranscriptQualityControl : UserControl
         }
     }
 
+    internal void FocusFirstOption() => CleanupBox.Focus(FocusState.Programmatic);
+
     public void Configure(ISettingsRepository repository, TranscriptQualitySettings settings, string modelsDirectory)
     {
         _directory = Path.Combine(modelsDirectory, "Cleanup");
@@ -56,16 +58,23 @@ public sealed partial class TranscriptQualityControl : UserControl
     private void UpdateModelCard()
     {
         if (_directory is null) return;
+        string? activeModel = null;
+        bool anyInstalled = false;
         foreach (var (model, row, action) in _rows)
         {
             bool installed = IsInstalled(model);
             bool active = installed && IsActive(model);
+            anyInstalled |= installed;
+            if (active) activeModel = model.Name;
             row.SetState(installed, active);
             string label = active ? "Disable" : installed ? "Set active" : "Download";
             action.Content = label;
             action.IsEnabled = !_saving && !_installing;
             AutomationProperties.SetName(action, $"{label} {model.Name} for cleanup");
         }
+        ModelGuidance.Text = activeModel is not null ? $"{activeModel} cleans new dictations. Disable it to return to light cleanup alone."
+            : anyInstalled ? "Choose Set active to use an installed model for cleanup."
+            : "Download a model, then choose Set active to use it for cleanup.";
         DownloadProgress.Visibility = _installing ? Visibility.Visible : Visibility.Collapsed;
         CleanupBox.IsChecked = Settings.CleanupMode == TranscriptCleanupMode.Light;
         ContextBox.IsChecked = Settings.EnableCursorContext;

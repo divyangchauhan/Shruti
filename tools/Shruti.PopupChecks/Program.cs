@@ -92,7 +92,17 @@ public sealed partial class CheckApp : Application
                     await Task.Delay(100);
                     var menu = Shruti.App.WinUI.PopupAppearance.CreateMenuFlyout();
                     foreach (string label in name == "HistoryMenu" ? new[] { "View transcript", "Delete" } : new[] { "Settings", "Hide floating bar" })
-                        menu.Items.Add(new MenuFlyoutItem { Text = label });
+                        menu.Items.Add(new MenuFlyoutItem
+                        {
+                            Text = label,
+                            Icon = label switch
+                            {
+                                "View transcript" => new SymbolIcon(Symbol.Document),
+                                "Delete" => new SymbolIcon(Symbol.Delete),
+                                "Settings" => new SymbolIcon(Symbol.Setting),
+                                _ => new FontIcon { Glyph = "\uED1A" }
+                            }
+                        });
                     menu.ShowAt(button);
                     await Task.Delay(180);
                     await CaptureAsync(root, $"{theme}-{name}", null);
@@ -128,7 +138,7 @@ public sealed partial class CheckApp : Application
                 string[] labels = name switch
                 {
                     "AudioDeviceComboBox" => ["Default microphone", "Microphone Array (Intel Smart Sound Technology)", "USB Microphone"],
-                    "ModelSelectionComboBox" => ["Whisper tiny English", "Whisper large-v3 Turbo Q5", "Whisper large-v3 Turbo"],
+                    "ModelSelectionComboBox" => Shruti.Models.RecommendedModelCatalog.Create().Models.Select(model => model.DisplayName).ToArray(),
                     _ => ["Primary monitor", "Display 1: Lenovo DisplayHDR", "Display 2: Generic PnP Monitor"]
                 };
                 foreach (string label in labels) combo.Items.Add(label);
@@ -188,6 +198,7 @@ public sealed partial class CheckApp : Application
             height = rendered.ActualHeight,
             brush = brush?.GetType().Name,
             color = (brush as SolidColorBrush)?.Color.ToString(),
+            cornerRadius = (border?.CornerRadius ?? (rendered as Control)?.CornerRadius)?.TopLeft,
             items = combo?.Items.Count,
             text = elements.OfType<TextBlock>().Select(t => new { t.Text, t.ActualWidth, t.ActualHeight, color = (t.Foreground as SolidColorBrush)?.Color.ToString() }).ToArray()
         });

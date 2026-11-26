@@ -11,16 +11,17 @@ public sealed class SnippetsControl : LibraryPage
     private readonly ISnippetRepository _repository = new SqliteSnippetRepository(AppDataPaths.CreateDefault());
     private readonly StackPanel _entries;
     private readonly TextBox _search = new() { Header = "Search", PlaceholderText = "Search snippets", MaxLength = 256 };
-    private readonly TextBox _language = new() { Text = "en", Header = "Language", Width = 80, MaxLength = 32 };
+    private readonly AutoSuggestBox _language = LanguageField("en");
     private readonly TextBlock _count;
     private readonly Button _sort;
-    private readonly StackPanel _tools = new() { Spacing = 22, Margin = new Thickness(0, 0, 0, -12) };
+    private readonly StackPanel _tools = new() { Spacing = 14 };
     private bool _descending;
     private int _generation;
 
     public SnippetsControl() : base("Snippets", "Say a short phrase to insert saved text anywhere you dictate.")
     {
         AddCreateAction("Add snippet", () => ShowEditorAsync(null));
+        _language.Width = 172;
         _tools.Children.Add(SearchTools(_search, _language));
         _count = Heading("Saved snippets", 17);
         _sort = Action("A to Z", ToggleOrderAsync);
@@ -30,6 +31,7 @@ public sealed class SnippetsControl : LibraryPage
         Body.Children.Add(_tools);
         _entries = AddEntryList();
         _search.TextChanged += async (_, _) => await RefreshAsync();
+        _language.QuerySubmitted += async (_, _) => await RefreshAsync();
         _language.LostFocus += async (_, _) => await RefreshAsync();
     }
 
@@ -44,7 +46,7 @@ public sealed class SnippetsControl : LibraryPage
     public override Task RefreshAsync() => RunAsync(async () =>
     {
         int generation = ++_generation;
-        if (string.IsNullOrWhiteSpace(_language.Text))
+        if (string.IsNullOrWhiteSpace(LanguageCode(_language)))
         {
             _entries.Children.Clear();
             _count.Text = "Saved snippets";
@@ -53,7 +55,7 @@ public sealed class SnippetsControl : LibraryPage
             AddListEmpty(_entries, "\uE8C8", "Choose a language", "Enter a language code, such as en, to see your snippets.", null);
             return;
         }
-        var snippets = await _repository.ListAsync(_language.Text, default);
+        var snippets = await _repository.ListAsync(LanguageCode(_language), default);
         if (generation != _generation) return;
         _entries.Children.Clear();
         var ordered = _descending ? snippets.OrderByDescending(s => s.Phrase, StringComparer.CurrentCultureIgnoreCase) : snippets.OrderBy(s => s.Phrase, StringComparer.CurrentCultureIgnoreCase);
@@ -70,10 +72,11 @@ public sealed class SnippetsControl : LibraryPage
         }
 
         int count = _entries.Children.Count;
-        _count.Text = count switch { 0 => "Saved snippets", 1 => "1 saved snippet", _ => $"{count:N0} saved snippets" };
+        string languageName = LanguageName(LanguageCode(_language));
+        _count.Text = count == 1 ? $"1 snippet in {languageName}" : $"{count:N0} snippets in {languageName}";
         _sort.Visibility = count > 1 ? Visibility.Visible : Visibility.Collapsed;
         bool searching = _search.Text.Length > 0;
-        bool defaultLanguage = string.Equals(_language.Text.Trim(), "en", StringComparison.OrdinalIgnoreCase);
+        bool defaultLanguage = string.Equals(LanguageCode(_language).Trim(), "en", StringComparison.OrdinalIgnoreCase);
         var languageAction = UpdateListTools(_tools, _language, count > 0 || searching || !defaultLanguage);
         if (count == 0)
             AddListEmpty(_entries, "\uE8C8", searching ? "No matching snippets" : defaultLanguage ? "No English snippets yet" : "No snippets in this language",
@@ -82,22 +85,21 @@ public sealed class SnippetsControl : LibraryPage
 
     private Task ShowEditorAsync(TranscriptSnippet? snippet)
     {
-        var language = Field("Language code", snippet?.Language ?? _language.Text, 32);
-        language.Width = 100;
-        language.MinWidth = 72;
         var phrase = Field("When I say", snippet?.Phrase ?? "");
+        string language = snippet?.Language ?? LanguageCode(_language);
         phrase.MinWidth = 120;
         phrase.PlaceholderText = "A phrase such as my signature";
         var text = Field("Insert this text", snippet?.Text ?? "", 16000, true);
-        text.PlaceholderText = "Type or paste the text to insert";
-        var fields = new StackPanel { Spacing = 16 };
-        fields.Children.Add(Row(phrase, language));
+        text.PlaceholderText = "Type or paste your text";
+        text.MinWidth = 0;
+        text.Height = 104;
+        var fields = new StackPanel { Spacing = 10 };
+        fields.Children.Add(phrase);
         fields.Children.Add(text);
-        fields.Children.Add(Secondary("Shruti keeps capitalization and line breaks. Snippets can expand within a sentence.", 13));
-        return EditAsync(snippet is null ? "Add snippet" : "Edit snippet", fields, async () =>
+        return EditAsync(snippet is null ? "Add snippet" : "Edit snippet", fields, language, async code =>
         {
-            await _repository.SaveAsync(new(snippet?.Id ?? Guid.NewGuid(), language.Text, phrase.Text, text.Text), default);
-            _language.Text = language.Text;
-        }, phrase, language, phrase, text);
+            await _repository.SaveAsync(new(snippet?.Id ?? Guid.NewGuid(), code, phrase.Text, text.Text), default);
+            SetLanguage(_language, code);
+        }, phrase, text);
     }
 }

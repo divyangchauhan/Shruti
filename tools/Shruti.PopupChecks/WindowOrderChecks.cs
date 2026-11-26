@@ -3,6 +3,8 @@ using System.Runtime.InteropServices;
 using Microsoft.UI.Xaml;
 using Shruti.App.WinUI;
 using Shruti.Platform.Windows;
+using Shruti.Core;
+using Shruti.Core.Dictation;
 using Shruti.Workflow.Dictation;
 using WinRT.Interop;
 
@@ -25,8 +27,35 @@ internal static class WindowOrderChecks
             pill.Show(DictationShellState.Initial, "Ctrl+Win+Space");
             await Task.Delay(1200);
             CheckTopmost();
+            var capturing = DictationShellState.Initial with
+            {
+                SessionState = DictationSessionState.Recording,
+                IsRunning = true,
+                CanStop = true
+            };
+            pill.UpdateState(capturing);
+            var recording = pill.AppWindow;
+            var position = recording.Position;
+            var size = recording.Size;
+            results.Add($"Recording: {position.X},{position.Y} {size.Width}x{size.Height}");
+            CheckSameBounds(capturing with { SessionState = DictationSessionState.TranscribingFinalAudio, CanStop = false });
+            CheckSameBounds(DictationShellState.Initial with { LastOutcome = DictationRunOutcome.Inserted });
+
+            void CheckSameBounds(DictationShellState state)
+            {
+                pill.UpdateState(state);
+                var current = pill.AppWindow;
+                string measurement = $"{state.LastOutcome?.ToString() ?? state.SessionState.ToString()}: {current.Position.X},{current.Position.Y} {current.Size.Width}x{current.Size.Height}";
+                results.Add(measurement);
+                if (current.Position.X != position.X || current.Position.Y != position.Y ||
+                    current.Size.Width != size.Width || current.Size.Height != size.Height)
+                    throw new InvalidOperationException($"The active floating bar moved or resized. {measurement}");
+            }
+
+            pill.UpdateState(DictationShellState.Initial);
             // A fullscreen game can sit above other topmost windows. The real
             // floating bar must leave that order alone on its next timer tick.
+            target.Activate();
             PutTargetAbovePill();
             await Task.Delay(1500);
             CheckTopmost();
