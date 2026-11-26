@@ -3,15 +3,33 @@
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     HorizontalContentAlignment="Stretch">
-    <Border x:Name="Separator" Padding="18,13" BorderBrush="{ThemeResource ShrutiBorderSubtleBrush}">
-        <Grid ColumnSpacing="16">
+    <Border x:Name="Separator" Padding="16,10" BorderBrush="{ThemeResource ShrutiBorderSubtleBrush}">
+        <Grid x:Name="Layout" ColumnSpacing="16" SizeChanged="Layout_SizeChanged">
+            <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="*" />
                 <ColumnDefinition Width="Auto" />
             </Grid.ColumnDefinitions>
-            <StackPanel VerticalAlignment="Center" Spacing="4">
+            <StackPanel x:Name="Description" VerticalAlignment="Center" Spacing="4">
                 <TextBlock x:Name="ModelTitle" FontSize="16" FontWeight="SemiBold" TextWrapping="Wrap" />
-                <TextBlock x:Name="Metadata" FontSize="13" Foreground="{ThemeResource ShrutiTextSecondaryBrush}" TextWrapping="Wrap" />
+                <Grid ColumnSpacing="8">
+                    <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                    <TextBlock x:Name="Metadata" FontSize="14" VerticalAlignment="Center" Foreground="{ThemeResource ShrutiTextSecondaryBrush}" TextWrapping="Wrap" />
+                    <Button x:Name="CompatibilityButton" Grid.Column="1" Visibility="Collapsed" Content="Model details" Style="{StaticResource SubtleButtonStyle}">
+                        <Button.Flyout>
+                            <Flyout>
+                                <StackPanel MaxWidth="250" Spacing="3">
+                                    <TextBlock x:Name="DetailsHeading" FontWeight="SemiBold" FontSize="16" TextWrapping="Wrap" />
+                                    <TextBlock x:Name="FormatDescription" TextWrapping="Wrap" />
+                                    <TextBlock Margin="0,6,0,0" Text="Supported processors" FontWeight="SemiBold" />
+                                    <TextBlock x:Name="SupportedProcessors" TextWrapping="Wrap" />
+                                    <TextBlock Margin="0,6,0,0" Text="Detected on this PC" FontWeight="SemiBold" />
+                                    <TextBlock x:Name="DetectedProcessors" TextWrapping="Wrap" />
+                                </StackPanel>
+                            </Flyout>
+                        </Button.Flyout>
+                    </Button>
+                </Grid>
                 <HyperlinkButton x:Name="License" Content="Model license" Padding="0" Visibility="Collapsed" />
             </StackPanel>
             <StackPanel x:Name="RowActions" Grid.Column="1" VerticalAlignment="Center" Orientation="Horizontal" Spacing="8">

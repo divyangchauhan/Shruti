@@ -3,11 +3,14 @@ using System.Drawing;
 using System.Drawing.Drawing2D;
 using System.Runtime.InteropServices;
 using System.Windows.Forms;
+using Shruti.Core.Platform;
 
 namespace Shruti.Platform.Windows;
 
-public sealed class Win32TrayIconApi : IWindowsTrayIconApi, IDisposable
+public sealed class Win32TrayIconApi(WindowsTargetFocusService? focusService = null) : IWindowsTrayIconApi, IDisposable
 {
+    private IntPtr _menuOwner;
+    private FocusTarget? _menuTarget;
     private NotifyIcon? _notifyIcon;
     private ContextMenuStrip? _menu;
     private ToolStripMenuItem? _startMenuItem;
@@ -152,12 +155,28 @@ public sealed class Win32TrayIconApi : IWindowsTrayIconApi, IDisposable
             ShowCheckMargin = false,
             Font = SystemFonts.MenuFont
         };
+        int iconSize = menu.LogicalToDeviceUnits(18);
+        menu.ImageScalingSize = new Size(iconSize, iconSize);
+        menu.HandleCreated += (_, _) =>
+        {
+            if (OperatingSystem.IsWindowsVersionAtLeast(10, 0, 22000) && !SystemInformation.HighContrast)
+            {
+                int roundedSmall = 3;
+                NativeMethods.DwmSetWindowAttribute(menu.Handle, 33, ref roundedSmall, sizeof(int));
+            }
+        };
         menu.MinimumSize = new Size(menu.LogicalToDeviceUnits(190), 0);
         menu.Padding = new Padding(menu.LogicalToDeviceUnits(3), menu.LogicalToDeviceUnits(5),
             menu.LogicalToDeviceUnits(3), menu.LogicalToDeviceUnits(5));
         ApplyMenuTheme(menu);
         menu.Opening += (_, _) =>
         {
+            // WinForms has activated its hidden NotifyIcon owner on this thread.
+            // The previous app may still be processing foreground deactivation.
+            IntPtr active = NativeMethods.GetActiveWindow();
+            _menuOwner = active != IntPtr.Zero && NativeWindow.FromHandle(active) is not null &&
+                !NativeMethods.IsWindowVisible(active) ? active : IntPtr.Zero;
+            _menuTarget = _menuOwner != IntPtr.Zero ? focusService?.LastExternalTarget : null;
             ApplyMenuTheme(menu);
             UpdateMenuState();
         };
@@ -215,33 +234,74 @@ public sealed class Win32TrayIconApi : IWindowsTrayIconApi, IDisposable
     {
         public bool DarkTheme { get; } = darkTheme;
 
+        protected override void OnRenderMenuItemBackground(ToolStripItemRenderEventArgs e)
+        {
+            if (!e.Item.Selected || e.ToolStrip is not ContextMenuStrip menu)
+            {
+                base.OnRenderMenuItemBackground(e);
+                return;
+            }
+
+            int inset = menu.LogicalToDeviceUnits(2);
+            var bounds = new RectangleF(inset, inset, e.Item.Width - 2 * inset, e.Item.Height - 2 * inset);
+            var prior = e.Graphics.SmoothingMode;
+            e.Graphics.SmoothingMode = SmoothingMode.AntiAlias;
+            using var fill = new SolidBrush(ColorTable.MenuItemSelected);
+            FillRoundedRectangle(e.Graphics, fill, bounds, menu.LogicalToDeviceUnits(4));
+            e.Graphics.SmoothingMode = prior;
+        }
+
         protected override void OnRenderItemText(ToolStripItemTextRenderEventArgs e)
         {
             var palette = (TrayMenuColors)ColorTable;
             e.TextColor = palette.Text;
             base.OnRenderItemText(e);
             if (e.Item.Tag is not WindowsTrayCommand command || e.ToolStrip is not ContextMenuStrip menu) return;
-            string glyph = command switch
-            {
-                WindowsTrayCommand.Start => "\uE720",
-                WindowsTrayCommand.Stop => "\uE71A",
-                WindowsTrayCommand.Cancel => "\uE711",
-                WindowsTrayCommand.ShowWindow => "\uE8A7",
-                WindowsTrayCommand.ShowSettings => "\uE713",
-                WindowsTrayCommand.Quit => "\uE8BB",
-                _ => ""
-            };
             int inset = menu.LogicalToDeviceUnits(4);
             bool rtl = menu.RightToLeft == RightToLeft.Yes;
             int width = rtl ? e.Item.Width - e.TextRectangle.Right : e.TextRectangle.Left;
-            int size = Math.Min(menu.LogicalToDeviceUnits(16), width - 2 * inset);
+            int size = Math.Min(menu.LogicalToDeviceUnits(18), width - 2 * inset);
             if (size < 1) return;
             int left = rtl ? e.Item.Width - inset - size : inset;
             var bounds = new Rectangle(left, e.TextRectangle.Top, size, e.TextRectangle.Height);
-            using var font = new Font("Segoe MDL2 Assets", size * .85f, FontStyle.Regular, GraphicsUnit.Pixel);
             Color ink = command is WindowsTrayCommand.Start or WindowsTrayCommand.Stop ? palette.Accent : palette.Text;
-            TextRenderer.DrawText(e.Graphics, glyph, font, bounds, ink,
-                TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPadding);
+            using var brush = new SolidBrush(ink);
+            var state = e.Graphics.Save();
+            try
+            {
+                e.Graphics.SmoothingMode = SmoothingMode.AntiAlias;
+                if (command == WindowsTrayCommand.Stop)
+                {
+                    float edge = size * .64f;
+                    FillRoundedRectangle(e.Graphics, brush,
+                        new RectangleF(left + (size - edge) / 2, bounds.Top + (bounds.Height - edge) / 2, edge, edge), edge * .17f);
+                    return;
+                }
+                if (command == WindowsTrayCommand.Start)
+                {
+                    e.Graphics.TranslateTransform(left, bounds.Top + (bounds.Height - size) / 2f);
+                    DrawMicrophone(e.Graphics, brush, size);
+                    return;
+                }
+
+                string glyph = command switch
+                {
+                    WindowsTrayCommand.Cancel => "\uE711",
+                    WindowsTrayCommand.ShowWindow => "\uE8A7",
+                    WindowsTrayCommand.ShowSettings => "\uE713",
+                    WindowsTrayCommand.Quit => "\uF3B1",
+                    _ => ""
+                };
+                string iconFont = OperatingSystem.IsWindowsVersionAtLeast(10, 0, 22000) ? "Segoe Fluent Icons" : "Segoe MDL2 Assets";
+                using var font = new Font(iconFont, size, FontStyle.Regular, GraphicsUnit.Pixel);
+                e.Graphics.TextRenderingHint = System.Drawing.Text.TextRenderingHint.AntiAliasGridFit;
+                using var format = new StringFormat { Alignment = StringAlignment.Center, LineAlignment = StringAlignment.Center };
+                e.Graphics.DrawString(glyph, font, brush, bounds, format);
+            }
+            finally
+            {
+                e.Graphics.Restore(state);
+            }
         }
     }
 
@@ -252,8 +312,24 @@ public sealed class Win32TrayIconApi : IWindowsTrayIconApi, IDisposable
             Tag = command,
             Padding = new Padding(8, 4, 14, 4)
         };
-        item.Click += (_, _) => RaiseCommand(command);
+        item.Click += (_, _) =>
+        {
+            if (command is WindowsTrayCommand.Start or WindowsTrayCommand.Stop or WindowsTrayCommand.Cancel)
+            {
+                ReturnFocusFromMenu();
+            }
+
+            RaiseCommand(command);
+        };
         return item;
+    }
+
+    private void ReturnFocusFromMenu()
+    {
+        if (_menuTarget is { } target && NativeMethods.IsWindowVisible(target.WindowHandle))
+        {
+            focusService?.ReturnForegroundFromTrayMenu(_menuOwner, target);
+        }
     }
 
     private void UpdateIconState(string tooltip)
@@ -325,6 +401,22 @@ public sealed class Win32TrayIconApi : IWindowsTrayIconApi, IDisposable
 
         using var inkBrush = new SolidBrush(Color.FromArgb(43, 29, 5));
         float scale = Math.Min(width, height);
+        DrawMicrophone(graphics, inkBrush, scale);
+
+        IntPtr handle = bitmap.GetHicon();
+        try
+        {
+            using Icon icon = Icon.FromHandle(handle);
+            return (Icon)icon.Clone();
+        }
+        finally
+        {
+            NativeMethods.DestroyIcon(handle);
+        }
+    }
+
+    private static void DrawMicrophone(Graphics graphics, Brush inkBrush, float scale)
+    {
         FillRoundedRectangle(
             graphics,
             inkBrush,
@@ -338,17 +430,6 @@ public sealed class Win32TrayIconApi : IWindowsTrayIconApi, IDisposable
             scale * 0.04f);
         using var pen = new Pen(inkBrush, Math.Max(2, scale * 0.07f));
         graphics.DrawArc(pen, scale * 0.27f, scale * 0.43f, scale * 0.46f, scale * 0.30f, 0, 180);
-
-        IntPtr handle = bitmap.GetHicon();
-        try
-        {
-            using Icon icon = Icon.FromHandle(handle);
-            return (Icon)icon.Clone();
-        }
-        finally
-        {
-            NativeMethods.DestroyIcon(handle);
-        }
     }
 
     private static void FillRoundedRectangle(
@@ -375,6 +456,16 @@ public sealed class Win32TrayIconApi : IWindowsTrayIconApi, IDisposable
 
     private static class NativeMethods
     {
+        [DllImport("user32.dll")]
+        public static extern IntPtr GetActiveWindow();
+
+        [DllImport("dwmapi.dll")]
+        public static extern int DwmSetWindowAttribute(IntPtr window, int attribute, ref int value, int size);
+
+        [DllImport("user32.dll")]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        public static extern bool IsWindowVisible(IntPtr windowHandle);
+
         [DllImport("user32.dll", SetLastError = true)]
         [return: MarshalAs(UnmanagedType.Bool)]
         public static extern bool DestroyIcon(IntPtr iconHandle);

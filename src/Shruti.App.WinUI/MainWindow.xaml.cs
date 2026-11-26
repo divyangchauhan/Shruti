@@ -60,8 +60,9 @@ public sealed partial class MainWindow : Window
     private bool _isModelOperationRunning;
     private bool _isOnboardingModelOperation;
     private int _onboardingStep;
-    private ComputeBackend _resolvedBackend = ComputeBackend.Cpu;
+    private ComputeBackend? _resolvedBackend;
     private string _currentPage = "History";
+    private string _sidebarModelName = "Whisper tiny.en";
     private IReadOnlyList<InstalledModel> _installedModels = [];
     private IReadOnlyDictionary<string, IReadOnlySet<ComputeBackend>> _availableBackendsByModel =
         new Dictionary<string, IReadOnlySet<ComputeBackend>>(StringComparer.Ordinal);
@@ -82,6 +83,12 @@ public sealed partial class MainWindow : Window
         IWindowsWindowVisibility windowVisibility)
     {
         InitializeComponent();
+        ReplaceSelectionMenuItem.RegisterPropertyChangedCallback(ToggleMenuFlyoutItem.IsCheckedProperty, (_, _) =>
+        {
+            bool replace = ReplaceSelectionMenuItem.IsChecked;
+            InsertPreviewButton.Content = replace ? "Replace selection" : "Insert";
+            AutomationProperties.SetName(InsertPreviewButton, replace ? "Replace selected text with preview transcript" : "Insert preview transcript");
+        });
         TriggerStatusText.RegisterPropertyChangedCallback(TextBlock.TextProperty, (_, _) =>
             TriggerStatusText.Visibility = string.IsNullOrEmpty(TriggerStatusText.Text) ? Visibility.Collapsed : Visibility.Visible);
         AppIcon.Apply(AppWindow);
@@ -105,7 +112,7 @@ public sealed partial class MainWindow : Window
         _floatingBars.ResumeRequested += async (_, _) => { if (_controller.State.IsPaused) await _controller.PauseAsync(); };
         _floatingBars.CancelRequested += async (_, _) => await _controller.CancelAsync();
         _floatingBars.DismissRequested += (_, _) => FloatingBarCheckBox.IsOn = false;
-        _floatingBars.SettingsRequested += (_, _) => { ShowMainWindow(); ShowPage("Settings"); };
+        _floatingBars.SettingsRequested += FloatingBar_SettingsRequested;
         _floatingBars.DisplaysChanged += (_, _) => RefreshFloatingMonitorControls();
         _windowHandle = WindowNative.GetWindowHandle(this);
         _windowMessageHost = new WindowsWindowMessageHost(_windowHandle);
@@ -144,6 +151,38 @@ public sealed partial class MainWindow : Window
         ShowMainWindow();
     }
 
+    private void Root_SizeChanged(object sender, SizeChangedEventArgs args)
+    {
+        bool compact = args.NewSize.Width < 900;
+        double width = compact ? 96 : 232;
+        if (NavigationColumn.Width.Value == width) return;
+
+        NavigationColumn.Width = new GridLength(width);
+        NavLayout.Padding = compact ? new Thickness(4, 8, 4, 8) : new Thickness(12, 16, 12, 16);
+        SidebarModel.Visibility = compact ? Visibility.Collapsed : Visibility.Visible;
+        CompactModelButton.Visibility = compact ? Visibility.Visible : Visibility.Collapsed;
+        foreach (var button in new[] { HistoryNavButton, InsightsNavButton, DictionaryNavButton, SnippetsNavButton, ModelsNavButton, SettingsNavButton })
+        {
+            var stack = (StackPanel)button.Content;
+            stack.Orientation = compact ? Orientation.Vertical : Orientation.Horizontal;
+            stack.Spacing = compact ? 2 : 12;
+            ((TextBlock)stack.Children[1]).FontSize = compact ? 12 : 14;
+            button.Height = compact ? 48 : 42;
+            button.Padding = new Thickness(compact ? 0 : 12, 0, compact ? 0 : 12, 0);
+            button.HorizontalContentAlignment = compact ? HorizontalAlignment.Center : HorizontalAlignment.Left;
+        }
+    }
+
+    private void UpdateSidebarModel()
+    {
+        ModelSummaryText.Text = _sidebarModelName;
+        string processor = ActiveComputeBadgeText.Text == "AUTO" ? "Auto processor" : $"{ActiveComputeBadgeText.Text} processor";
+        string description = $"{_sidebarModelName} · {processor} · {BackendSummaryText.Text}";
+        ToolTipService.SetToolTip(SidebarModel, description);
+        ToolTipService.SetToolTip(CompactModelButton, description);
+        AutomationProperties.SetHelpText(CompactModelButton, description);
+    }
+
     private void ResizeForCurrentDisplay()
     {
         uint dpi = GetDpiForWindow(_windowHandle);
@@ -176,7 +215,7 @@ public sealed partial class MainWindow : Window
     {
         await _controller.InsertPreviewAsync(
             TranscriptPreviewBox.Text,
-            ReplaceSelectionCheckBox.IsChecked == true);
+            ReplaceSelectionMenuItem.IsChecked);
     }
 
     private void SettingsButton_Click(object sender, RoutedEventArgs e)
@@ -221,22 +260,20 @@ public sealed partial class MainWindow : Window
         await PersistSettingsAsync();
     }
 
+    private void CatalogFilter_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is not RadioMenuFlyoutItem { Tag: string tag } ||
+            !Enum.TryParse(tag, out ComputeBackend backend)) return;
+        _modelBackendFilter = backend;
+        UpdateComputeButtons();
+        RenderModelCatalog();
+    }
+
     private void BackendButton_Click(object sender, RoutedEventArgs e)
     {
-        if (sender is not Button { Tag: string backend } button ||
+        if (sender is not Button { Tag: string backend } ||
             !Enum.TryParse(backend, out ComputeBackend selectedBackend))
         {
-            return;
-        }
-
-        if (ReferenceEquals(button, BackendNpuButton) ||
-            ReferenceEquals(button, BackendGpuButton) ||
-            ReferenceEquals(button, BackendCpuButton) ||
-            ReferenceEquals(button, BackendAutoButton))
-        {
-            _modelBackendFilter = selectedBackend;
-            UpdateComputeButtons();
-            RenderModelCatalog();
             return;
         }
 
@@ -334,17 +371,14 @@ public sealed partial class MainWindow : Window
         OnboardingModelProgressBar.Visibility = Visibility.Visible;
         try
         {
-            await RunModelInstallOperationAsync(
-                model,
-                $"Downloading {model.DisplayName}.",
-                progress => _modelManager.DownloadAsync(model, progress, CancellationToken.None));
+            await DownloadModelAsync(model);
             if (FindInstalledModel(model.Id) is not null)
             {
                 SetOnboardingStep(3);
             }
             else
             {
-                OnboardingModelStatusText.Text = ModelsStatusText.Text + " Check your connection and try Download again.";
+                OnboardingModelStatusText.Text = ModelInstallError.IsOpen ? ModelInstallError.Message : ModelsStatusText.Text;
             }
         }
         finally
@@ -384,6 +418,15 @@ public sealed partial class MainWindow : Window
         }
 
         await PersistSettingsAsync();
+    }
+
+    private void SettingsSection_SelectionChanged(SelectorBar sender, SelectorBarSelectionChangedEventArgs args)
+    {
+        if (SupportSection is null) return;
+        DictationSection.Visibility = sender.SelectedItem == DictationTab ? Visibility.Visible : Visibility.Collapsed;
+        AppearanceSection.Visibility = sender.SelectedItem == AppearanceTab ? Visibility.Visible : Visibility.Collapsed;
+        SupportSection.Visibility = sender.SelectedItem == SupportTab ? Visibility.Visible : Visibility.Collapsed;
+        SettingsPanel.ChangeView(null, 0, null, true);
     }
 
     private async void TriggerConfigurationToggle_Toggled(object sender, RoutedEventArgs e)
@@ -553,7 +596,7 @@ public sealed partial class MainWindow : Window
         AppWindowTitleBar titleBar = AppWindow.TitleBar;
         titleBar.ExtendsContentIntoTitleBar = true;
         titleBar.PreferredHeightOption = TitleBarHeightOption.Standard;
-        SetTitleBar(AppTitleBar);
+        SetTitleBar(TitleBarDragArea);
         UpdateAppTitleBarLayout();
         UpdateAppTitleBarTheme();
     }
@@ -658,6 +701,9 @@ public sealed partial class MainWindow : Window
     {
         _audioDevicesLoaded = false;
         AudioDeviceComboBox.IsEnabled = false;
+        AudioDeviceComboBox.Visibility = Visibility.Visible;
+        AudioDeviceComboBox.PlaceholderText = "Loading microphones";
+        MicrophoneRecoveryPanel.Visibility = Visibility.Collapsed;
         try
         {
             IReadOnlyList<AudioInputDevice> devices = await _audioCaptureService
@@ -675,8 +721,7 @@ public sealed partial class MainWindow : Window
 
             if (devices.Count == 0)
             {
-                AudioDeviceComboBox.PlaceholderText = "No microphone available";
-                TriggerStatusText.Text = DiagnosticFailureText.MicrophoneRecovery;
+                ShowMicrophoneUnavailable("No microphone available");
                 return;
             }
 
@@ -684,15 +729,25 @@ public sealed partial class MainWindow : Window
                 devices.FirstOrDefault(device => device.IsDefault)?.Id ??
                 devices[0].Id;
             SelectAudioDevice(selectedDeviceId);
+            AutomationProperties.SetHelpText(AudioDeviceComboBox, string.Empty);
             _audioDevicesLoaded = true;
             AudioDeviceComboBox.IsEnabled = !_controller.State.IsRunning;
         }
         catch (Exception ex)
         {
-            AudioDeviceComboBox.PlaceholderText = "Microphone unavailable";
-            TriggerStatusText.Text = DiagnosticFailureText.MicrophoneRecovery;
+            ShowMicrophoneUnavailable("Microphone unavailable");
             AutomationProperties.SetHelpText(AudioDeviceComboBox, DiagnosticTextRedactor.Redact(ex.Message));
         }
+    }
+
+    private void ShowMicrophoneUnavailable(string message)
+    {
+        AudioDeviceComboBox.Items.Clear();
+        AudioDeviceComboBox.Visibility = Visibility.Collapsed;
+        MicrophoneRecoveryText.Text = message;
+        MicrophoneRecoveryHelp.Text = "Connect a microphone and allow desktop apps to use it.";
+        AudioDeviceComboBox.IsEnabled = false;
+        MicrophoneRecoveryPanel.Visibility = Visibility.Visible;
     }
 
     private async void AudioDeviceComboBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
@@ -806,7 +861,11 @@ public sealed partial class MainWindow : Window
         UseOriginalButton.Visibility = state.CanUseRawTranscript ? Visibility.Visible : Visibility.Collapsed;
         ReviewCorrectionButton.Visibility = !state.IsRunning && state.RawTranscript.Length > 0 ? Visibility.Visible : Visibility.Collapsed;
 
-        PreviewTools.Visibility = state.CanUseRawTranscript || ReviewCorrectionButton.Visibility == Visibility.Visible
+        CopyPreviewMenuItem.Visibility = state.CanCopy && state.CanInsertPreview ? Visibility.Visible : Visibility.Collapsed;
+        ReplaceSelectionMenuItem.Visibility = state.CanInsertPreview ? Visibility.Visible : Visibility.Collapsed;
+        RecordAgainMenuItem.Visibility = state.CanRetry && (state.CanCopy || state.CanInsertPreview) ? Visibility.Visible : Visibility.Collapsed;
+        PreviewTools.Visibility = state.CanInsertPreview || state.CanUseRawTranscript || ReviewCorrectionButton.Visibility == Visibility.Visible ||
+            RecordAgainMenuItem.Visibility == Visibility.Visible
             ? Visibility.Visible : Visibility.Collapsed;
         string errorText = FormatErrorText(state);
         PreviewHeading.Text = state.CanInsertPreview ? $"Insert into {state.TargetDescription}" :
@@ -817,23 +876,14 @@ public sealed partial class MainWindow : Window
             : Visibility.Visible;
 
         RetryButton.IsEnabled = state.CanRetry;
-        RetryButton.Visibility = state.CanRetry ? Visibility.Visible : Visibility.Collapsed;
-        if (state.CanInsertPreview)
-            CopyButton.ClearValue(FrameworkElement.StyleProperty);
-        else
-            CopyButton.Style = (Style)Application.Current.Resources["LibraryPrimaryButton"];
-        CopyButton.Content = state.CanInsertPreview ? "Copy" : "Copy transcript";
+        RetryButton.Visibility = state.CanRetry && !state.CanCopy && !state.CanInsertPreview ? Visibility.Visible : Visibility.Collapsed;
         CopyButton.IsEnabled = state.CanCopy;
-        CopyButton.Visibility = state.CanCopy ? Visibility.Visible : Visibility.Collapsed;
+        CopyButton.Visibility = state.CanCopy && !state.CanInsertPreview ? Visibility.Visible : Visibility.Collapsed;
         InsertPreviewButton.IsEnabled = state.CanInsertPreview;
         InsertPreviewButton.Visibility = state.CanInsertPreview ? Visibility.Visible : Visibility.Collapsed;
-        ReplaceSelectionCheckBox.IsEnabled = state.CanInsertPreview;
-        ReplaceSelectionCheckBox.Visibility = state.CanInsertPreview
-            ? Visibility.Visible
-            : Visibility.Collapsed;
         if (!state.CanInsertPreview)
         {
-            ReplaceSelectionCheckBox.IsChecked = false;
+            ReplaceSelectionMenuItem.IsChecked = false;
         }
 
         TranscriptPreviewBox.IsReadOnly = !state.CanInsertPreview;
@@ -879,11 +929,38 @@ public sealed partial class MainWindow : Window
     private void UpdateFloatingBar()
     {
         if (_isDisposed || !_settingsLoaded) return;
-        FloatingBarDisplayModeComboBox.IsEnabled = FloatingBarCheckBox.IsOn;
-        FloatingBarMonitorComboBox.IsEnabled = FloatingBarCheckBox.IsOn;
+        UpdateBarPlacementVisibility();
         _floatingBars.Update(_controller.State, _pushToTalkGesture,
             FloatingBarCheckBox.IsOn && !_isEditingShortcut && _settings.HasCompletedOnboarding,
             _settings.ShowFloatingBarOnAllMonitors, _settings.FloatingBarMonitorId);
+    }
+
+    private void PlacementLayout_SizeChanged(object sender, SizeChangedEventArgs args)
+    {
+        bool stack = args.NewSize.Width < 360;
+        bool modeRow = ReferenceEquals(sender, PlacementModeRow);
+        ComboBox selector = modeRow ? FloatingBarDisplayModeComboBox : FloatingBarMonitorComboBox;
+        Grid.SetColumnSpan(modeRow ? PlacementModeLabel : PlacementMonitorLabel, stack ? 2 : 1);
+        Grid.SetColumn(selector, stack ? 1 : 2);
+        Grid.SetColumnSpan(selector, stack ? 2 : 1);
+        Grid.SetRow(selector, stack ? 1 : 0);
+        selector.Width = stack ? double.NaN : 178;
+        selector.HorizontalAlignment = stack ? HorizontalAlignment.Stretch : HorizontalAlignment.Right;
+        ((Grid)sender).RowSpacing = stack ? 5 : 0;
+    }
+
+    private void UpdateBarPlacementVisibility()
+    {
+        bool barOn = FloatingBarCheckBox.IsOn;
+        bool allDisplays = _settings.ShowFloatingBarOnAllMonitors;
+        BarPlacementSettings.Visibility = barOn ? Visibility.Visible : Visibility.Collapsed;
+        SingleMonitorSettings.Visibility = allDisplays ? Visibility.Collapsed : Visibility.Visible;
+        BarPlacementSummary.Visibility = barOn ? Visibility.Collapsed : Visibility.Visible;
+        var savedMonitor = FloatingBarMonitorComboBox.SelectedItem as ComboBoxItem;
+        BarPlacementSummary.Text = allDisplays ? "When on, the bar appears on all monitors."
+            : string.IsNullOrEmpty(_settings.FloatingBarMonitorId) ? "When on, the bar appears on the primary monitor."
+            : FloatingBarMonitorStatusText.Visibility == Visibility.Visible ? "The saved monitor is disconnected. The bar will use the primary monitor."
+            : $"When on, the bar appears on {savedMonitor?.Content}.";
     }
 
     private void RefreshFloatingMonitorControls()
@@ -914,9 +991,9 @@ public sealed partial class MainWindow : Window
                 FloatingBarMonitorComboBox.Items.Add(selected);
             }
             FloatingBarMonitorComboBox.SelectedItem = selected;
-            FloatingBarMonitorComboBox.Visibility = _settings.ShowFloatingBarOnAllMonitors ? Visibility.Collapsed : Visibility.Visible;
             FloatingBarMonitorStatusText.Text = "Using the primary monitor until your saved monitor reconnects.";
             FloatingBarMonitorStatusText.Visibility = !found && !_settings.ShowFloatingBarOnAllMonitors ? Visibility.Visible : Visibility.Collapsed;
+            UpdateBarPlacementVisibility();
         }
         finally { _isUpdatingFloatingMonitorControls = false; }
     }
@@ -994,7 +1071,9 @@ public sealed partial class MainWindow : Window
         catch (Exception ex)
         {
             ModelsStatusText.Text = $"Models could not be loaded: {DiagnosticTextRedactor.Redact(ex.Message)}";
+            _resolvedBackend = null;
             SelectedModelStatusText.Text = "Model status unavailable.";
+            ProcessorResolutionText.Text = "Processor unavailable.";
         }
     }
 
@@ -1007,6 +1086,8 @@ public sealed partial class MainWindow : Window
                 model,
                 _modelBackendFilter,
                 GetAvailableBackends(model)))
+            .OrderByDescending(model => model.Id == _settings.SelectedModelId)
+            .ThenByDescending(model => FindInstalledModel(model.Id) is not null)
             .ToArray();
         if (!_isModelOperationRunning)
         {
@@ -1019,9 +1100,10 @@ public sealed partial class MainWindow : Window
             else
             {
                 int compatibleCount = visibleModels.Count;
-                ModelsStatusText.Text = compatibleCount == 1
-                    ? $"1 model for {_modelBackendFilter.ToString().ToUpperInvariant()}"
-                    : $"{compatibleCount} models for {_modelBackendFilter.ToString().ToUpperInvariant()}";
+                string processor = _modelBackendFilter.ToString().ToUpperInvariant();
+                int installedMatches = visibleModels.Count(model => FindInstalledModel(model.Id) is not null);
+                string matches = compatibleCount == 1 ? "1 model" : $"{compatibleCount} models";
+                ModelsStatusText.Text = $"{matches} can run on this PC's {processor} · {installedMatches} installed";
             }
         }
 
@@ -1040,13 +1122,32 @@ public sealed partial class MainWindow : Window
         }
     }
 
+    private void ProcessorLayout_SizeChanged(object sender, SizeChangedEventArgs args)
+    {
+        bool stack = args.NewSize.Width < 480;
+        Grid.SetColumnSpan(ProcessorDescription, stack ? 2 : 1);
+        Grid.SetRow(ProcessorChoices, stack ? 1 : 0);
+        Grid.SetColumn(ProcessorChoices, stack ? 0 : 1);
+        Grid.SetColumnSpan(ProcessorChoices, stack ? 2 : 1);
+        ProcessorChoices.HorizontalAlignment = stack ? HorizontalAlignment.Left : HorizontalAlignment.Right;
+        ((Grid)sender).RowSpacing = stack ? 8 : 0;
+    }
+
+    private void JumpToCleanup_Click(object sender, RoutedEventArgs args)
+    {
+        QualityControl.StartBringIntoView(new BringIntoViewOptions { VerticalAlignmentRatio = 0 });
+        QualityControl.FocusFirstOption();
+    }
+
     private ModelCatalogRow CreateModelCard(ModelCatalogEntry model)
     {
         bool isInstalled = FindInstalledModel(model.Id) is not null;
         bool isSelected = string.Equals(_settings.SelectedModelId, model.Id, StringComparison.Ordinal);
-        string metadata = FormatModelDetails(model);
+        string language = model.LanguageHint == "en" ? "English" : model.LanguageHint.ToUpperInvariant();
+        string metadata = $"{model.SizeBytes / (1024d * 1024):0.#} MiB · {language}";
         if (isSelected && !isInstalled) metadata = $"Selected  ·  {metadata}";
         var row = new ModelCatalogRow(model.DisplayName, metadata, ModelListPanel.Children.Count > 0);
+        SetModelDetails(row, model);
         row.SetState(isInstalled, isInstalled && isSelected);
         if (!isInstalled)
         {
@@ -1129,12 +1230,14 @@ public sealed partial class MainWindow : Window
     {
         if (TryGetModelFromSender(sender, out ModelCatalogEntry model))
         {
-            await RunModelInstallOperationAsync(
-                model,
-                $"Downloading {model.DisplayName}.",
-                progress => _modelManager.DownloadAsync(model, progress, CancellationToken.None));
+            await DownloadModelAsync(model);
         }
     }
+
+    private Task DownloadModelAsync(ModelCatalogEntry model) => RunModelInstallOperationAsync(
+        model,
+        $"Downloading {model.DisplayName}.",
+        progress => _modelManager.DownloadAsync(model, progress, CancellationToken.None));
 
     private async void ImportModelButton_Click(object sender, RoutedEventArgs e)
     {
@@ -1143,6 +1246,11 @@ public sealed partial class MainWindow : Window
             return;
         }
 
+        await ChooseModelFileAsync(model);
+    }
+
+    private async Task ChooseModelFileAsync(ModelCatalogEntry model)
+    {
         var picker = new FileOpenPicker
         {
             SuggestedStartLocation = PickerLocationId.Downloads,
@@ -1162,7 +1270,7 @@ public sealed partial class MainWindow : Window
             model,
             $"Importing {model.DisplayName}.",
             _ => _modelManager.ImportAsync(new ModelImportRequest(model, file.Path), CancellationToken.None),
-            showDeterminateProgress: false);
+            source: ModelInstallSource.Import);
     }
 
     private async void SelectModelButton_Click(object sender, RoutedEventArgs e)
@@ -1227,7 +1335,7 @@ public sealed partial class MainWindow : Window
         ModelCatalogEntry model,
         string statusText,
         Func<IProgress<ModelDownloadProgress>, Task<ModelInstallResult>> operation,
-        bool showDeterminateProgress = true)
+        ModelInstallSource source = ModelInstallSource.Download)
     {
         if (_isModelOperationRunning)
         {
@@ -1236,13 +1344,16 @@ public sealed partial class MainWindow : Window
 
         _isModelOperationRunning = true;
         ModelsStatusText.Text = statusText;
+        ModelInstallError.IsOpen = false;
+        ModelTransferPercent.Text = string.Empty;
         ModelDownloadProgressBar.Value = 0;
-        ModelDownloadProgressBar.IsIndeterminate = !showDeterminateProgress;
+        ModelDownloadProgressBar.IsIndeterminate = source == ModelInstallSource.Import;
         ModelDownloadProgressBar.Visibility = Visibility.Visible;
         RenderModelCatalog();
 
         var progress = new Progress<ModelDownloadProgress>(ReportModelDownloadProgress);
         string? finalStatusText = null;
+        string? installError = null;
         try
         {
             ModelInstallResult result = await operation(progress);
@@ -1256,14 +1367,14 @@ public sealed partial class MainWindow : Window
             }
             else
             {
-                finalStatusText = string.IsNullOrWhiteSpace(result.Message)
-                    ? $"{model.DisplayName} could not be installed."
+                installError = string.IsNullOrWhiteSpace(result.Message)
+                    ? "Shruti could not verify the model files."
                     : DiagnosticTextRedactor.Redact(result.Message);
             }
         }
         catch (Exception ex)
         {
-            finalStatusText = $"Install failed: {DiagnosticTextRedactor.Redact(ex.Message)}";
+            installError = DiagnosticTextRedactor.Redact(ex.Message);
         }
         finally
         {
@@ -1271,11 +1382,30 @@ public sealed partial class MainWindow : Window
             ModelDownloadProgressBar.Visibility = Visibility.Collapsed;
             await RefreshInstalledModelsAsync();
             await RefreshTranscriptionReadinessAsync();
-            if (!string.IsNullOrWhiteSpace(finalStatusText))
+            if (installError is not null)
+            {
+                ShowModelInstallError(model, installError, source);
+            }
+            else if (!string.IsNullOrWhiteSpace(finalStatusText))
             {
                 ModelsStatusText.Text = finalStatusText;
             }
         }
+    }
+
+    private void ShowModelInstallError(ModelCatalogEntry model, string reason, ModelInstallSource source)
+    {
+        bool importing = source == ModelInstallSource.Import;
+        ModelInstallError.Title = $"Couldn't install {model.DisplayName}";
+        ModelInstallError.Message = reason;
+        var retry = new Button { Content = importing ? "Choose model file" : "Retry download" };
+        retry.Click += async (_, _) =>
+        {
+            if (importing) await ChooseModelFileAsync(model);
+            else await DownloadModelAsync(model);
+        };
+        ModelInstallError.ActionButton = retry;
+        ModelInstallError.IsOpen = true;
     }
 
     private void ReportModelDownloadProgress(ModelDownloadProgress progress)
@@ -1286,12 +1416,14 @@ public sealed partial class MainWindow : Window
             {
                 ModelDownloadProgressBar.IsIndeterminate = false;
                 ModelDownloadProgressBar.Value = Math.Clamp(fraction * 100, 0, 100);
+                ModelTransferPercent.Text = $"{ModelDownloadProgressBar.Value:F0}%";
                 OnboardingModelProgressBar.IsIndeterminate = false;
                 OnboardingModelProgressBar.Value = Math.Clamp(fraction * 100, 0, 100);
             }
             else
             {
                 ModelDownloadProgressBar.IsIndeterminate = true;
+                ModelTransferPercent.Text = FormatBytes(progress.BytesReceived);
                 OnboardingModelProgressBar.IsIndeterminate = true;
             }
         });
@@ -1341,7 +1473,8 @@ public sealed partial class MainWindow : Window
         SelectBackendPreferenceWithoutPersist(backendPreference);
         await _settingsRepository.SaveAsync(_settings, CancellationToken.None);
         UpdateSelectedModelStatus();
-        ModelSummaryText.Text = _transcriptionOptionsProvider.GetSelectedModelEntry(_settings).DisplayName;
+        _sidebarModelName = _transcriptionOptionsProvider.GetSelectedModelEntry(_settings).DisplayName;
+        UpdateSidebarModel();
         UpdateOnboardingModelState();
         await RefreshTranscriptionReadinessAsync();
         if (refreshModels)
@@ -1356,23 +1489,34 @@ public sealed partial class MainWindow : Window
     {
         ModelCatalogEntry selected = _transcriptionOptionsProvider.GetSelectedModelEntry(_settings);
         InstalledModel? installed = FindInstalledModel(selected.Id);
-        string compute = _settings.BackendPreference == ComputeBackend.Auto
-            ? _resolvedBackend.ToString().ToUpperInvariant()
-            : _settings.BackendPreference.ToString().ToUpperInvariant();
-        SelectedModelStatusText.Text = installed is null
-            ? $"{selected.DisplayName} · not installed"
-            : $"{selected.DisplayName} · {compute} · on this PC";
+        SelectedModelStatusText.Text = installed is null ? $"{selected.DisplayName} · not installed" : selected.DisplayName;
+        string? resolved = _resolvedBackend?.ToString().ToUpperInvariant();
+        ProcessorResolutionText.Text = installed is null
+            ? "Install the model to enable transcription."
+            : resolved is null ? "No processor ready for this model."
+            : _settings.BackendPreference == ComputeBackend.Auto ? $"Auto will use {resolved} on this PC."
+            : $"Set to use {resolved} on this PC.";
     }
 
-    private static string FormatModelDetails(ModelCatalogEntry model)
+    private void SetModelDetails(ModelCatalogRow row, ModelCatalogEntry model)
     {
-        string backends = string.Join(
-            ", ",
-            model.SupportedBackends
-                .Where(backend => backend != ComputeBackend.Auto)
-                .DefaultIfEmpty(ComputeBackend.Cpu));
-        string language = model.LanguageHint == "en" ? "English" : model.LanguageHint.ToUpperInvariant();
-        return $"{FormatBytes(model.SizeBytes)} · {language} · {backends.ToUpperInvariant()}";
+        string format = model.Id switch
+        {
+            "openvino-whisper-base-int8" => "8-bit OpenVINO bundle",
+            "whisper-large-v3-turbo-q5" => "5-bit Whisper weights",
+            _ when model.SizeBytes == _modelCatalog.Models.Min(entry => entry.SizeBytes) => "Smallest download",
+            _ => string.Empty
+        };
+        static string ProcessorNames(IEnumerable<ComputeBackend> backends) =>
+            string.Join(", ", backends.Where(b => b != ComputeBackend.Auto)
+                .OrderBy(b => b).Select(b => b.ToString().ToUpperInvariant()));
+        string detected = "Checking processor availability";
+        if (_availableBackendsByModel.TryGetValue(model.Id, out var available))
+        {
+            string names = ProcessorNames(available);
+            detected = names.Length == 0 ? "None detected" : names;
+        }
+        row.SetProcessorDetails(model.DisplayName, format, ProcessorNames(model.SupportedBackends), detected);
     }
 
     private static string FormatBytes(long bytes)
@@ -1652,16 +1796,20 @@ public sealed partial class MainWindow : Window
     private void UpdateComputeButtons()
     {
         ComputeBackend selected = GetSelectedBackendPreference();
-        UpdateComputeButtonGroup(
-            [BackendAutoButton, BackendNpuButton, BackendGpuButton, BackendCpuButton],
-            _modelBackendFilter,
-            GetCatalogAvailableBackends(),
-            filtersModels: true);
+        var available = GetCatalogAvailableBackends();
+        if (_modelBackendFilter != ComputeBackend.Auto && !available.Contains(_modelBackendFilter))
+            _modelBackendFilter = ComputeBackend.Auto;
+        foreach (var item in ((MenuFlyout)CatalogFilterButton.Flyout).Items.OfType<RadioMenuFlyoutItem>())
+        {
+            var backend = Enum.Parse<ComputeBackend>((string)item.Tag);
+            item.Visibility = backend == ComputeBackend.Auto || available.Contains(backend) ? Visibility.Visible : Visibility.Collapsed;
+            item.IsChecked = backend == _modelBackendFilter;
+            if (item.IsChecked) CatalogFilterLabel.Text = backend == ComputeBackend.Auto ? "Filter models" : $"{backend.ToString().ToUpperInvariant()} models";
+        }
         UpdateComputeButtonGroup(
             [ProcessorAutoButton, ProcessorNpuButton, ProcessorGpuButton, ProcessorCpuButton],
             selected,
-            GetAvailableBackends(_transcriptionOptionsProvider.GetSelectedModelEntry(_settings)),
-            filtersModels: false);
+            GetAvailableBackends(_transcriptionOptionsProvider.GetSelectedModelEntry(_settings)));
 
         UpdateActiveComputeBadge(selected);
     }
@@ -1669,8 +1817,7 @@ public sealed partial class MainWindow : Window
     private void UpdateComputeButtonGroup(
         IEnumerable<Button> buttons,
         ComputeBackend selected,
-        IReadOnlySet<ComputeBackend> availableBackends,
-        bool filtersModels)
+        IReadOnlySet<ComputeBackend> availableBackends)
     {
         foreach (Button button in buttons)
         {
@@ -1680,23 +1827,20 @@ public sealed partial class MainWindow : Window
             if (button.Tag is string backendTag && Enum.TryParse(backendTag, out ComputeBackend backend))
             {
                 button.IsEnabled = backend == ComputeBackend.Auto || availableBackends.Contains(backend);
+                button.Visibility = button.IsEnabled ? Visibility.Visible : Visibility.Collapsed;
                 ToolTipService.SetToolTip(
                     button,
                     button.IsEnabled
-                        ? filtersModels
-                            ? $"Show models that can run on {backend}."
-                            : $"Run the active model on {backend}."
-                        : filtersModels
-                            ? $"No catalog model can run on {backend} on this PC."
-                            : $"{backend} is not available for the active model on this PC.");
+                        ? $"Run the active model on {backend}."
+                        : $"{backend} is not available for the active model on this PC.");
             }
             button.Background = isSelected
-                ? GetBrush("ShrutiCardBrush")
+                ? GetBrush("ShrutiAccentSoftBrush")
                 : new SolidColorBrush(Windows.UI.Color.FromArgb(0, 0, 0, 0));
             button.BorderBrush = isSelected
-                ? GetBrush("ShrutiBorderSubtleBrush")
+                ? GetBrush("ShrutiAccentBrush")
                 : new SolidColorBrush(Windows.UI.Color.FromArgb(0, 0, 0, 0));
-            button.Foreground = GetBrush(isSelected ? "ShrutiTextPrimaryBrush" : "ShrutiTextSecondaryBrush");
+            button.Foreground = GetBrush(isSelected ? "ShrutiAccentStrongBrush" : "ShrutiTextPrimaryBrush");
         }
     }
 
@@ -1708,6 +1852,7 @@ public sealed partial class MainWindow : Window
             : backend.ToString().ToUpperInvariant();
         ActiveComputeBadgeText.Foreground = GetBrush(foreground);
         ActiveComputeBadgeBorder.Background = GetBrush(background);
+        UpdateSidebarModel();
     }
 
     private void ShowOnboarding()
@@ -1837,12 +1982,11 @@ public sealed partial class MainWindow : Window
                 .EvaluateReadinessAsync(CancellationToken.None);
             string backend = readiness.SelectedBackend?.ToString() ?? _settings.BackendPreference.ToString();
             string device = readiness.DeviceName ?? "No compatible device";
-            _resolvedBackend = readiness.SelectedBackend ??
-                (_settings.BackendPreference == ComputeBackend.Auto ? ComputeBackend.Cpu : _settings.BackendPreference);
+            _resolvedBackend = readiness.CanProceed ? readiness.SelectedBackend : null;
 
-            ModelSummaryText.Text = model.DisplayName;
+            _sidebarModelName = model.DisplayName;
             bool installed = FindInstalledModel(model.Id) is not null;
-            BackendSummaryText.Text = installed ? "Installed locally" : "Download required";
+            BackendSummaryText.Text = installed ? "Installed" : "Get model";
             HistoryPage.SetModelInstalled(installed);
             ActiveBackendText.Text = readiness.CanProceed
                 ? $"{readiness.Provider?.DisplayName ?? model.ProviderId} / {backend} / {device}"
@@ -1857,7 +2001,9 @@ public sealed partial class MainWindow : Window
             BackendSummaryText.Text = "Unavailable";
             ActiveBackendText.Text = "Unavailable";
             BackendReadinessText.Text = DiagnosticTextRedactor.Redact(ex.Message);
+            _resolvedBackend = null;
             SelectedModelStatusText.Text = "Model status unavailable.";
+            ProcessorResolutionText.Text = "Processor unavailable.";
             UpdateActiveComputeBadge(_settings.BackendPreference);
         }
     }
@@ -1925,12 +2071,12 @@ public sealed partial class MainWindow : Window
 
     private void UpdateDiagnostics(DictationRunResult? result)
     {
-        DiagnosticsSnapshotText.Visibility = result is null ? Visibility.Collapsed : Visibility.Visible;
+        DiagnosticsFields.Visibility = result is null ? Visibility.Collapsed : Visibility.Visible;
         if (result is null)
         {
             DiagnosticsOutcomeText.Style = (Style)Root.Resources["MutedTextStyle"];
-            DiagnosticsOutcomeText.Text = "Dictate once to see diagnostic details here.";
-            DiagnosticsSnapshotText.Text = string.Empty;
+            DiagnosticsOutcomeText.Text = "Finish a dictation, then return here to see its result and where the text went.";
+            DiagnosticsFields.ItemsSource = null;
             return;
         }
 
@@ -1944,7 +2090,7 @@ public sealed partial class MainWindow : Window
                 "Shruti sent the text. Check the target field before trying again.",
             DictationRunOutcome.PreviewRequired => "Review your text in Transcriptions before inserting it.",
             DictationRunOutcome.CopyOnly when !string.IsNullOrWhiteSpace(result.Transcript?.Text) =>
-                "Text copied to the clipboard. Paste it into the field where you want it.",
+                "Transcript copied. Paste it where you want to write.",
             DictationRunOutcome.CopyOnly => "Copy-only mode finished with no text to copy.",
             DictationRunOutcome.Cancelled => "Dictation cancelled.",
             DictationRunOutcome.NoSpeech => "Shruti did not detect speech.",
@@ -1956,17 +2102,13 @@ public sealed partial class MainWindow : Window
             ? "not captured"
             : DiagnosticTextRedactor.Redact(snapshot.TargetProcessName);
 
-        var lines = new List<string>
+        var lines = new List<KeyValuePair<string, string>>
         {
-            $"Session state: {(result.StatusHistory.Count > 0 ? FormatState(snapshot.SessionState) : "not captured")}",
-            $"Target process: {targetProcess}",
-            snapshot.TargetWindowTitleRedacted
-                ? "Target window title: omitted"
-                : "Target window title: not captured",
-            $"Transcript characters: {snapshot.TranscriptCharacterCount}",
-            snapshot.TranscriptTextRedacted
-                ? "Transcript text: omitted"
-                : "Transcript text: not captured"
+            new("Session state", result.StatusHistory.Count > 0 ? FormatState(snapshot.SessionState) : "not captured"),
+            new("Target process", targetProcess),
+            new("Target window title", snapshot.TargetWindowTitleRedacted ? "hidden for privacy" : "not captured"),
+            new("Transcript characters", snapshot.TranscriptCharacterCount.ToString("N0")),
+            new("Transcript text", snapshot.TranscriptTextRedacted ? "hidden for privacy" : "not captured")
         };
 
         AddOptionalLine(lines, "Focus target HWND", snapshot.FocusTargetWindowHandle);
@@ -1995,29 +2137,29 @@ public sealed partial class MainWindow : Window
             AddOptionalLine(lines, "Preview reason", snapshot.FailureSummary);
         }
 
-        DiagnosticsSnapshotText.Text = string.Join(Environment.NewLine, lines);
+        DiagnosticsFields.ItemsSource = lines;
     }
 
     private static void AddOptionalLine(
-        List<string> lines,
+        List<KeyValuePair<string, string>> lines,
         string label,
         string? value)
     {
         if (!string.IsNullOrWhiteSpace(value))
         {
-            lines.Add($"{label}: {DiagnosticTextRedactor.Redact(value)}");
+            lines.Add(new(label, DiagnosticTextRedactor.Redact(value)));
         }
     }
 
     private static void AddDiagnosticLine(
-        List<string> lines,
+        List<KeyValuePair<string, string>> lines,
         IReadOnlyDictionary<string, string?> diagnostics,
         string key,
         string label)
     {
         if (diagnostics.TryGetValue(key, out string? value) && !string.IsNullOrWhiteSpace(value))
         {
-            lines.Add($"{label}: {DiagnosticTextRedactor.Redact(value)}");
+            lines.Add(new(label, DiagnosticTextRedactor.Redact(value)));
         }
     }
 
@@ -2077,6 +2219,30 @@ public sealed partial class MainWindow : Window
             default:
                 throw new ArgumentOutOfRangeException(nameof(command));
         }
+    }
+
+    private async void FloatingBar_SettingsRequested(object? sender, EventArgs e)
+    {
+        ShowSettings();
+        if (!_controller.State.MicrophoneUnavailable) return;
+
+        SettingsSections.SelectedItem = DictationTab;
+        await LoadAudioDevicesAsync();
+        // Showing the window queues XAML's initial focus. Set the recovery target after it finishes.
+        DispatcherQueue.TryEnqueue(Microsoft.UI.Dispatching.DispatcherQueuePriority.Low, () =>
+        {
+            if (!AppWindow.IsVisible || _currentPage != "Settings" || SettingsSections.SelectedItem != DictationTab) return;
+            if (_audioDevicesLoaded)
+            {
+                MicrophoneRecoveryText.Text = "Check your microphone";
+                MicrophoneRecoveryHelp.Text = "Choose another input or check microphone access in Windows.";
+            }
+            MicrophoneRecoveryPanel.Visibility = Visibility.Visible;
+            Control target = AudioDeviceComboBox.IsEnabled ? AudioDeviceComboBox : MicrophonePrivacyLink;
+            SettingsPanel.UpdateLayout();
+            target.StartBringIntoView(new BringIntoViewOptions { VerticalAlignmentRatio = 0.5, AnimationDesired = false });
+            target.Focus(FocusState.Keyboard);
+        });
     }
 
     private void ShowSettings()

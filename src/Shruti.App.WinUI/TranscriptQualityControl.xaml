@@ -1,9 +1,32 @@
 <UserControl x:Class="Shruti.App.WinUI.TranscriptQualityControl"
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    <UserControl.Resources>
+        <ResourceDictionary>
+            <ResourceDictionary.ThemeDictionaries>
+                <ResourceDictionary x:Key="Light">
+                    <SolidColorBrush x:Key="CheckBoxCheckBackgroundFillChecked" Color="#BC5610" />
+                    <SolidColorBrush x:Key="CheckBoxCheckBackgroundFillCheckedPointerOver" Color="#98430B" />
+                    <StaticResource x:Key="CheckBoxCheckBackgroundStrokeChecked" ResourceKey="CheckBoxCheckBackgroundFillChecked" />
+                    <StaticResource x:Key="CheckBoxCheckBackgroundStrokeCheckedPointerOver" ResourceKey="CheckBoxCheckBackgroundFillCheckedPointerOver" />
+                    <StaticResource x:Key="CheckBoxCheckBackgroundFillCheckedPressed" ResourceKey="CheckBoxCheckBackgroundFillCheckedPointerOver" />
+                    <StaticResource x:Key="CheckBoxCheckBackgroundStrokeCheckedPressed" ResourceKey="CheckBoxCheckBackgroundFillCheckedPointerOver" />
+                </ResourceDictionary>
+                <ResourceDictionary x:Key="Dark">
+                    <SolidColorBrush x:Key="CheckBoxCheckBackgroundFillChecked" Color="#EA8D46" />
+                    <SolidColorBrush x:Key="CheckBoxCheckBackgroundFillCheckedPointerOver" Color="#F2B078" />
+                    <StaticResource x:Key="CheckBoxCheckBackgroundStrokeChecked" ResourceKey="CheckBoxCheckBackgroundFillChecked" />
+                    <StaticResource x:Key="CheckBoxCheckBackgroundStrokeCheckedPointerOver" ResourceKey="CheckBoxCheckBackgroundFillCheckedPointerOver" />
+                    <StaticResource x:Key="CheckBoxCheckBackgroundFillCheckedPressed" ResourceKey="CheckBoxCheckBackgroundFillCheckedPointerOver" />
+                    <StaticResource x:Key="CheckBoxCheckBackgroundStrokeCheckedPressed" ResourceKey="CheckBoxCheckBackgroundFillCheckedPointerOver" />
+                </ResourceDictionary>
+                <ResourceDictionary x:Key="HighContrast" />
+            </ResourceDictionary.ThemeDictionaries>
+        </ResourceDictionary>
+    </UserControl.Resources>
     <StackPanel Spacing="10">
         <TextBlock Text="Dictation cleanup" FontSize="19" FontWeight="SemiBold" />
-        <TextBlock Text="Light cleanup works without a download." Foreground="{ThemeResource ShrutiTextSecondaryBrush}" TextWrapping="Wrap" />
+        <TextBlock Text="Light cleanup applies punctuation and spoken formatting on this PC." Foreground="{ThemeResource ShrutiTextSecondaryBrush}" TextWrapping="Wrap" />
         <Border Background="{ThemeResource ShrutiCardBrush}" BorderBrush="{ThemeResource ShrutiBorderSubtleBrush}" BorderThickness="1" CornerRadius="12" Padding="18,10,18,14">
             <StackPanel Spacing="4">
                 <CheckBox x:Name="CleanupBox" Content="Light cleanup and spoken formatting" Click="Preferences_Click" />
@@ -11,11 +34,20 @@
                 <TextBlock Margin="0,4,0,0" Text="You can restore the original text of your latest dictation." FontSize="13" Foreground="{ThemeResource ShrutiTextSecondaryBrush}" TextWrapping="Wrap" />
             </StackPanel>
         </Border>
-        <TextBlock Margin="0,12,0,0" Text="Cleanup models" FontSize="16" FontWeight="SemiBold" />
-        <TextBlock Text="Cleanup uses your GPU when available and falls back to the CPU." Foreground="{ThemeResource ShrutiTextSecondaryBrush}" TextWrapping="Wrap" />
+        <TextBlock Margin="0,12,0,0" Text="Optional cleanup models" FontSize="16" FontWeight="SemiBold" />
+        <TextBlock x:Name="ModelGuidance" Text="An optional model adds an editing pass after transcription." Foreground="{ThemeResource ShrutiTextSecondaryBrush}" TextWrapping="Wrap" />
+        <TextBlock Text="In a synthetic English test, Utter matched more reference texts. Qwen preserved more inputs that were already correct." TextWrapping="Wrap" />
+        <Expander x:Name="BenchmarkDetails" Header="Synthetic test results" HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch">
+            <StackPanel Spacing="4">
+                <TextBlock FontWeight="SemiBold" Text="In a test of 3,000 synthetic English dictations" TextWrapping="Wrap" />
+                <TextBlock Text="Utter matched the reference exactly 241 times. Qwen matched it 76 times." TextWrapping="Wrap" />
+                <TextBlock Text="Qwen left 33 of the 35 already-correct inputs unchanged. Utter left 27 unchanged." TextWrapping="Wrap" />
+            </StackPanel>
+        </Expander>
         <Border Background="{ThemeResource ShrutiCardBrush}" BorderBrush="{ThemeResource ShrutiBorderSubtleBrush}" BorderThickness="1" CornerRadius="12">
             <StackPanel x:Name="Models" />
         </Border>
+        <TextBlock Text="Compare the edits with your original in Transcriptions." FontSize="13" Foreground="{ThemeResource ShrutiTextSecondaryBrush}" TextWrapping="Wrap" />
         <ProgressBar x:Name="DownloadProgress" Height="4" IsIndeterminate="True" Visibility="Collapsed" />
         <TextBlock x:Name="MessageText" AutomationProperties.LiveSetting="Polite" TextWrapping="Wrap" />
     </StackPanel>

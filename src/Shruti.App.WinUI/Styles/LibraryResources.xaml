@@ -16,6 +16,12 @@
     <Style x:Key="LibraryAccentIcon" TargetType="FontIcon">
         <Setter Property="Foreground" Value="{ThemeResource ShrutiAccentBrush}" />
     </Style>
+    <Style x:Key="LibraryLanguageResults" TargetType="ListView">
+        <Setter Property="Background" Value="{ThemeResource ShrutiCardBrush}" />
+        <Setter Property="BorderBrush" Value="{ThemeResource ShrutiBorderStrongBrush}" />
+        <Setter Property="BorderThickness" Value="1" />
+        <Setter Property="CornerRadius" Value="6" />
+    </Style>
     <Style x:Key="LibrarySeparator" TargetType="Border">
         <Setter Property="BorderBrush" Value="{ThemeResource ShrutiBorderSubtleBrush}" />
     </Style>
@@ -27,8 +33,18 @@
     <Style x:Key="LibraryChartTrack" TargetType="Border">
         <Setter Property="Background" Value="{ThemeResource ShrutiSunkenBrush}" />
         <Setter Property="BorderThickness" Value="1" />
-        <Setter Property="BorderBrush" Value="{ThemeResource ShrutiBorderSubtleBrush}" />
+        <Setter Property="BorderBrush" Value="{ThemeResource ShrutiBorderStrongBrush}" />
         <Setter Property="CornerRadius" Value="3" />
+    </Style>
+    <Style x:Key="LibraryCalendarDay" TargetType="Border">
+        <Setter Property="Background" Value="{ThemeResource ShrutiAccentBrush}" />
+        <Setter Property="Padding" Value="1" />
+        <Setter Property="CornerRadius" Value="3" />
+    </Style>
+    <Style x:Key="LibraryCalendarCount" TargetType="TextBlock">
+        <Setter Property="Foreground" Value="{ThemeResource ShrutiAccentForegroundBrush}" />
+        <Setter Property="FontWeight" Value="SemiBold" />
+        <Setter Property="FontSize" Value="14" />
     </Style>
     <Style x:Key="LibraryChartInk" TargetType="Border">
         <Setter Property="Background" Value="{ThemeResource ShrutiAccentVividBrush}" />

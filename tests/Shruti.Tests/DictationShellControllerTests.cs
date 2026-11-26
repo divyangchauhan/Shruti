@@ -11,6 +11,54 @@ namespace Shruti.Tests;
 public sealed class DictationShellControllerTests
 {
     [Fact]
+    public async Task FinishingRunKeepsProcessingUntilHistoryAndOutcomeAreReady()
+    {
+        var services = MockDictationAppServices.Create();
+        var saving = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var controller = new DictationShellController(
+            new DictationCoordinator(services.TargetFocus, services.AudioCapture, services.TextInsertion, services.Transcription),
+            services.AudioCapture, services.Clipboard, saveHistory: async _ =>
+            {
+                saving.SetResult();
+                await release.Task;
+            });
+
+        await controller.StartAsync(DictationInsertionMode.AutoInsert);
+        Task completion = controller.StopAsync();
+        try
+        {
+            await saving.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            Assert.True(controller.State.IsRunning);
+            Assert.False(controller.State.CanStop);
+            Assert.Null(controller.State.LastOutcome);
+        }
+        finally
+        {
+            release.SetResult();
+            await completion;
+        }
+        Assert.False(controller.State.IsRunning);
+        Assert.Equal(DictationRunOutcome.Inserted, controller.State.LastOutcome);
+    }
+
+    [Fact]
+    public async Task CompletedFailureKeepsTheOperationThatFailed()
+    {
+        var services = MockDictationAppServices.Create();
+        var gate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        services.Transcription.CompleteGate = gate;
+        var controller = services.CreateShellController();
+
+        await controller.StartAsync(DictationInsertionMode.AutoInsert);
+        gate.SetException(new InvalidOperationException("Sample speech provider failed."));
+        await controller.StopAsync();
+
+        Assert.Equal(DictationRunOutcome.Failed, controller.State.LastOutcome);
+        Assert.Equal(DictationSessionState.TranscribingFinalAudio, controller.State.FailedOperation);
+    }
+
+    [Fact]
     public async Task AudioRetention_WritesLocalWaveOnlyForOptedInCompletedRecordings()
     {
         var services = MockDictationAppServices.Create();

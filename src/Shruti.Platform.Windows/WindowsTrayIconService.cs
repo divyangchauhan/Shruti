@@ -18,9 +18,9 @@ public sealed class WindowsTrayIconService : IDisposable
     private bool _areDictationCommandsEnabled = true;
     private bool _isDisposed;
 
-    public WindowsTrayIconService(IWindowsTrayIconApi? api = null)
+    public WindowsTrayIconService(IWindowsTrayIconApi? api = null, WindowsTargetFocusService? focusService = null)
     {
-        _api = api ?? new Win32TrayIconApi();
+        _api = api ?? new Win32TrayIconApi(focusService);
         _ownsApi = api is null;
         _api.CommandInvoked += Api_CommandInvoked;
     }

@@ -81,7 +81,7 @@ public sealed class AppComposition
             triggerRouter,
             targetFocusService,
             platformModule.CreateGlobalTriggerService(),
-            platformModule.CreateTrayIconService(),
+            platformModule.CreateTrayIconService(targetFocusService),
             platformModule.CreateWindowVisibility());
         window.Closed += (_, _) => qualityPipeline.Dispose();
         return window;

@@ -12,8 +12,8 @@ internal sealed class ShortcutCaptureDialog : ContentDialog
     private readonly IntPtr _handle;
     private readonly bool _allowSingleKey;
     private readonly Func<string, Task> _save;
-    private readonly StackPanel _keys = new() { Orientation = Orientation.Horizontal, Spacing = 6, HorizontalAlignment = HorizontalAlignment.Center };
-    private readonly TextBlock _status = new() { FontSize = 13, TextWrapping = TextWrapping.Wrap, TextAlignment = TextAlignment.Center };
+    private readonly StackPanel _keys = new() { Orientation = Orientation.Horizontal, Spacing = 6, HorizontalAlignment = HorizontalAlignment.Left };
+    private readonly TextBlock _status = new() { FontSize = 13, TextWrapping = TextWrapping.Wrap, TextAlignment = TextAlignment.Left };
     private readonly InfoBar _error = new() { Severity = InfoBarSeverity.Error, IsClosable = false };
     private readonly Button _record = new() { Content = "Record again", HorizontalAlignment = HorizontalAlignment.Center };
     private WindowsShortcutCapture? _capture;
@@ -32,28 +32,35 @@ internal sealed class ShortcutCaptureDialog : ContentDialog
         PrimaryButtonText = "Save shortcut";
         CloseButtonText = "Cancel";
         DefaultButton = ContentDialogButton.None;
+        PrimaryButtonStyle = (Style)Application.Current.Resources["AccentButtonStyle"];
+        LibraryPage.ApplyDialogAccent(this);
         IsPrimaryButtonEnabled = false;
 
-        var body = new StackPanel { Spacing = 14, MinWidth = 300, MaxWidth = 420 };
+        var body = new StackPanel { Spacing = 10, MinWidth = 280, MaxWidth = 420 };
         var currentRow = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 12 };
         currentRow.Children.Add(new TextBlock { Text = "Current shortcut", VerticalAlignment = VerticalAlignment.Center });
         var currentKeys = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 4 };
         SetKeycaps(currentKeys, current);
         currentRow.Children.Add(currentKeys);
         body.Children.Add(currentRow);
-        var captureArea = new StackPanel { Spacing = 10, VerticalAlignment = VerticalAlignment.Center };
-        captureArea.Children.Add(new FontIcon { Glyph = "\uE765", FontSize = 24, HorizontalAlignment = HorizontalAlignment.Center });
+        var captureArea = new StackPanel { Spacing = 6 };
+        captureArea.Children.Add(new TextBlock { Text = "New shortcut", FontWeight = Microsoft.UI.Text.FontWeights.SemiBold });
         captureArea.Children.Add(_keys);
-        captureArea.Children.Add(_status);
+        var statusRow = new Grid { ColumnSpacing = 12, MinHeight = 32 };
+        statusRow.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        statusRow.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        _status.VerticalAlignment = VerticalAlignment.Center;
+        statusRow.Children.Add(_status);
+        Grid.SetColumn(_record, 1);
+        statusRow.Children.Add(_record);
+        captureArea.Children.Add(statusRow);
         body.Children.Add(new Border
         {
             Style = (Style)Application.Current.Resources["LibraryCardStyle"],
-            Padding = new Thickness(20),
-            MinHeight = 128,
-            CornerRadius = new CornerRadius(12),
+            Padding = new Thickness(12, 8, 12, 8),
+            CornerRadius = new CornerRadius(8),
             Child = captureArea
         });
-        body.Children.Add(_record);
         body.Children.Add(_error);
         body.Children.Add(new TextBlock
         {
@@ -64,7 +71,7 @@ internal sealed class ShortcutCaptureDialog : ContentDialog
             FontSize = 13,
             Opacity = 0.85
         });
-        Content = body;
+        Content = new ScrollViewer { Content = body, VerticalScrollBarVisibility = ScrollBarVisibility.Auto };
         AutomationProperties.SetLiveSetting(_status, Microsoft.UI.Xaml.Automation.Peers.AutomationLiveSetting.Polite);
         AutomationProperties.SetAutomationId(_record, "RecordShortcutAgain");
         _record.Click += (_, _) => StartCapture();
