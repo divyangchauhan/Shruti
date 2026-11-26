@@ -49,6 +49,11 @@ public sealed partial class CheckApp : Application
         Directory.CreateDirectory(_output);
         try
         {
+            if (Environment.GetCommandLineArgs().Contains("--window-order"))
+            {
+                await WindowOrderChecks.RunAsync(_output);
+                return;
+            }
             _window = new Window { Title = "Shruti popup rendering check" };
             _window.AppWindow.Resize(new Windows.Graphics.SizeInt32(900, 700));
             var root = new StackPanel { Padding = new Thickness(48), Spacing = 16 };
@@ -174,9 +179,18 @@ public sealed partial class CheckApp : Application
         encoder.SetPixelData(BitmapPixelFormat.Bgra8, BitmapAlphaMode.Premultiplied, (uint)bitmap.PixelWidth, (uint)bitmap.PixelHeight, 96, 96, bytes);
         await encoder.FlushAsync();
         bool opaque = brush is SolidColorBrush solid && solid.Color.A == 255;
-        _results.Add(new { name, opaque, theme = child.ActualTheme.ToString(), width = rendered.ActualWidth, height = rendered.ActualHeight,
-            brush = brush?.GetType().Name, color = (brush as SolidColorBrush)?.Color.ToString(),
-            items = combo?.Items.Count, text = elements.OfType<TextBlock>().Select(t => new { t.Text, t.ActualWidth, t.ActualHeight, color = (t.Foreground as SolidColorBrush)?.Color.ToString() }).ToArray() });
+        _results.Add(new
+        {
+            name,
+            opaque,
+            theme = child.ActualTheme.ToString(),
+            width = rendered.ActualWidth,
+            height = rendered.ActualHeight,
+            brush = brush?.GetType().Name,
+            color = (brush as SolidColorBrush)?.Color.ToString(),
+            items = combo?.Items.Count,
+            text = elements.OfType<TextBlock>().Select(t => new { t.Text, t.ActualWidth, t.ActualHeight, color = (t.Foreground as SolidColorBrush)?.Color.ToString() }).ToArray()
+        });
         await File.WriteAllTextAsync(Path.Combine(_output, "results.json"), JsonSerializer.Serialize(_results, new JsonSerializerOptions { WriteIndented = true }));
         if (!opaque) throw new InvalidOperationException($"{name}: popup background is not an opaque solid brush.");
     }

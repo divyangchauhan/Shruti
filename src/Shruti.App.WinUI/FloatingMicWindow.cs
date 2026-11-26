@@ -35,6 +35,7 @@ public sealed class FloatingMicWindow : Window
     private int _tick;
     private int _regionWidth;
     private int _regionHeight;
+    private FloatingPillBounds? _placedBounds;
 
     public FloatingMicWindow(IWindowsWindowVisibility visibility, IntPtr monitor)
     {
@@ -125,6 +126,9 @@ public sealed class FloatingMicWindow : Window
         if (IsVisible) return;
         Place();
         AppWindow.Show(activateWindow: false);
+        // AppWindow.Show can reset the native window order. Join the topmost
+        // group once per show, then let fullscreen apps remain above the bar.
+        Native.SetWindowPos(_handle, (IntPtr)(-1), 0, 0, 0, 0, 0x0013);
         IsVisible = true;
         _timer.Start();
     }
@@ -330,7 +334,10 @@ public sealed class FloatingMicWindow : Window
         }
         if (Native.GetDpiForMonitor(_monitor, 0, out uint dpi, out _) != 0 || dpi == 0) dpi = 96;
         FloatingPillBounds bounds = FloatingPillPlacement.BottomCenter(info.Work.Left, info.Work.Top, info.Work.Right, info.Work.Bottom, _width, _height, dpi);
-        Native.SetWindowPos(_handle, (IntPtr)(-1), bounds.X, bounds.Y, bounds.Width, bounds.Height, 0x0010);
+        if (_placedBounds == bounds) return;
+        // SWP_NOACTIVATE | SWP_NOZORDER: resize without disturbing other apps.
+        if (!Native.SetWindowPos(_handle, IntPtr.Zero, bounds.X, bounds.Y, bounds.Width, bounds.Height, 0x0014)) return;
+        _placedBounds = bounds;
         _root.UpdateLayout();
         if (_regionWidth == bounds.Width && _regionHeight == bounds.Height) return;
         _regionWidth = bounds.Width;
