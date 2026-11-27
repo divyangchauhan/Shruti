@@ -86,6 +86,7 @@ public sealed partial class MainWindow : Window
         ReplaceSelectionMenuItem.RegisterPropertyChangedCallback(ToggleMenuFlyoutItem.IsCheckedProperty, (_, _) =>
         {
             bool replace = ReplaceSelectionMenuItem.IsChecked;
+            ReplaceSelectionMenuItem.Text = replace ? "Disable selection replacement" : "Enable selection replacement";
             InsertPreviewButton.Content = replace ? "Replace selection" : "Insert";
             AutomationProperties.SetName(InsertPreviewButton, replace ? "Replace selected text with preview transcript" : "Insert preview transcript");
         });
@@ -155,6 +156,11 @@ public sealed partial class MainWindow : Window
     {
         bool compact = args.NewSize.Width < 900;
         double width = compact ? 96 : 232;
+        SettingsHeader.Padding = compact ? new Thickness(32, 6, 32, 0) : new Thickness(32, 14, 32, 0);
+        SettingsSections.Margin = compact ? new Thickness(0, 4, 0, 4) : new Thickness(0, 8, 0, 8);
+        SetupNavColumn.Width = new GridLength(compact ? 160 : 232);
+        SetupNavRail.Padding = compact ? new Thickness(8, 24, 8, 16) : new Thickness(20, 42, 18, 24);
+        SetupBody.Padding = compact ? new Thickness(24, 20, 24, 20) : new Thickness(40, 32, 40, 32);
         if (NavigationColumn.Width.Value == width) return;
 
         NavigationColumn.Width = new GridLength(width);
@@ -173,13 +179,23 @@ public sealed partial class MainWindow : Window
         }
     }
 
+    private void SetModelAvailability(bool? installed)
+    {
+        (BackendSummaryText.Text, CompactModelStatus.Glyph) = installed switch
+        {
+            true => ("Installed", "\uE73E"),
+            false => ("Get model", "\uE896"),
+            null => ("Unavailable", "\uE7BA")
+        };
+        CompactModelStatus.Visibility = Visibility.Visible;
+    }
+
     private void UpdateSidebarModel()
     {
         ModelSummaryText.Text = _sidebarModelName;
         string processor = ActiveComputeBadgeText.Text == "AUTO" ? "Auto processor" : $"{ActiveComputeBadgeText.Text} processor";
         string description = $"{_sidebarModelName} · {processor} · {BackendSummaryText.Text}";
-        ToolTipService.SetToolTip(SidebarModel, description);
-        ToolTipService.SetToolTip(CompactModelButton, description);
+        SidebarModelHint.Content = CompactModelHint.Content = description;
         AutomationProperties.SetHelpText(CompactModelButton, description);
     }
 
@@ -425,7 +441,7 @@ public sealed partial class MainWindow : Window
         if (SupportSection is null) return;
         DictationSection.Visibility = sender.SelectedItem == DictationTab ? Visibility.Visible : Visibility.Collapsed;
         AppearanceSection.Visibility = sender.SelectedItem == AppearanceTab ? Visibility.Visible : Visibility.Collapsed;
-        SupportSection.Visibility = sender.SelectedItem == SupportTab ? Visibility.Visible : Visibility.Collapsed;
+        SupportOutcome.Visibility = SupportSection.Visibility = sender.SelectedItem == SupportTab ? Visibility.Visible : Visibility.Collapsed;
         SettingsPanel.ChangeView(null, 0, null, true);
     }
 
@@ -641,13 +657,13 @@ public sealed partial class MainWindow : Window
         titleBar.ForegroundColor = foreground;
         titleBar.InactiveBackgroundColor = background;
         titleBar.InactiveForegroundColor = mutedForeground;
-        titleBar.ButtonBackgroundColor = background;
+        titleBar.ButtonBackgroundColor = Microsoft.UI.Colors.Transparent;
         titleBar.ButtonForegroundColor = foreground;
         titleBar.ButtonHoverBackgroundColor = hoverBackground;
         titleBar.ButtonHoverForegroundColor = foreground;
         titleBar.ButtonPressedBackgroundColor = pressedBackground;
         titleBar.ButtonPressedForegroundColor = foreground;
-        titleBar.ButtonInactiveBackgroundColor = background;
+        titleBar.ButtonInactiveBackgroundColor = Microsoft.UI.Colors.Transparent;
         titleBar.ButtonInactiveForegroundColor = mutedForeground;
     }
 
@@ -745,7 +761,7 @@ public sealed partial class MainWindow : Window
         AudioDeviceComboBox.Items.Clear();
         AudioDeviceComboBox.Visibility = Visibility.Collapsed;
         MicrophoneRecoveryText.Text = message;
-        MicrophoneRecoveryHelp.Text = "Connect a microphone and allow desktop apps to use it.";
+        MicrophoneRecoveryHelp.Text = "Connect a microphone or check access.";
         AudioDeviceComboBox.IsEnabled = false;
         MicrophoneRecoveryPanel.Visibility = Visibility.Visible;
     }
@@ -868,7 +884,7 @@ public sealed partial class MainWindow : Window
             RecordAgainMenuItem.Visibility == Visibility.Visible
             ? Visibility.Visible : Visibility.Collapsed;
         string errorText = FormatErrorText(state);
-        PreviewHeading.Text = state.CanInsertPreview ? $"Insert into {state.TargetDescription}" :
+        PreviewHeading.Text = state.CanInsertPreview ? $"Review text for {state.TargetDescription}" :
             state.CanCopy ? "Recover transcript" : "Dictation needs attention";
         ErrorText.Text = errorText;
         ErrorNotice.Visibility = string.IsNullOrWhiteSpace(errorText)
@@ -1804,7 +1820,7 @@ public sealed partial class MainWindow : Window
             var backend = Enum.Parse<ComputeBackend>((string)item.Tag);
             item.Visibility = backend == ComputeBackend.Auto || available.Contains(backend) ? Visibility.Visible : Visibility.Collapsed;
             item.IsChecked = backend == _modelBackendFilter;
-            if (item.IsChecked) CatalogFilterLabel.Text = backend == ComputeBackend.Auto ? "Filter models" : $"{backend.ToString().ToUpperInvariant()} models";
+            if (item.IsChecked) CatalogFilterLabel.Text = item.Text;
         }
         UpdateComputeButtonGroup(
             [ProcessorAutoButton, ProcessorNpuButton, ProcessorGpuButton, ProcessorCpuButton],
@@ -1957,7 +1973,7 @@ public sealed partial class MainWindow : Window
                 : "Open Settings and choose a dictation shortcut to record while you write.";
         }
         OnboardingKeys.Visibility = gesture is null ? Visibility.Collapsed : Visibility.Visible;
-        ShortcutCaptureDialog.SetKeycaps(OnboardingKeys, gesture ?? string.Empty);
+        ShortcutCaptureDialog.SetKeycaps(OnboardingKeys, gesture ?? string.Empty, emphasize: true);
     }
 
     private void UpdateOnboardingModelState()
@@ -1986,7 +2002,7 @@ public sealed partial class MainWindow : Window
 
             _sidebarModelName = model.DisplayName;
             bool installed = FindInstalledModel(model.Id) is not null;
-            BackendSummaryText.Text = installed ? "Installed" : "Get model";
+            SetModelAvailability(installed);
             HistoryPage.SetModelInstalled(installed);
             ActiveBackendText.Text = readiness.CanProceed
                 ? $"{readiness.Provider?.DisplayName ?? model.ProviderId} / {backend} / {device}"
@@ -1998,7 +2014,7 @@ public sealed partial class MainWindow : Window
         }
         catch (Exception ex)
         {
-            BackendSummaryText.Text = "Unavailable";
+            SetModelAvailability(null);
             ActiveBackendText.Text = "Unavailable";
             BackendReadinessText.Text = DiagnosticTextRedactor.Redact(ex.Message);
             _resolvedBackend = null;
@@ -2071,17 +2087,15 @@ public sealed partial class MainWindow : Window
 
     private void UpdateDiagnostics(DictationRunResult? result)
     {
-        DiagnosticsFields.Visibility = result is null ? Visibility.Collapsed : Visibility.Visible;
+        DiagnosticsExpander.Visibility = DiagnosticsFields.Visibility = result is null ? Visibility.Collapsed : Visibility.Visible;
         if (result is null)
         {
-            DiagnosticsOutcomeText.Style = (Style)Root.Resources["MutedTextStyle"];
-            DiagnosticsOutcomeText.Text = "Finish a dictation, then return here to see its result and where the text went.";
+            DiagnosticsOutcomeText.Text = "Finish a dictation to see its result here.";
             DiagnosticsFields.ItemsSource = null;
             return;
         }
 
         RedactedDiagnosticsSnapshot snapshot = RedactedDiagnosticsSnapshot.FromResult(result);
-        DiagnosticsOutcomeText.Style = (Style)Root.Resources["SectionLabelStyle"];
         DiagnosticsOutcomeText.Text = result.Outcome switch
         {
             DictationRunOutcome.Inserted when result.Inserted => "Text inserted into the target.",
@@ -2279,7 +2293,7 @@ public sealed partial class MainWindow : Window
         }
         HistoryContainer.Visibility = page == "History" ? Visibility.Visible : Visibility.Collapsed;
         ModelsPage.Visibility = isModels ? Visibility.Visible : Visibility.Collapsed;
-        SettingsPanel.Visibility = isSettings ? Visibility.Visible : Visibility.Collapsed;
+        SettingsHost.Visibility = isSettings ? Visibility.Visible : Visibility.Collapsed;
 
         SetNavigationButtonState(ModelsNavButton, isModels);
         SetNavigationButtonState(SettingsNavButton, isSettings);

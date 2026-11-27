@@ -189,7 +189,7 @@ public sealed class FloatingMicWindow : Window
             menu.MenuFlyoutPresenterStyle = _stripMenuStyle;
         }
         AddMenuCommand(menu, "Settings", new SymbolIcon(Symbol.Setting), () => SettingsRequested?.Invoke(this, EventArgs.Empty));
-        AddMenuCommand(menu, "Hide floating bar", new FontIcon { Glyph = "\uED1A" }, () => DismissRequested?.Invoke(this, EventArgs.Empty));
+        AddMenuCommand(menu, "Hide bar", new FontIcon { Glyph = "\uED1A" }, () => DismissRequested?.Invoke(this, EventArgs.Empty));
         menu.ShouldConstrainToRootBounds = false;
         menu.Placement = FlyoutPlacementMode.Top;
         menu.ShowMode = FlyoutShowMode.Transient;
@@ -245,7 +245,8 @@ public sealed class FloatingMicWindow : Window
                 bool fitsLeft = field.Left - monitor.Work.Left >= menuWidth;
                 if (fitsRight || fitsLeft)
                 {
-                    double edge = fitsRight ? (field.Right - bar.X) / scale + 6 : (field.Left - bar.X) / scale - 6;
+                    const double shadowClearance = 16;
+                    double edge = fitsRight ? (field.Right - bar.X) / scale + shadowClearance : (field.Left - bar.X) / scale - shadowClearance;
                     options.Position = new Windows.Foundation.Point(edge, 0);
                     options.Placement = fitsRight ? FlyoutPlacementMode.RightEdgeAlignedBottom : FlyoutPlacementMode.LeftEdgeAlignedBottom;
                 }
@@ -276,7 +277,26 @@ public sealed class FloatingMicWindow : Window
                         options.ExclusionRect = new Windows.Foundation.Rect((left - bar.X) / scale - caretClearance, (top - bar.Y) / scale - caretClearance,
                             Math.Abs(end.X - start.X) / scale + 2 * caretClearance, Math.Abs(end.Y - start.Y) / scale + 2 * caretClearance);
                         bool menuOnRight = (start.X + (long)end.X) / 2 < bar.X + bar.Width / 2;
-                        options.Position = new Windows.Foundation.Point(menuOnRight ? bar.Width / scale + 6 : -6, 0);
+                        double sideSpace = menuOnRight ? monitor.Work.Right - bar.X - bar.Width : bar.X - monitor.Work.Left;
+                        horizontalMenu = sideSpace >= 280 * scale;
+                        double verticalOffset = horizontalMenu ? MenuOffsetAboveControls(input.Caret, bar, menuOnRight, scale) : 0;
+                        if (horizontalMenu && verticalOffset < -HorizontalMenuRowHeight)
+                        {
+                            double otherSpace = menuOnRight ? bar.X - monitor.Work.Left : monitor.Work.Right - bar.X - bar.Width;
+                            // WinUI may align the alternate strip above the bar. Its whole band must clear the caret.
+                            bool otherSideClearsCaret = Math.Max(start.Y, end.Y) + caretClearance * scale <= bar.Y - HorizontalMenuRowHeight * scale
+                                || top - caretClearance * scale >= bar.Y;
+                            if (otherSpace >= 280 * scale && otherSideClearsCaret)
+                            {
+                                double otherOffset = MenuOffsetAboveControls(input.Caret, bar, !menuOnRight, scale);
+                                if (otherOffset > verticalOffset)
+                                {
+                                    menuOnRight = !menuOnRight;
+                                    verticalOffset = otherOffset;
+                                }
+                            }
+                        }
+                        options.Position = new Windows.Foundation.Point(menuOnRight ? bar.Width / scale + 6 : -6, verticalOffset);
                         options.Placement = menuOnRight ? FlyoutPlacementMode.RightEdgeAlignedBottom : FlyoutPlacementMode.LeftEdgeAlignedBottom;
                     }
                 }
@@ -292,6 +312,33 @@ public sealed class FloatingMicWindow : Window
             ConfigureActionsMenu(_actionsMenu);
         }
         _actionsMenu.ShowAt(_root, options);
+    }
+
+    private const double HorizontalMenuRowHeight = 40;
+
+    private static double MenuOffsetAboveControls(IntPtr field, FloatingPillBounds bar, bool right, double scale)
+    {
+        // The horizontal commands sit one row above the bar, on the side away from the caret.
+        // A native editor may overlay that part of the field with a button.
+        const double rowWidth = 240;
+        const double shadowClearance = 16;
+        double offset = -HorizontalMenuRowHeight;
+        double left = right ? bar.X + bar.Width + 6 * scale : bar.X - (rowWidth + 6) * scale;
+        // A left-aligned flyout can extend across the bar when WinUI applies the caret exclusion.
+        double rightEdge = (right ? left : bar.X - 6 * scale) + rowWidth * scale;
+        var parent = Native.GetAncestor(field, 1); // GA_PARENT
+        if (parent == IntPtr.Zero || parent == Native.GetDesktopWindow()) return offset;
+        Native.EnumChildWindows(parent, (child, _) =>
+        {
+            if (child == field || Native.GetAncestor(child, 1) != parent || !Native.IsWindowVisible(child)
+                || !Native.GetWindowRect(child, out var bounds)) return true;
+            bool intersects = bounds.Right > left && bounds.Left < rightEdge &&
+                bounds.Bottom > bar.Y - HorizontalMenuRowHeight * scale && bounds.Top < bar.Y;
+            if (intersects && bounds.Top >= bar.Y - HorizontalMenuRowHeight * scale)
+                offset = Math.Min(offset, (bounds.Top - bar.Y) / scale - HorizontalMenuRowHeight - shadowClearance);
+            return true;
+        }, IntPtr.Zero);
+        return offset;
     }
 
     private void AddMenuCommand(MenuFlyout menu, string label, IconElement icon, Action action)
@@ -597,7 +644,12 @@ public sealed class FloatingMicWindow : Window
     {
         var content = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 6, VerticalAlignment = VerticalAlignment.Center };
         if (glyph is not null) content.Children.Add(new FontIcon { Glyph = glyph, FontFamily = new FontFamily("Segoe Fluent Icons"), FontSize = 13 });
-        if (label is not null) content.Children.Add(StateLabel(label));
+        if (label is not null)
+        {
+            var caption = StateLabel(label);
+            if (primary) caption.Foreground = new SolidColorBrush(Windows.UI.Color.FromArgb(255, 43, 30, 20));
+            content.Children.Add(caption);
+        }
         var button = new Button
         {
             Width = label is null ? 28 : double.NaN,
@@ -606,11 +658,16 @@ public sealed class FloatingMicWindow : Window
             MinHeight = 0,
             Padding = new Thickness(label is null ? 0 : 7, 0, label is null ? 0 : 7, 0),
             CornerRadius = new CornerRadius(15),
-            Background = new SolidColorBrush(primary ? Windows.UI.Color.FromArgb(255, 106, 64, 35) : Windows.UI.Color.FromArgb(255, 58, 52, 47)),
+            Background = new SolidColorBrush(primary ? Windows.UI.Color.FromArgb(255, 246, 163, 98) : Windows.UI.Color.FromArgb(255, 58, 52, 47)),
             BorderThickness = new Thickness(0),
             Foreground = new SolidColorBrush(Microsoft.UI.Colors.White),
             Content = content
         };
+        if (primary)
+        {
+            button.Resources["ButtonBackgroundPointerOver"] = new SolidColorBrush(Windows.UI.Color.FromArgb(255, 255, 182, 123));
+            button.Resources["ButtonBackgroundPressed"] = new SolidColorBrush(Windows.UI.Color.FromArgb(255, 226, 145, 84));
+        }
         AutomationProperties.SetName(button, name);
         SetHint(button, name);
         button.Click += (_, _) => action();
@@ -688,6 +745,10 @@ public sealed class FloatingMicWindow : Window
         [DllImport("user32.dll")] public static extern bool UnregisterHotKey(IntPtr hwnd, int id);
         [DllImport("user32.dll")][return: MarshalAs(UnmanagedType.Bool)] public static extern bool GetCursorPos(out Point point);
         [DllImport("user32.dll")] public static extern IntPtr WindowFromPoint(Point point);
+        public delegate bool EnumWindowCallback(IntPtr window, IntPtr parameter);
+        [DllImport("user32.dll")] public static extern bool EnumChildWindows(IntPtr parent, EnumWindowCallback callback, IntPtr parameter);
+        [DllImport("user32.dll")] public static extern bool IsWindowVisible(IntPtr window);
+        [DllImport("user32.dll")] public static extern IntPtr GetDesktopWindow();
         [DllImport("user32.dll")] public static extern IntPtr GetAncestor(IntPtr hwnd, uint flags);
         [DllImport("user32.dll", EntryPoint = "GetWindowLongPtrW")] public static extern nint GetWindowLongPtr(IntPtr hwnd, int index);
         [DllImport("user32.dll", EntryPoint = "SetWindowLongPtrW")] public static extern nint SetWindowLongPtr(IntPtr hwnd, int index, nint value);

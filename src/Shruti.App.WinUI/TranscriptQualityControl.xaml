@@ -22,6 +22,32 @@
                 </ResourceDictionary>
                 <ResourceDictionary x:Key="HighContrast" />
             </ResourceDictionary.ThemeDictionaries>
+            <DataTemplate x:Key="CleanupBenchmark">
+                <StackPanel Spacing="12">
+                    <TextBlock Text="An exact match means the output matched the expected transcript. Of 3,000 synthetic English inputs, 35 already matched before cleanup." TextWrapping="Wrap" Foreground="{ThemeResource ShrutiTextSecondaryBrush}" />
+                    <Grid RowSpacing="10" ColumnSpacing="16">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="1.2*" />
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="*" />
+                        </Grid.ColumnDefinitions>
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" />
+                        </Grid.RowDefinitions>
+                        <TextBlock Text="Model" FontWeight="SemiBold" VerticalAlignment="Bottom" />
+                        <TextBlock Grid.Column="1" Text="Exact matches" TextWrapping="Wrap" TextAlignment="Right" FontWeight="SemiBold" VerticalAlignment="Bottom" />
+                        <TextBlock Grid.Column="2" Text="Kept unchanged" TextWrapping="Wrap" TextAlignment="Right" FontWeight="SemiBold" VerticalAlignment="Bottom" />
+                        <TextBlock Grid.Row="1" Text="Qwen3.5-2B" TextWrapping="Wrap" />
+                        <TextBlock Grid.Row="1" Grid.Column="1" Text="76 / 3,000" HorizontalAlignment="Right" />
+                        <TextBlock Grid.Row="1" Grid.Column="2" Text="33 / 35" HorizontalAlignment="Right" />
+                        <TextBlock Grid.Row="2" Text="Utter Mini 1B" TextWrapping="Wrap" />
+                        <TextBlock Grid.Row="2" Grid.Column="1" Text="241 / 3,000" HorizontalAlignment="Right" />
+                        <TextBlock Grid.Row="2" Grid.Column="2" Text="27 / 35" HorizontalAlignment="Right" />
+                    </Grid>
+                </StackPanel>
+            </DataTemplate>
         </ResourceDictionary>
     </UserControl.Resources>
     <StackPanel Spacing="10">
@@ -36,17 +62,10 @@
         </Border>
         <TextBlock Margin="0,12,0,0" Text="Optional cleanup models" FontSize="16" FontWeight="SemiBold" />
         <TextBlock x:Name="ModelGuidance" Text="An optional model adds an editing pass after transcription." Foreground="{ThemeResource ShrutiTextSecondaryBrush}" TextWrapping="Wrap" />
-        <TextBlock Text="In a synthetic English test, Utter matched more reference texts. Qwen preserved more inputs that were already correct." TextWrapping="Wrap" />
-        <Expander x:Name="BenchmarkDetails" Header="Synthetic test results" HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch">
-            <StackPanel Spacing="4">
-                <TextBlock FontWeight="SemiBold" Text="In a test of 3,000 synthetic English dictations" TextWrapping="Wrap" />
-                <TextBlock Text="Utter matched the reference exactly 241 times. Qwen matched it 76 times." TextWrapping="Wrap" />
-                <TextBlock Text="Qwen left 33 of the 35 already-correct inputs unchanged. Utter left 27 unchanged." TextWrapping="Wrap" />
-            </StackPanel>
-        </Expander>
         <Border Background="{ThemeResource ShrutiCardBrush}" BorderBrush="{ThemeResource ShrutiBorderSubtleBrush}" BorderThickness="1" CornerRadius="12">
             <StackPanel x:Name="Models" />
         </Border>
+        <HyperlinkButton x:Name="BenchmarkDetails" Content="Compare cleanup models" Click="CompareModels_Click" Padding="0" />
         <TextBlock Text="Compare the edits with your original in Transcriptions." FontSize="13" Foreground="{ThemeResource ShrutiTextSecondaryBrush}" TextWrapping="Wrap" />
         <ProgressBar x:Name="DownloadProgress" Height="4" IsIndeterminate="True" Visibility="Collapsed" />
         <TextBlock x:Name="MessageText" AutomationProperties.LiveSetting="Polite" TextWrapping="Wrap" />

@@ -155,7 +155,7 @@ public sealed class Win32TrayIconApi(WindowsTargetFocusService? focusService = n
             ShowCheckMargin = false,
             Font = SystemFonts.MenuFont
         };
-        int iconSize = menu.LogicalToDeviceUnits(18);
+        int iconSize = Math.Min(menu.LogicalToDeviceUnits(16), menu.Font?.Height ?? menu.LogicalToDeviceUnits(16));
         menu.ImageScalingSize = new Size(iconSize, iconSize);
         menu.HandleCreated += (_, _) =>
         {
@@ -260,7 +260,7 @@ public sealed class Win32TrayIconApi(WindowsTargetFocusService? focusService = n
             int inset = menu.LogicalToDeviceUnits(4);
             bool rtl = menu.RightToLeft == RightToLeft.Yes;
             int width = rtl ? e.Item.Width - e.TextRectangle.Right : e.TextRectangle.Left;
-            int size = Math.Min(menu.LogicalToDeviceUnits(18), width - 2 * inset);
+            int size = Math.Min(menu.ImageScalingSize.Width, width - 2 * inset);
             if (size < 1) return;
             int left = rtl ? e.Item.Width - inset - size : inset;
             var bounds = new Rectangle(left, e.TextRectangle.Top, size, e.TextRectangle.Height);

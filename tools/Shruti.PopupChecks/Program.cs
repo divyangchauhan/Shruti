@@ -91,7 +91,7 @@ public sealed partial class CheckApp : Application
                     root.Children.Add(button);
                     await Task.Delay(100);
                     var menu = Shruti.App.WinUI.PopupAppearance.CreateMenuFlyout();
-                    foreach (string label in name == "HistoryMenu" ? new[] { "View transcript", "Delete" } : new[] { "Settings", "Hide floating bar" })
+                    foreach (string label in name == "HistoryMenu" ? new[] { "View transcript", "Delete" } : new[] { "Settings", "Hide bar" })
                         menu.Items.Add(new MenuFlyoutItem
                         {
                             Text = label,
