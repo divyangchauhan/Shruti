@@ -114,6 +114,7 @@ public sealed class JsonSettingsRepositoryTests : IDisposable
             SelectedModelId = "whisper-base-en",
             InsertionMode = DictationInsertionMode.PreviewFirst,
             ThemePreference = AppThemePreference.Dark,
+            DictateOnTrayLeftClick = true,
             AudioRetentionPolicy = AudioRetentionPolicy.Keep,
             BackendPreference = ComputeBackend.Cpu,
             HasCompletedOnboarding = true,
@@ -177,6 +178,7 @@ public sealed class JsonSettingsRepositoryTests : IDisposable
         ShrutiSettings settings = await repository.LoadAsync(CancellationToken.None);
 
         Assert.Equal(ShrutiSettings.Default.ThemePreference, settings.ThemePreference);
+        Assert.False(settings.DictateOnTrayLeftClick);
         Assert.Equal(ShrutiSettings.Default.SelectedModelId, settings.SelectedModelId);
         Assert.Equal(ShrutiSettings.Default.BackendPreference, settings.BackendPreference);
         Assert.Equal(ShrutiSettings.Default.TriggerConfiguration, settings.TriggerConfiguration);

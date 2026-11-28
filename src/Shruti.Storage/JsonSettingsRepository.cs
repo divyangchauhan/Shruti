@@ -124,6 +124,7 @@ public sealed class JsonSettingsRepository : ISettingsRepository
                 ? settings.BackendPreference
                 : ShrutiSettings.Default.BackendPreference,
             HasCompletedOnboarding = settings.HasCompletedOnboarding,
+            DictateOnTrayLeftClick = settings.DictateOnTrayLeftClick,
             ShowFloatingBar = settings.ShowFloatingBar,
             ShowFloatingBarOnAllMonitors = settings.ShowFloatingBarOnAllMonitors,
             FloatingBarMonitorId = string.IsNullOrWhiteSpace(settings.FloatingBarMonitorId) ? null : settings.FloatingBarMonitorId,

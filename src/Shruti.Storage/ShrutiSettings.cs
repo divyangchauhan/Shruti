@@ -27,6 +27,8 @@ public sealed record ShrutiSettings
 
     public bool HasCompletedOnboarding { get; init; }
 
+    public bool DictateOnTrayLeftClick { get; init; }
+
     public bool ShowFloatingBar { get; init; } = true;
 
     public bool ShowFloatingBarOnAllMonitors { get; init; }

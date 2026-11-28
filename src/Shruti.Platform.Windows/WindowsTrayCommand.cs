@@ -8,5 +8,6 @@ public enum WindowsTrayCommand
     Stop,
     Cancel,
     ShowSettings,
-    Quit
+    Quit,
+    LeftClick
 }

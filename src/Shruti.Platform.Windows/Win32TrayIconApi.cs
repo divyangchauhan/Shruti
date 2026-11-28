@@ -113,7 +113,6 @@ public sealed class Win32TrayIconApi(WindowsTargetFocusService? focusService = n
         {
             _notifyIcon.Visible = false;
             _notifyIcon.MouseClick -= NotifyIcon_MouseClick;
-            _notifyIcon.MouseDoubleClick -= NotifyIcon_MouseDoubleClick;
             _notifyIcon.Dispose();
             _notifyIcon = null;
         }
@@ -145,7 +144,6 @@ public sealed class Win32TrayIconApi(WindowsTargetFocusService? focusService = n
             Text = "Shruti - Ready"
         };
         _notifyIcon.MouseClick += NotifyIcon_MouseClick;
-        _notifyIcon.MouseDoubleClick += NotifyIcon_MouseDoubleClick;
     }
 
     private ContextMenuStrip CreateMenu()
@@ -356,17 +354,7 @@ public sealed class Win32TrayIconApi(WindowsTargetFocusService? focusService = n
     {
         if (e.Button == MouseButtons.Left)
         {
-            RaiseCommand(_areDictationCommandsEnabled
-                ? WindowsTrayCommand.Toggle
-                : WindowsTrayCommand.ShowWindow);
-        }
-    }
-
-    private void NotifyIcon_MouseDoubleClick(object? sender, MouseEventArgs e)
-    {
-        if (e.Button == MouseButtons.Left)
-        {
-            RaiseCommand(WindowsTrayCommand.ShowSettings);
+            RaiseCommand(WindowsTrayCommand.LeftClick);
         }
     }
 
