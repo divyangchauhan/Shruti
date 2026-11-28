@@ -17,6 +17,7 @@ public sealed class WindowsTrayIconService : IDisposable
     private bool _isDictationRunning;
     private bool _areDictationCommandsEnabled = true;
     private bool _isDisposed;
+    private bool _ignoreDoubleClickRelease;
 
     public WindowsTrayIconService(IWindowsTrayIconApi? api = null, WindowsTargetFocusService? focusService = null)
     {
@@ -26,6 +27,8 @@ public sealed class WindowsTrayIconService : IDisposable
     }
 
     public event Action<WindowsTrayCommand>? CommandInvoked;
+
+    public bool DictateOnLeftClick { get; set; }
 
     public void SetDarkTheme(bool darkTheme) => _api.SetDarkTheme(darkTheme);
 
@@ -110,17 +113,17 @@ public sealed class WindowsTrayIconService : IDisposable
         }
 
         uint eventMessage = unchecked((uint)message.LParam.ToInt64());
-        if (eventMessage == LeftButtonUp)
+        if (eventMessage == LeftButtonDoubleClick)
         {
-            CommandInvoked?.Invoke(_areDictationCommandsEnabled
-                ? WindowsTrayCommand.Toggle
-                : WindowsTrayCommand.ShowWindow);
+            // The first button release already invoked the action.
+            _ignoreDoubleClickRelease = true;
             return true;
         }
 
-        if (eventMessage == LeftButtonDoubleClick)
+        if (eventMessage == LeftButtonUp)
         {
-            CommandInvoked?.Invoke(WindowsTrayCommand.ShowSettings);
+            if (!_ignoreDoubleClickRelease) Api_CommandInvoked(WindowsTrayCommand.LeftClick);
+            _ignoreDoubleClickRelease = false;
             return true;
         }
 
@@ -171,6 +174,11 @@ public sealed class WindowsTrayIconService : IDisposable
 
     private void Api_CommandInvoked(WindowsTrayCommand command)
     {
+        if (command == WindowsTrayCommand.LeftClick)
+        {
+            command = DictateOnLeftClick ? WindowsTrayCommand.Toggle : WindowsTrayCommand.ShowSettings;
+        }
+
         CommandInvoked?.Invoke(command);
     }
 

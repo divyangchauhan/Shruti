@@ -924,6 +924,13 @@ public sealed partial class MainWindow : Window
         await PersistSettingsAsync();
     }
 
+    private async void TrayLeftClickComboBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (!_settingsLoaded || _isApplyingSettings) return;
+        _trayIconService.DictateOnLeftClick = TrayLeftClickComboBox.SelectedIndex == 1;
+        await PersistSettingsAsync();
+    }
+
     private async void OpenRecordingsFolder_Click(object sender, RoutedEventArgs e)
     {
         try
@@ -951,18 +958,18 @@ public sealed partial class MainWindow : Window
             _settings.ShowFloatingBarOnAllMonitors, _settings.FloatingBarMonitorId);
     }
 
-    private void PlacementLayout_SizeChanged(object sender, SizeChangedEventArgs args)
+    private void SettingsSelectorRow_SizeChanged(object sender, SizeChangedEventArgs args)
     {
         bool stack = args.NewSize.Width < 360;
-        bool modeRow = ReferenceEquals(sender, PlacementModeRow);
-        ComboBox selector = modeRow ? FloatingBarDisplayModeComboBox : FloatingBarMonitorComboBox;
-        Grid.SetColumnSpan(modeRow ? PlacementModeLabel : PlacementMonitorLabel, stack ? 2 : 1);
+        var row = (Grid)sender;
+        var selector = row.Children.OfType<ComboBox>().Single();
+        Grid.SetColumnSpan(row.Children.OfType<StackPanel>().Single(), stack ? 2 : 1);
         Grid.SetColumn(selector, stack ? 1 : 2);
         Grid.SetColumnSpan(selector, stack ? 2 : 1);
         Grid.SetRow(selector, stack ? 1 : 0);
         selector.Width = stack ? double.NaN : 178;
         selector.HorizontalAlignment = stack ? HorizontalAlignment.Stretch : HorizontalAlignment.Right;
-        ((Grid)sender).RowSpacing = stack ? 5 : 0;
+        row.RowSpacing = stack ? 5 : 0;
     }
 
     private void UpdateBarPlacementVisibility()
@@ -1705,6 +1712,8 @@ public sealed partial class MainWindow : Window
 
     private void ApplySettingsToControls(ShrutiSettings settings)
     {
+        TrayLeftClickComboBox.SelectedIndex = settings.DictateOnTrayLeftClick ? 1 : 0;
+        _trayIconService.DictateOnLeftClick = settings.DictateOnTrayLeftClick;
         FloatingBarCheckBox.IsOn = settings.ShowFloatingBar;
         RefreshFloatingMonitorControls();
         SelectComboBoxItem(InsertionModeComboBox, settings.InsertionMode.ToString());
@@ -1753,6 +1762,7 @@ public sealed partial class MainWindow : Window
                 AudioRetentionPolicy = SaveAudioSwitch.IsOn ? AudioRetentionPolicy.Keep : AudioRetentionPolicy.DeleteAfterTranscription,
                 BackendPreference = backendPreference,
                 HasCompletedOnboarding = _settings.HasCompletedOnboarding,
+                DictateOnTrayLeftClick = _trayIconService.DictateOnLeftClick,
                 ShowFloatingBar = FloatingBarCheckBox.IsOn,
                 ShowFloatingBarOnAllMonitors = FloatingBarDisplayModeComboBox.SelectedIndex == 1,
                 FloatingBarMonitorId = (FloatingBarMonitorComboBox.SelectedItem as ComboBoxItem)?.Tag is string monitorId && monitorId.Length > 0 ? monitorId : null,
@@ -2186,13 +2196,9 @@ public sealed partial class MainWindow : Window
                 break;
 
             case WindowsTrayCommand.Toggle:
-                if (_triggerService.Configuration.EnableTrayMenu)
+                if (!_isEditingShortcut)
                 {
-                    await RaiseTriggerAsync(DictationTriggerKind.TrayMenu, "tray-menu");
-                }
-                else
-                {
-                    ShowMainWindow();
+                    await RaiseTriggerAsync(DictationTriggerKind.TrayMenu, "tray-left-click");
                 }
 
                 break;

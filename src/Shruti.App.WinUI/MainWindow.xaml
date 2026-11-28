@@ -613,7 +613,7 @@
                                     </Grid>
                                     <StackPanel x:Name="BarPlacementSettings">
                                         <Border Height="1" Background="{ThemeResource ShrutiBorderSubtleBrush}" />
-                                        <Grid x:Name="PlacementModeRow" Padding="0,7" ColumnSpacing="10" SizeChanged="PlacementLayout_SizeChanged">
+                                        <Grid x:Name="PlacementModeRow" Padding="0,7" ColumnSpacing="10" SizeChanged="SettingsSelectorRow_SizeChanged">
                                             <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
                                             <Grid.ColumnDefinitions>
                                                 <ColumnDefinition Width="32" />
@@ -631,7 +631,7 @@
                                         </Grid>
                                         <StackPanel x:Name="SingleMonitorSettings">
                                             <Border Height="1" Background="{ThemeResource ShrutiBorderSubtleBrush}" />
-                                            <Grid x:Name="PlacementMonitorRow" Padding="0,7" ColumnSpacing="10" SizeChanged="PlacementLayout_SizeChanged">
+                                            <Grid x:Name="PlacementMonitorRow" Padding="0,7" ColumnSpacing="10" SizeChanged="SettingsSelectorRow_SizeChanged">
                                                 <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
                                                 <Grid.ColumnDefinitions>
                                                     <ColumnDefinition Width="32" />
@@ -656,9 +656,28 @@
                                         </Grid.ColumnDefinitions>
                                         <FontIcon VerticalAlignment="Center" FontSize="18" FontFamily="Segoe Fluent Icons" Foreground="{ThemeResource ShrutiTextSecondaryBrush}" Glyph="&#xE700;" />
                                         <StackPanel Grid.Column="1" VerticalAlignment="Center" Spacing="3">
-                                            <TextBlock FontWeight="SemiBold" Text="Dictation commands in tray" TextWrapping="Wrap" />
+                                            <TextBlock FontWeight="SemiBold" Text="Dictation commands in right-click menu" TextWrapping="Wrap" />
                                         </StackPanel>
                                         <ToggleSwitch Grid.Column="2" VerticalAlignment="Center" x:Name="TrayMenuCheckBox" AutomationProperties.Name="Tray menu commands" MinWidth="0" OnContent="On" OffContent="Off" IsOn="True" Toggled="TriggerConfigurationToggle_Toggled" />
+                                    </Grid>
+                                    <Border Height="1" Background="{ThemeResource ShrutiBorderSubtleBrush}" />
+                                    <Grid Padding="0,7" ColumnSpacing="10" SizeChanged="SettingsSelectorRow_SizeChanged">
+                                        <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="32" />
+                                            <ColumnDefinition Width="*" />
+                                            <ColumnDefinition Width="Auto" />
+                                        </Grid.ColumnDefinitions>
+                                        <FontIcon VerticalAlignment="Center" FontSize="18" FontFamily="Segoe Fluent Icons" Foreground="{ThemeResource ShrutiTextSecondaryBrush}" Glyph="&#xE962;" />
+                                        <StackPanel Grid.Column="1" VerticalAlignment="Center">
+                                            <TextBlock x:Name="TrayLeftClickLabel" FontWeight="SemiBold" Text="Tray icon left-click" TextWrapping="Wrap" />
+                                        </StackPanel>
+                                        <ComboBox x:Name="TrayLeftClickComboBox" Grid.Column="2" CornerRadius="6" Width="178"
+                                                  AutomationProperties.LabeledBy="{Binding ElementName=TrayLeftClickLabel}" SelectedIndex="0"
+                                                  SelectionChanged="TrayLeftClickComboBox_SelectionChanged">
+                                            <ComboBoxItem Content="Open Settings" />
+                                            <ComboBoxItem Content="Start or stop dictation" />
+                                        </ComboBox>
                                     </Grid>
                                 </StackPanel>
                             </Border>

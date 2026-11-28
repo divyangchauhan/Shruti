@@ -8,7 +8,7 @@ public sealed class WindowsTrayIconServiceTests
     [Fact]
     public void TrayIcon_HandlesClickAndMenuCommands()
     {
-        var api = new FakeTrayIconApi { MenuCommand = WindowsTrayCommand.Cancel };
+        var api = new FakeTrayIconApi { MenuCommand = WindowsTrayCommand.Start };
         using var service = new WindowsTrayIconService(api);
         var commands = new List<WindowsTrayCommand>();
         service.CommandInvoked += commands.Add;
@@ -29,8 +29,45 @@ public sealed class WindowsTrayIconServiceTests
         Assert.True(rightClickHandled);
         Assert.Equal(1, api.AddCount);
         Assert.Equal(
-            new[] { WindowsTrayCommand.Toggle, WindowsTrayCommand.Cancel },
+            new[] { WindowsTrayCommand.ShowSettings, WindowsTrayCommand.Start },
             commands);
+    }
+
+    [Fact]
+    public void TrayIcon_UsesCurrentLeftClickPreferenceIndependentlyOfMenuCommands()
+    {
+        var api = new FakeTrayIconApi();
+        using var service = new WindowsTrayIconService(api);
+        var commands = new List<WindowsTrayCommand>();
+        service.CommandInvoked += commands.Add;
+        service.SetDictationCommandsEnabled(false);
+
+        api.RaiseCommand(WindowsTrayCommand.LeftClick);
+        service.DictateOnLeftClick = true;
+        api.RaiseCommand(WindowsTrayCommand.LeftClick);
+        api.RaiseCommand(WindowsTrayCommand.ShowSettings);
+        service.DictateOnLeftClick = false;
+        api.RaiseCommand(WindowsTrayCommand.LeftClick);
+
+        Assert.Equal(new[] { WindowsTrayCommand.ShowSettings, WindowsTrayCommand.Toggle,
+            WindowsTrayCommand.ShowSettings, WindowsTrayCommand.ShowSettings }, commands);
+    }
+
+    [Fact]
+    public void TrayIcon_DoubleClickInvokesConfiguredActionOnce()
+    {
+        using var service = new WindowsTrayIconService(new FakeTrayIconApi()) { DictateOnLeftClick = true };
+        var commands = new List<WindowsTrayCommand>();
+        service.CommandInvoked += commands.Add;
+
+        // Windows sends button-up, double-click and button-up for one double-click.
+        foreach (int notification in new[] { 0x0202, 0x0203, 0x0202 })
+        {
+            Assert.True(service.HandleWindowMessage(new WindowsWindowMessage(
+                WindowsTrayIconService.CallbackWindowMessage, (IntPtr)1, (IntPtr)notification)));
+        }
+
+        Assert.Equal(new[] { WindowsTrayCommand.Toggle }, commands);
     }
 
     [Fact]
@@ -101,8 +138,11 @@ public sealed class WindowsTrayIconServiceTests
         Assert.Equal(2, api.RemoveCount);
     }
 
-    [Fact]
-    public void TrayIcon_LeftClickShowsWindowWhenDictationCommandsAreDisabled()
+    [Theory]
+    [InlineData(true, true)]
+    [InlineData(false, false)]
+    [InlineData(false, true)]
+    public void TrayIcon_LeftClickShowsSettings(bool commandsEnabled, bool dictationRunning)
     {
         var api = new FakeTrayIconApi();
         using var service = new WindowsTrayIconService(api);
@@ -111,7 +151,8 @@ public sealed class WindowsTrayIconServiceTests
 
         service.AttachWindow((IntPtr)42);
         service.SetVisible(isVisible: true);
-        service.SetDictationCommandsEnabled(isEnabled: false);
+        service.SetDictationCommandsEnabled(commandsEnabled);
+        service.UpdateDictationState(dictationRunning);
 
         bool handled = service.HandleWindowMessage(new WindowsWindowMessage(
             WindowsTrayIconService.CallbackWindowMessage,
@@ -119,7 +160,7 @@ public sealed class WindowsTrayIconServiceTests
             (IntPtr)0x0202));
 
         Assert.True(handled);
-        Assert.Equal(new[] { WindowsTrayCommand.ShowWindow }, commands);
+        Assert.Equal(new[] { WindowsTrayCommand.ShowSettings }, commands);
     }
 
     [Fact]
